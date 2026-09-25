@@ -9,55 +9,21 @@
         </div>
         <p class="release-note">{{release_summary}}</p>
     </div>
-    <section class="demo" id="product-demo" aria-labelledby="demo-title" aria-describedby="demo-disclosure" data-state="idle" data-playback="paused">
-        <div class="demo-heading">
-            <h2 id="demo-title">A thought in motion</h2>
-            <span class="demo-badge">Interactive demo</span>
-        </div>
-        <div class="demo-stage">
-            <div class="demo-stage-heading"><span>QUICK RECORD</span><span id="demo-counter" aria-hidden="true">01 / 05</span></div>
-            <div class="demo-surface">
-            <div class="demo-panel" id="demo-panel">
-                <div class="demo-draft" role="textbox" aria-label="Example draft" aria-readonly="true" tabindex="0" id="demo-draft">
-                    <span id="demo-text"></span><span class="demo-placeholder" id="demo-placeholder">What would you like to do?</span><span class="demo-cursor" aria-hidden="true"></span>
-                </div>
-                <div class="demo-action-row">
-                    <span class="demo-confirmation" id="demo-confirmation" aria-hidden="true"></span>
-                    <button class="demo-confirm" id="demo-confirm" type="button" disabled aria-label="Confirm the Action in this demo">
-                        <span id="demo-action-title">Save to Notes</span><kbd aria-hidden="true">↵</kbd>
-                    </button>
-                </div>
+    <div class="demo" id="product-demo" role="group" tabindex="0" aria-label="Animated quick record panel" aria-describedby="demo-description" data-state="idle" data-playback="paused">
+        <div class="demo-panel" id="demo-panel">
+            <div class="demo-draft">
+                <span id="demo-text"></span><span class="demo-placeholder" id="demo-placeholder">What would you like to do?</span><span class="demo-cursor" aria-hidden="true"></span>
             </div>
-            <div class="demo-outcome" id="demo-outcome" hidden>
-                <span class="outcome-check" aria-hidden="true">✓</span>
-                <div><p class="outcome-label">Example outcome</p><h3 id="demo-outcome-title">Handed to Apple Notes</h3><p id="demo-outcome-text"></p></div>
-            </div>
-            </div>
-            <p class="demo-status" id="demo-status" role="status" aria-live="polite" aria-atomic="true">Open the quick record panel with your shortcut.</p>
-            <ol class="demo-progress" aria-label="Demo sequence">
-                <li data-step="idle" aria-current="step"><span>1</span>Open</li>
-                <li data-step="typing"><span>2</span>Type</li>
-                <li data-step="suggesting"><span>3</span>Check</li>
-                <li data-step="confirmed"><span>4</span>Confirm</li>
-                <li data-step="completed"><span>5</span>Done</li>
-            </ol>
-        </div>
-        <div class="demo-controls" id="demo-controls" hidden>
-            <div class="demo-examples" role="group" aria-label="Choose an example Action">
-                <button type="button" data-action="notes" aria-pressed="true">Notes</button>
-                <button type="button" data-action="reminders" aria-pressed="false">Reminders</button>
-                <button type="button" data-action="calendar" aria-pressed="false">Calendar</button>
-                <button type="button" data-action="chrome" aria-pressed="false">Chrome</button>
-            </div>
-            <div class="demo-playback">
-                <button id="demo-replay" type="button" aria-label="Replay demo"><span aria-hidden="true">↻</span> Replay</button>
-                <button id="demo-play" type="button" aria-label="Play demo"><span id="demo-play-icon" aria-hidden="true">▶</span> <span id="demo-play-label">Play</span></button>
-                <span class="motion-note" id="demo-motion-note" hidden>Reduced motion: the outcome appears immediately.</span>
+            <div class="demo-action-row">
+                <button class="demo-confirm" id="demo-confirm" type="button" disabled aria-label="Confirm the example Action">
+                    <span id="demo-action-title">Save to Notes</span><span class="demo-return" aria-hidden="true">↵</span>
+                </button>
             </div>
         </div>
-        <p class="demo-disclosure" id="demo-disclosure">Sample text, simulated handoff. This demo never opens apps or sends data.</p>
-        <noscript><p class="demo-disclosure">Enable JavaScript to play the demo. The steps below explain the same flow.</p></noscript>
-    </section>
+        <canvas class="demo-wind" id="demo-wind" aria-hidden="true" hidden></canvas>
+        <p class="visually-hidden" id="demo-description">Simulated typing and confirmation, followed by the panel drifting away. No apps open and no data is sent. Click the panel or press Space to pause or resume; Enter confirms the suggested Action. With reduced motion, a static example is shown.</p>
+        <p class="visually-hidden" id="demo-status" role="status" aria-live="polite"></p>
+    </div>
 </section>
 <section class="workflow section wrap" id="workflow" aria-labelledby="workflow-title">
     <div class="section-heading"><p class="eyebrow">Fewer switches. More follow-through.</p><h2 id="workflow-title">From a thought to its next step.</h2><p>No need to open an app and find a place to type first.</p></div>

@@ -2,184 +2,232 @@
 
 const demo = document.querySelector('#product-demo');
 if (demo) {
-    const examples = {
-        notes: {
-            text: 'Save to notes: a quiet weekend in Kyoto',
-            action: 'Save to Notes', destination: 'Apple Notes',
-        },
-        reminders: {
-            text: 'Remind me to send the design draft',
-            action: 'Save to Reminders', destination: 'Apple Reminders',
-        },
-        calendar: {
-            text: 'Add to calendar: design discussion',
-            action: 'Save to Calendar', destination: 'Apple Calendar',
-        },
-        chrome: {
-            text: 'Google search macOS keyboard shortcuts',
-            action: 'Google Search', destination: 'Chrome',
-        },
-    };
-    const sequence = ['idle', 'typing', 'suggesting', 'confirmed', 'completed'];
-    const delays = { idle: 1000, typing: 48, suggesting: 3200, confirmed: 950 };
+    const examples = [
+        { text: 'notes: a quiet weekend in Kyoto', action: 'Save to Notes' },
+        { text: 'remind me to send the design draft', action: 'Save to Reminders' },
+        { text: 'search macOS keyboard shortcuts', action: 'Google Search' },
+        { text: 'add to calendar: design discussion', action: 'Save to Calendar' },
+        { text: 'notes: an idea for my next side project', action: 'Save to Notes' },
+        { text: 'remind me to water the plants', action: 'Save to Reminders' },
+        { text: 'search quiet cafes in Kyoto', action: 'Google Search' },
+    ];
     const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const panel = demo.querySelector('#demo-panel');
     const text = demo.querySelector('#demo-text');
-    const draft = demo.querySelector('#demo-draft');
     const placeholder = demo.querySelector('#demo-placeholder');
     const confirm = demo.querySelector('#demo-confirm');
-    const confirmation = demo.querySelector('#demo-confirmation');
     const actionTitle = demo.querySelector('#demo-action-title');
     const status = demo.querySelector('#demo-status');
-    const counter = demo.querySelector('#demo-counter');
-    const outcome = demo.querySelector('#demo-outcome');
-    const outcomeTitle = demo.querySelector('#demo-outcome-title');
-    const outcomeText = demo.querySelector('#demo-outcome-text');
-    const play = demo.querySelector('#demo-play');
-    const playLabel = demo.querySelector('#demo-play-label');
-    const playIcon = demo.querySelector('#demo-play-icon');
-    const replay = demo.querySelector('#demo-replay');
-    const chips = demo.querySelectorAll('[data-action]');
-    const steps = demo.querySelectorAll('[data-step]');
-    const motionNote = demo.querySelector('#demo-motion-note');
-    let selected = 'notes';
-    let state = 'idle';
-    let characters = 0;
-    let paused = document.hidden;
-    let timer = null;
-    let deadline = 0;
-    let remaining = null;
-
-    function cancelTimer() {
-        window.clearTimeout(timer);
-        timer = null;
-    }
+    const canvas = demo.querySelector('#demo-wind');
+    const context = canvas.getContext('2d');
+    const clamp = value => Math.max(0, Math.min(1, value));
+    const smooth = value => { const t = clamp(value); return t * t * (3 - 2 * t); };
+    let selected = 0;
+    let state = motion.matches ? 'suggesting' : 'idle';
+    let elapsed = 0;
+    let frameID = 0;
+    let lastFrame = null;
+    let paused = false;
+    let inView = true;
+    let snapshot = null;
 
     function render() {
         const example = examples[selected];
-        const completed = state === 'completed';
-        const restoreFocus = (state === 'confirmed' || completed)
-            && demo.querySelector('#demo-panel').contains(document.activeElement);
-        const running = !paused && !completed && !motion.matches;
         demo.dataset.state = state;
-        demo.dataset.playback = running ? 'playing' : 'paused';
-        demo.dataset.action = selected;
-        text.textContent = state === 'idle' || completed ? '' : example.text.slice(0, characters);
-        placeholder.hidden = state !== 'idle' && !completed;
-        draft.tabIndex = completed ? -1 : 0;
-        draft.setAttribute('aria-hidden', String(completed));
+        panel.setAttribute('aria-hidden', String(state === 'dissolving' || state === 'completed'));
+        text.textContent = state === 'idle' ? '' : state === 'typing'
+            ? example.text.slice(0, Math.floor(elapsed / 48)) : example.text;
+        placeholder.hidden = state !== 'idle';
         actionTitle.textContent = example.action;
         confirm.disabled = state !== 'suggesting';
-        confirmation.textContent = state === 'confirmed' ? 'Example: Enter ↵' : '';
-        outcome.hidden = !completed;
-        outcomeTitle.textContent = `Handed to ${example.destination}`;
-        outcomeText.textContent = example.text;
-        counter.textContent = `0${sequence.indexOf(state) + 1} / 05`;
-        playLabel.textContent = running ? 'Pause' : 'Play';
-        playIcon.textContent = running ? 'Ⅱ' : '▶';
-        play.setAttribute('aria-label', running ? 'Pause demo' : 'Play demo');
-        motionNote.hidden = !motion.matches;
-        for (const chip of chips) {
-            chip.setAttribute('aria-pressed', String(chip.dataset.action === selected));
-        }
-        for (const step of steps) {
-            if (step.dataset.step === state) step.setAttribute('aria-current', 'step');
-            else step.removeAttribute('aria-current');
-            step.classList.toggle('is-past', sequence.indexOf(step.dataset.step) < sequence.indexOf(state));
-        }
-        const messages = {
-            idle: 'Open the quick record panel with your shortcut.',
-            typing: 'Write a thought. No need to organize it first.',
-            suggesting: `Suggested: ${example.action}. Next: an example Enter press.`,
-            confirmed: `Enter confirmed ${example.action}. Now the handoff can happen.`,
-            completed: `Demo complete. Handed to ${example.destination}; the panel is now clear.`,
-        };
-        const prefix = paused && !completed ? 'Paused. ' : '';
-        const message = prefix + messages[state];
-        // Announce stages, not every typed character. Keep focus on a usable control
-        // when confirmation disables or hides the focused part of the panel.
-        if (status.textContent !== message) status.textContent = message;
-        if (restoreFocus) replay.focus({ preventScroll: true });
+        canvas.hidden = state !== 'dissolving' || !snapshot;
+        if (confirm.disabled && document.activeElement === confirm) demo.focus({ preventScroll: true });
     }
 
-    function schedule(delay = delays[state]) {
-        cancelTimer();
-        if (paused || motion.matches || state === 'completed') return;
-        deadline = performance.now() + delay;
-        timer = window.setTimeout(() => {
-            timer = null;
-            remaining = null;
-            advance();
-        }, delay);
-    }
-
-    function advance() {
-        if (state === 'typing' && characters < examples[selected].text.length) {
-            characters += 1;
-        } else {
-            state = sequence[Math.min(sequence.indexOf(state) + 1, sequence.length - 1)];
-        }
+    function setState(next) {
+        state = next;
+        elapsed = 0;
         render();
-        schedule();
     }
 
-    function start(keepPaused = false) {
-        cancelTimer();
-        remaining = null;
-        paused = keepPaused || document.hidden;
-        state = motion.matches ? 'completed' : 'idle';
-        characters = motion.matches ? examples[selected].text.length : 0;
-        render();
-        schedule();
+    // Rebuild the card's texture from its actual layout, including wrapped text and
+    // the Action button. Every particle samples this one continuous surface.
+    function capturePanel() {
+        if (!context) return null;
+        const bounds = panel.getBoundingClientRect();
+        const scale = Math.min(window.devicePixelRatio || 1, 2);
+        const texture = document.createElement('canvas');
+        texture.width = Math.ceil(bounds.width * scale);
+        texture.height = Math.ceil(bounds.height * scale);
+        const paint = texture.getContext('2d');
+        if (!paint) return null;
+        paint.scale(scale, scale);
+
+        function surface(element) {
+            const rect = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            const line = parseFloat(style.borderTopWidth) || 0;
+            paint.beginPath();
+            paint.roundRect(rect.left - bounds.left + line / 2, rect.top - bounds.top + line / 2,
+                rect.width - line, rect.height - line, parseFloat(style.borderRadius) || 0);
+            paint.fillStyle = style.backgroundColor;
+            paint.fill();
+            if (line) {
+                paint.strokeStyle = style.borderTopColor;
+                paint.lineWidth = line;
+                paint.stroke();
+            }
+        }
+
+        function lettering(element) {
+            const node = element.firstChild;
+            if (!node || node.nodeType !== Node.TEXT_NODE) return;
+            const style = getComputedStyle(element);
+            paint.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+            paint.fillStyle = style.color;
+            const metrics = paint.measureText(node.textContent);
+            const ascent = metrics.fontBoundingBoxAscent ?? parseFloat(style.fontSize) * .8;
+            const descent = metrics.fontBoundingBoxDescent ?? parseFloat(style.fontSize) * .2;
+            const range = document.createRange();
+            for (let i = 0; i < node.length; i++) {
+                range.setStart(node, i);
+                range.setEnd(node, i + 1);
+                const rect = range.getBoundingClientRect();
+                paint.fillText(node.textContent[i], rect.left - bounds.left,
+                    rect.top - bounds.top + (rect.height - ascent - descent) / 2 + ascent);
+            }
+        }
+
+        surface(panel);
+        surface(confirm);
+        lettering(text);
+        lettering(actionTitle);
+        lettering(demo.querySelector('.demo-return'));
+        // Viewport-sized overlay lets fragments leave the card without clipping
+        // against the demo's layout box or creating horizontal page overflow.
+        canvas.width = Math.ceil(window.innerWidth * scale);
+        canvas.height = Math.ceil(window.innerHeight * scale);
+        context.setTransform(scale, 0, 0, scale, 0, 0);
+        const cellSize = Math.max(5, Math.sqrt(bounds.width * bounds.height / 2200));
+        return { texture, scale, width: bounds.width, height: bounds.height,
+            x: bounds.left, y: bounds.top,
+            columns: Math.max(2, Math.ceil(bounds.width / cellSize)),
+            rows: Math.max(1, Math.ceil(bounds.height / cellSize)) };
     }
 
-    function pause() {
-        if (timer !== null) remaining = Math.max(0, deadline - performance.now());
-        cancelTimer();
-        paused = true;
-        render();
+    // Same 500 ms, right-to-left breakup and upward drift as RecordPanel.animateWind.
+    function drawWind(t) {
+        if (!snapshot) return;
+        const { texture, scale, width, height, x, y, columns, rows } = snapshot;
+        const cellWidth = width / columns, cellHeight = height / rows;
+        context.clearRect(0, 0, canvas.width / scale, canvas.height / scale);
+        for (let row = 0; row < rows; row++) for (let column = 0; column < columns; column++) {
+            const noise = Math.sin(column * 127.1 + row * 311.7) * 43758.5453;
+            const flutterNoise = Math.sin(column * 269.5 + row * 183.3) * 24634.6345;
+            const seed = noise - Math.floor(noise), flutter = flutterNoise - Math.floor(flutterNoise);
+            const delay = (1 - column / (columns - 1)) * .54 + seed * .13;
+            const progress = clamp((t - delay) / .33);
+            if (progress >= 1) continue;
+            const left = column * cellWidth, top = row * cellHeight;
+            const drift = progress * .7 + progress * progress * .3;
+            const dx = (34 + seed * 46) * drift;
+            const dy = -(8 + flutter * 27) * progress
+                + Math.sin(progress * Math.PI * 2 + seed * Math.PI * 2) * progress * 5;
+            const size = 1 - smooth(progress) * .78;
+            context.save();
+            context.globalAlpha = 1 - smooth((progress - .18) / .82);
+            context.translate(x + left + cellWidth / 2 + dx, y + top + cellHeight / 2 + dy);
+            context.rotate((flutter - .5) * progress * 2.2);
+            context.scale(size, size * (1 - Math.sin(progress * Math.PI) * flutter * .35));
+            context.drawImage(texture, left * scale, top * scale, cellWidth * scale, cellHeight * scale,
+                -cellWidth / 2, -cellHeight / 2, cellWidth, cellHeight);
+            context.restore();
+        }
+    }
+
+    function frame(now) {
+        frameID = 0;
+        if (lastFrame !== null) elapsed += now - lastFrame;
+        lastFrame = now;
+        if (state === 'idle' && elapsed >= 1000) setState('typing');
+        else if (state === 'typing') {
+            render();
+            if (elapsed >= examples[selected].text.length * 48) setState('suggesting');
+        } else if (state === 'suggesting' && elapsed >= 2200) setState('confirmed');
+        else if (state === 'confirmed' && elapsed >= 180) {
+            snapshot = capturePanel();
+            setState('dissolving');
+        } else if (state === 'dissolving' && elapsed >= 500) {
+            snapshot = null;
+            setState('completed');
+        } else if (state === 'completed' && elapsed >= 1100) {
+            selected = (selected + 1) % examples.length;
+            setState('idle');
+        }
+        if (state === 'dissolving') drawWind(elapsed / 500);
+        frameID = requestAnimationFrame(frame);
+    }
+
+    function syncPlayback() {
+        cancelAnimationFrame(frameID);
+        frameID = 0;
+        lastFrame = null;
+        const running = !paused && inView && !document.hidden && !motion.matches;
+        demo.dataset.playback = running ? 'playing' : 'paused';
+        if (running) frameID = requestAnimationFrame(frame);
+    }
+
+    function togglePause() {
+        if (motion.matches) return;
+        paused = !paused;
+        status.textContent = paused ? 'Example paused. Press Space to resume.' : 'Example playing.';
+        syncPlayback();
     }
 
     function confirmExample() {
         if (state !== 'suggesting') return;
-        cancelTimer();
-        remaining = null;
-        paused = false;
-        state = motion.matches ? 'completed' : 'confirmed';
-        render();
-        schedule();
+        if (motion.matches) {
+            selected = (selected + 1) % examples.length;
+            render();
+            status.textContent = `Next example: ${examples[selected].text}. ${examples[selected].action}.`;
+        } else {
+            paused = false;
+            setState('confirmed');
+            status.textContent = 'Example confirmed. The panel drifts away.';
+            syncPlayback();
+        }
     }
 
-    play.addEventListener('click', () => {
-        if (state === 'completed') start();
-        else if (!paused) pause();
-        else {
-            paused = false;
-            render();
-            schedule(remaining ?? delays[state]);
-            remaining = null;
-        }
+    confirm.addEventListener('click', event => { event.stopPropagation(); confirmExample(); });
+    demo.addEventListener('click', togglePause);
+    demo.addEventListener('keydown', event => {
+        if (event.target === confirm || event.isComposing) return;
+        if (event.key === ' ') { event.preventDefault(); togglePause(); }
+        else if (event.key === 'Enter') { event.preventDefault(); confirmExample(); }
+        else if (event.key === 'Escape' && !paused) togglePause();
     });
-    replay.addEventListener('click', () => start());
-    for (const chip of chips) {
-        chip.addEventListener('click', () => {
-            selected = chip.dataset.action;
-            start(paused);
-        });
+    motion.addEventListener('change', () => {
+        snapshot = null;
+        setState(motion.matches ? 'suggesting' : 'idle');
+        syncPlayback();
+    });
+    document.addEventListener('visibilitychange', syncPlayback);
+    window.addEventListener('pagehide', () => { cancelAnimationFrame(frameID); lastFrame = null; });
+    window.addEventListener('pageshow', syncPlayback);
+    new IntersectionObserver(entries => {
+        inView = entries[0].isIntersecting;
+        syncPlayback();
+    }).observe(demo);
+    function finishDisplacedEffect() {
+        if (state !== 'dissolving') return;
+        snapshot = null;
+        setState('completed');
     }
-    confirm.addEventListener('click', confirmExample);
-    draft.addEventListener('keydown', event => {
-        if (event.key === 'Enter' && !event.isComposing && !event.shiftKey) {
-            event.preventDefault();
-            confirmExample();
-        }
-    });
-    motion.addEventListener('change', () => start(paused));
-    document.addEventListener('visibilitychange', () => {
-        if (document.hidden) pause();
-    });
-    window.addEventListener('pagehide', pause);
-    demo.querySelector('#demo-controls').hidden = false;
-    start();
+    new ResizeObserver(finishDisplacedEffect).observe(demo);
+    window.addEventListener('resize', finishDisplacedEffect);
+    window.addEventListener('scroll', finishDisplacedEffect, { passive: true });
+    render();
+    syncPlayback();
 }
 
 const copyButton = document.querySelector('#copy-checksum');
