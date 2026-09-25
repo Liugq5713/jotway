@@ -2,7 +2,7 @@
 
 > Role: **Current**
 
-The repository contains a static Chinese-language website at `website/`. It is locally buildable; this document does not imply that a public website or download has been deployed. The remaining publication scope is in [Website publication](../product/website-publishing.md).
+The repository contains a static Chinese-language website at `website/`. It is published at [liugq5713.github.io/jotway](https://liugq5713.github.io/jotway/) through GitHub Pages. The site currently reports that no public app release is available until a stable GitHub Release is verified.
 
 ## Pages and behavior
 
@@ -23,7 +23,7 @@ python3 scripts/website/build.py
 python3 -m http.server 8765 --bind 127.0.0.1 --directory website/dist
 ```
 
-Open `http://127.0.0.1:8765/`. Stop the server after review and confirm its port is no longer listening. `website/dist/` is disposable, ignored build output. Host that directory with directory-index routing to preserve all three routes. No hosting identity or domain is configured by the build.
+Open `http://127.0.0.1:8765/`. Stop the server after review and confirm its port is no longer listening. `website/dist/` is disposable, ignored build output. GitHub Pages publishes it with directory-index routing, so `/`, `/download/` and `/privacy/` resolve under the project path. The deployment workflow is `.github/workflows/pages.yml` and runs for website changes on `main` or manually.
 
 The build validates the release contract, copies the canonical screenshots, expands the shared layout and release facts, and checks local references and fragment targets. Missing assets or invalid metadata fail the build. It does not fetch a release or start a server.
 
