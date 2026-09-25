@@ -1,0 +1,486 @@
+<!doctype html>
+<!--
+  PROTOTYPE（一次性，看完即弃）：设置 → Actions 面板重新设计
+  三个结构完全不同的方案，用底部浮条或 ←/→ 键切换，URL ?variant=A|B|C 可分享。
+  数据全部取自真实代码：Chrome 搜索 action（Sources/Integrations），
+  Apple Notes 兜底 action、Apple Reminders 待办 action（Sources/App/SettingsView.swift connectorsPage）。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Actions 面板原型</title>
+<style>
+  :root {
+    --accent: #007aff;
+    --text: #1d1d1f;
+    --text-2: rgba(60, 60, 67, .6);
+    --text-3: rgba(60, 60, 67, .33);
+    --hairline: rgba(0, 0, 0, .08);
+    --box-bg: #fff;
+    --page-bg: #f2f2f3;
+    --warn: #ff9f0a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+    font-size: 13px; color: var(--text);
+    background: #c8c8cc;
+    background-image: radial-gradient(1200px 800px at 30% 20%, #d9d9de, #b9b9c0);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; padding: 40px 0 90px;
+    user-select: none;
+  }
+
+  /* ── macOS 窗口外壳 ─────────────────────────── */
+  .window {
+    width: 700px; height: 520px; background: var(--page-bg);
+    border-radius: 10px; overflow: hidden;
+    box-shadow: 0 22px 70px rgba(0,0,0,.35), 0 0 0 .5px rgba(0,0,0,.25);
+    display: flex; position: relative;
+  }
+  .lights { position: absolute; top: 13px; left: 13px; display: flex; gap: 8px; z-index: 2; }
+  .lights i { width: 12px; height: 12px; border-radius: 50%; }
+  .lights i:nth-child(1){ background:#ff5f57; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.15);}
+  .lights i:nth-child(2){ background:#febc2e; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.15);}
+  .lights i:nth-child(3){ background:#28c840; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.15);}
+
+  /* ── 侧栏 ─────────────────────────────────── */
+  .sidebar {
+    width: 180px; flex: none; padding: 52px 8px 8px;
+    background: rgba(232,232,234,.9);
+    border-right: .5px solid rgba(0,0,0,.1);
+  }
+  .side-item {
+    display: flex; align-items: center; gap: 7px;
+    padding: 4px 8px; border-radius: 6px; margin-bottom: 1px;
+    font-size: 13px; line-height: 20px;
+  }
+  .side-item svg { width: 15px; height: 15px; color: var(--accent); flex: none; }
+  .side-item.sel { background: rgba(0,0,0,.08); font-weight: 500; }
+
+  /* ── 内容区 ────────────────────────────────── */
+  .content { flex: 1; overflow: hidden auto; padding: 22px 20px 20px; }
+  h1 { font-size: 22px; font-weight: 600; margin-bottom: 14px; }
+  h2.sec { font-size: 13px; font-weight: 500; margin: 18px 2px 6px; }
+  h2.sec:first-of-type { margin-top: 0; }
+  .sec-foot { font-size: 11px; color: var(--text-2); margin: 6px 2px 0; line-height: 1.45; }
+
+  .box { background: var(--box-bg); border: .5px solid var(--hairline); border-radius: 7px; overflow: hidden; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; min-height: 44px; }
+  .row + .row, .row + .row-detail, .row-detail + .row { border-top: .5px solid var(--hairline); }
+  .row .ic { width: 22px; height: 22px; flex: none; display: grid; place-items: center; color: #3a3a3c; }
+  .row .ic svg { width: 18px; height: 18px; }
+  .row .tt { flex: 1; min-width: 0; }
+  .row .tt .name { font-size: 13px; }
+  .row .tt .sub { font-size: 11px; color: var(--text-2); margin-top: 1px; line-height: 1.35; }
+
+  /* 开关 */
+  .sw { width: 36px; height: 21px; border-radius: 11px; background: rgba(120,120,128,.32); position: relative; transition: background .18s; flex: none; cursor: pointer; }
+  .sw::after { content:""; position: absolute; top: 2px; left: 2px; width: 17px; height: 17px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25), 0 0 0 .5px rgba(0,0,0,.04); transition: transform .18s; }
+  .sw.on { background: var(--accent); }
+  .sw.on::after { transform: translateX(15px); }
+
+  /* 角色小胶囊 */
+  .pill { font-size: 10px; font-weight: 500; padding: 1.5px 7px; border-radius: 5px; flex: none; }
+  .pill.conn  { color: #58565e; background: rgba(120,120,128,.16); }
+  .pill.def   { color: var(--accent); background: rgba(0,122,255,.12); }
+  .pill.todo  { color: #b25000; background: rgba(255,159,10,.16); }
+
+  .btn { font-size: 12px; padding: 3px 10px; border-radius: 6px; background: #fff; border: .5px solid rgba(0,0,0,.18); box-shadow: 0 .5px 1.5px rgba(0,0,0,.06); cursor: default; flex: none; }
+  .btn.accent { background: var(--accent); border-color: transparent; color: #fff; }
+  .kv { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .kv .k { color: var(--text); }
+  .kv .v { color: var(--text-2); }
+  .kv .v.warn { color: var(--warn); }
+
+  /* ── 方案 A：统一清单 ─────────────────────── */
+  .row-expandable { cursor: pointer; }
+  .row-expandable:hover { background: rgba(0,0,0,.025); }
+  .chev { width: 12px; height: 12px; color: var(--text-3); transition: transform .15s; flex: none; }
+  .row-expandable.expanded .chev { transform: rotate(90deg); }
+  .row-detail { display: none; padding: 8px 12px 10px 44px; background: rgba(0,0,0,.018); }
+  .row-detail.show { display: block; }
+  .row-detail .kv { padding: 3px 0; }
+  .row-detail .actions { margin-top: 7px; display: flex; gap: 8px; }
+
+  /* ── 方案 B：按触发时机 ────────────────────── */
+  .flow { background: var(--box-bg); border: .5px solid var(--hairline); border-radius: 7px; padding: 12px 14px; display: flex; flex-direction: column; gap: 9px; }
+  .flow-line { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; background: rgba(0,0,0,.045); border-radius: 5px; padding: 3px 8px; font-size: 11.5px; }
+  .chip svg { width: 12px; height: 12px; }
+  .chip.solid { background: var(--accent); color: #fff; }
+  .chip.dashed { background: transparent; border: 1px dashed rgba(0,0,0,.3); color: var(--text-2); }
+  .arrow { color: var(--text-3); font-size: 12px; }
+  .arrow-label { font-size: 10.5px; color: var(--text-2); margin-right: -3px; }
+
+  /* macOS 弹出选择按钮 */
+  .popup { display: inline-flex; align-items: center; gap: 6px; background: #fff; border: .5px solid rgba(0,0,0,.18); box-shadow: 0 .5px 1.5px rgba(0,0,0,.06); border-radius: 6px; padding: 3px 8px; font-size: 12px; }
+  .popup .updn { color: var(--text-3); font-size: 9px; line-height: 1; }
+
+  /* ── 方案 C：卡片网格 ─────────────────────── */
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .card { background: var(--box-bg); border: .5px solid var(--hairline); border-radius: 10px; padding: 12px 12px 0; display: flex; flex-direction: column; min-height: 128px; }
+  .card .top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
+  .card .bic { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: #fff; }
+  .card .bic svg { width: 17px; height: 17px; }
+  .bic.b1 { background: linear-gradient(160deg, #5ac8fa, #0a84ff); }
+  .bic.b2 { background: linear-gradient(160deg, #7d7aff, #3634a3); }
+  .bic.b3 { background: linear-gradient(160deg, #ffd60a, #ff9f0a); }
+  .bic.b4 { background: linear-gradient(160deg, #66d4cf, #2fb9b3); }
+  .card .cname { font-size: 13px; font-weight: 600; }
+  .card .csub { font-size: 11px; color: var(--text-2); line-height: 1.4; margin-top: 3px; flex: 1; }
+  .card .cfoot { border-top: .5px solid var(--hairline); margin-top: 10px; padding: 7px 0 8px; display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 11px; color: var(--text-2); }
+  .card .cfoot .warn { color: var(--warn); }
+  .mini-btn { font-size: 11px; color: var(--accent); white-space: nowrap; }
+
+  /* ── 方案 D：A 清单骨架 + C 卡片身份/配置区 ── */
+  .row .tile { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; color: #fff; flex: none; }
+  .row .tile svg { width: 15px; height: 15px; }
+  .cfg { display: none; padding: 2px 12px 9px 48px; background: rgba(0,0,0,.018); }
+  .cfg.show { display: block; }
+  .cfg .frow { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; }
+  .cfg .frow + .frow { border-top: .5px solid rgba(0,0,0,.05); }
+  .cfg .fl { font-size: 12.5px; }
+  .cfg .fl .fcap { font-size: 10.5px; color: var(--text-2); margin-top: 1px; }
+  .cfg .fright { display: flex; align-items: center; gap: 8px; }
+  .cfg .fhint { font-size: 10.5px; color: var(--text-2); padding-top: 7px; }
+  .sw.sm { width: 30px; height: 18px; border-radius: 9px; }
+  .sw.sm::after { width: 14px; height: 14px; }
+  .sw.sm.on::after { transform: translateX(12px); }
+
+  /* ── 方案 C 增强：点卡片推进详情页（无弹窗） ── */
+  .card[data-cfg] { cursor: pointer; transition: box-shadow .15s, border-color .15s; }
+  .card[data-cfg]:hover { border-color: rgba(0,0,0,.2); box-shadow: 0 2px 12px rgba(0,0,0,.07); }
+  .dback { display: inline-block; color: var(--accent); font-size: 13px; cursor: pointer; margin-bottom: 12px; }
+  .dtitle { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
+  .dtitle .tile { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: #fff; flex: none; }
+  .dtitle .tile svg { width: 17px; height: 17px; }
+  .dtitle .dname { font-size: 16px; font-weight: 600; }
+  .dtitle .dsub { font-size: 11px; color: var(--text-2); margin-top: 1px; line-height: 1.4; }
+
+  /* ── 底部切换浮条 ─────────────────────────── */
+  .switcher {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 4px;
+    background: rgba(30,30,32,.92); color: #f5f5f7;
+    border-radius: 999px; padding: 6px 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.35);
+    font-size: 12px; z-index: 10;
+  }
+  .switcher button {
+    width: 26px; height: 26px; border: 0; border-radius: 50%;
+    background: transparent; color: #f5f5f7; font-size: 15px; cursor: pointer;
+  }
+  .switcher button:hover { background: rgba(255,255,255,.14); }
+  .switcher .label { min-width: 168px; text-align: center; font-weight: 500; }
+  .switcher .hint { color: rgba(245,245,247,.45); font-size: 10.5px; padding-right: 8px; }
+
+  #idea { font-size: 12px; color: rgba(255,255,255,.85); text-shadow: 0 1px 3px rgba(0,0,0,.4); }
+
+  .variant { display: none; }
+  body[data-variant="A"] .vA, body[data-variant="B"] .vB, body[data-variant="C"] .vC, body[data-variant="D"] .vD { display: block; }
+</style>
+</head>
+<body data-variant="A">
+
+<div class="window">
+  <div class="lights"><i></i><i></i><i></i></div>
+
+  <aside class="sidebar">
+    <div class="side-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg>通用</div>
+    <div class="side-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h5a2 2 0 1 1 4 0h7v6a2 2 0 1 0 0 4v3H4z"/></svg>插件</div>
+    <div class="side-item sel"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5z"/></svg>Actions</div>
+    <div class="side-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 10h16M4 14h10M4 18h7"/></svg>Instructions</div>
+    <div class="side-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.3a2.6 2.6 0 1 1 3.6 2.4c-.8.35-1.1.8-1.1 1.8"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>使用入门</div>
+    <div class="side-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 14a4 4 0 0 0 6 .4l3-3a4 4 0 1 0-5.6-5.6L12 7.2"/><path d="M14 10a4 4 0 0 0-6-.4l-3 3a4 4 0 1 0 5.6 5.6L12 16.8"/></svg>联系我</div>
+  </aside>
+
+  <main class="content">
+    <h1>Actions</h1>
+
+    <!-- ═══════ 方案 A：统一清单（行内展开配置） ═══════ -->
+    <section class="variant vA">
+      <h2 class="sec">全部动作</h2>
+      <div class="box">
+        <div class="row">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a13.5 13.5 0 0 1 0 18M12 3a13.5 13.5 0 0 0 0 18"/></svg></span>
+          <div class="tt"><div class="name">Chrome</div><div class="sub">用 Google 搜索当前文字。</div></div>
+          <span class="pill conn">连接器</span>
+          <span class="sw on"></span>
+        </div>
+        <div class="row row-expandable" data-detail="d1">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M9 8h6M9 12h6M9 16h4"/></svg></span>
+          <div class="tt"><div class="name">Apple Notes</div><div class="sub">识别不到意图时 Enter 兜底存备忘录；也可说「记一下 …」主动存。</div></div>
+          <span class="pill def">默认兜底</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 5l7 7-7 7"/></svg>
+        </div>
+        <div class="row-detail" id="d1">
+          <div class="kv"><span class="k">保存位置</span><span class="v">备忘录（iCloud）</span></div>
+          <div class="actions"><span class="btn">更改保存位置…</span></div>
+        </div>
+        <div class="row row-expandable" data-detail="d2">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6.5 5.5 8 8.5 4.5"/><path d="M11.5 6.5H20"/><path d="M4 17.5 5.5 19 8.5 15.5"/><path d="M11.5 17.5H20"/></svg></span>
+          <div class="tt"><div class="name">Apple Reminders</div><div class="sub">识别为待办时存进提醒事项，到期默认当前时间；也可说「提醒我 …」主动存。</div></div>
+          <span class="pill todo">待办</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 5l7 7-7 7"/></svg>
+        </div>
+        <div class="row-detail" id="d2">
+          <div class="kv"><span class="k">保存位置</span><span class="v warn">尚未配置</span></div>
+          <div class="actions"><span class="btn accent">选择提醒事项列表…</span></div>
+        </div>
+      </div>
+      <p class="sec-foot">意图识别把输入路由到某个 action；停用后该 action 会从候选中移除。</p>
+    </section>
+
+    <!-- ═══════ 方案 B：按触发时机组织 ═══════ -->
+    <section class="variant vB">
+      <div class="flow">
+        <div class="flow-line">
+          <span class="chip solid">一句话</span>
+          <span class="arrow-label">意图识别</span><span class="arrow">→</span>
+          <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a13.5 13.5 0 0 1 0 18M12 3a13.5 13.5 0 0 0 0 18"/></svg>Chrome</span>
+          <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6.5 5.5 8 8.5 4.5"/><path d="M11.5 6.5H20"/><path d="M4 17.5 5.5 19 8.5 15.5"/><path d="M11.5 17.5H20"/></svg>提醒事项</span>
+        </div>
+        <div class="flow-line">
+          <span class="chip solid">一句话</span>
+          <span class="arrow-label">识别不到</span><span class="arrow">⇢</span>
+          <span class="chip dashed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>备忘录 · 默认兜底</span>
+        </div>
+      </div>
+
+      <h2 class="sec">搜索动作</h2>
+      <div class="box">
+        <div class="row">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a13.5 13.5 0 0 1 0 18M12 3a13.5 13.5 0 0 0 0 18"/></svg></span>
+          <div class="tt"><div class="name">Chrome</div><div class="sub">用 Google 搜索当前文字。</div></div>
+          <span class="sw on"></span>
+        </div>
+      </div>
+      <p class="sec-foot">Enter 确认目标后执行；停用后 Chrome 从候选中移除。</p>
+
+      <h2 class="sec">识别为待办时</h2>
+      <div class="box">
+        <div class="row">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6.5 5.5 8 8.5 4.5"/><path d="M11.5 6.5H20"/><path d="M4 17.5 5.5 19 8.5 15.5"/><path d="M11.5 17.5H20"/></svg></span>
+          <div class="tt"><div class="name">Apple Reminders</div><div class="sub">到期默认当前时间；也可说「提醒我 …」「待办：…」主动存。</div></div>
+        </div>
+        <div class="row">
+          <div class="tt kv"><span class="k">保存位置</span><span class="v warn">尚未配置</span></div>
+          <span class="btn accent">选择提醒事项列表…</span>
+        </div>
+      </div>
+
+      <h2 class="sec">都没识别到时（兜底）</h2>
+      <div class="box">
+        <div class="row">
+          <div class="tt kv"><span class="k">默认动作</span>
+            <span class="popup"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>存到备忘录<span class="updn">▴▾</span></span>
+          </div>
+        </div>
+        <div class="row">
+          <div class="tt kv"><span class="k">保存位置</span><span class="v">备忘录（iCloud）</span></div>
+          <span class="btn">更改保存位置…</span>
+        </div>
+      </div>
+      <p class="sec-foot">兜底保证「打字 Enter」永远有确定结果，不落空。</p>
+    </section>
+
+    <!-- ═══════ 方案 C：卡片网格（点卡片弹配置 sheet） ═══════ -->
+    <section class="variant vC">
+      <div id="cGrid"><div class="grid">
+        <div class="card">
+          <div class="top"><span class="bic b2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a13.5 13.5 0 0 1 0 18M12 3a13.5 13.5 0 0 0 0 18"/></svg></span><span class="sw on"></span></div>
+          <div class="cname">Chrome</div>
+          <div class="csub">用 Google 搜索当前文字。</div>
+          <div class="cfoot"><span>触发：@Chrome · @谷歌</span></div>
+        </div>
+        <div class="card" data-cfg="notes">
+          <div class="top"><span class="bic b3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M9 8h6M9 12h6M9 16h4"/></svg></span><span class="pill def">默认兜底</span></div>
+          <div class="cname">Apple Notes</div>
+          <div class="csub">识别不到意图时 Enter 兜底；也可说「记一下 …」主动存。</div>
+          <div class="cfoot"><span>保存到：备忘录（iCloud）</span><span class="mini-btn">配置…</span></div>
+        </div>
+        <div class="card" data-cfg="reminders">
+          <div class="top"><span class="bic b4"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6.5 5.5 8 8.5 4.5"/><path d="M11.5 6.5H20"/><path d="M4 17.5 5.5 19 8.5 15.5"/><path d="M11.5 17.5H20"/></svg></span><span class="pill todo">待办</span></div>
+          <div class="cname">Apple Reminders</div>
+          <div class="csub">识别为待办时存进提醒事项，到期默认当前时间。</div>
+          <div class="cfoot"><span class="warn">尚未配置保存位置</span><span class="mini-btn">配置…</span></div>
+        </div>
+      </div>
+      <p class="sec-foot">意图识别把输入路由到某个 action。点卡片进入配置详情；停用后 action 从候选中移除。</p>
+      </div>
+      <div id="cDetail" style="display:none"></div>
+    </section>
+
+    <!-- ═══════ 方案 D：A 清单骨架 + C 卡片身份与配置区（行内配置面板） ═══════ -->
+    <section class="variant vD">
+      <h2 class="sec">全部动作</h2>
+      <div class="box">
+        <div class="row">
+          <span class="tile b2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a13.5 13.5 0 0 1 0 18M12 3a13.5 13.5 0 0 0 0 18"/></svg></span>
+          <div class="tt"><div class="name">Chrome</div><div class="sub">用 Google 搜索当前文字。</div></div>
+          <span class="pill conn">连接器</span>
+          <span class="sw on"></span>
+        </div>
+        <div class="row row-expandable" data-detail="c3">
+          <span class="tile b3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M9 8h6M9 12h6M9 16h4"/></svg></span>
+          <div class="tt"><div class="name">Apple Notes</div><div class="sub">识别不到意图时 Enter 兜底存备忘录；也可说「记一下 …」主动存。</div></div>
+          <span class="pill def">默认兜底</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 5l7 7-7 7"/></svg>
+        </div>
+        <div class="cfg" id="c3">
+          <div class="frow">
+            <span class="fl">保存位置</span>
+            <span class="fright"><span class="v">备忘录（iCloud）</span><span class="btn">更改…</span></span>
+          </div>
+          <div class="frow">
+            <span class="fl">AI 加工<div class="fcap">开启后保存前先让 AI 整理；默认原文直通</div></span>
+            <span class="fright"><span class="sw sm"></span></span>
+          </div>
+        </div>
+        <div class="row row-expandable" data-detail="c4">
+          <span class="tile b4"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6.5 5.5 8 8.5 4.5"/><path d="M11.5 6.5H20"/><path d="M4 17.5 5.5 19 8.5 15.5"/><path d="M11.5 17.5H20"/></svg></span>
+          <div class="tt"><div class="name">Apple Reminders</div><div class="sub">识别为待办时存进提醒事项；也可说「提醒我 …」「待办：…」主动存。</div></div>
+          <span class="pill todo">待办</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 5l7 7-7 7"/></svg>
+        </div>
+        <div class="cfg" id="c4">
+          <div class="frow">
+            <span class="fl">保存位置</span>
+            <span class="fright"><span class="v warn">尚未配置</span><span class="btn accent">选择列表…</span></span>
+          </div>
+          <div class="frow">
+            <span class="fl">默认到期</span>
+            <span class="fright"><span class="popup">当前时间<span class="updn">▴▾</span></span></span>
+          </div>
+        </div>
+      </div>
+      <p class="sec-foot">配置面板随每个 action 的 configSchema 动态渲染——新增配置项时这里自动多一行。停用不会取消已发送的任务。</p>
+    </section>
+  </main>
+</div>
+
+<div id="idea"></div>
+
+<div class="switcher">
+  <button id="prev" aria-label="上一个方案">‹</button>
+  <span class="label" id="label"></span>
+  <button id="next" aria-label="下一个方案">›</button>
+  <span class="hint">←/→ 切换</span>
+</div>
+
+<script>
+  var variants = [
+    { key: "A", name: "统一清单", idea: "所有动作一张清单，角色用胶囊区分，配置行内展开——加 action 只加一行" },
+    { key: "B", name: "按触发时机", idea: "按「什么时候触发」组织：@点名 / 识别为待办 / 兜底，顶部流程图讲清路由模型" },
+    { key: "C", name: "卡片网格", idea: "每个 action 一张卡片，一眼扫全；点卡片推进到详情页配置（无弹窗），字段随 configSchema 渲染（试试点 Apple Reminders）" },
+    { key: "D", name: "清单+配置面板（A+C）", idea: "A 的统一清单 + C 的彩色身份与配置区：点击行展开配置面板，字段随 configSchema 动态渲染" }
+  ];
+
+  function current() {
+    var v = new URLSearchParams(location.search).get("variant");
+    return variants.some(function(x){ return x.key === v }) ? v : "A";
+  }
+  function show(key) {
+    document.body.dataset.variant = key;
+    var i = variants.findIndex(function(x){ return x.key === key });
+    document.getElementById("label").textContent = key + " · " + variants[i].name;
+    document.getElementById("idea").textContent = variants[i].idea;
+    try { history.replaceState(null, "", "?variant=" + key); } catch (e) {}
+    closeDetail();
+  }
+  function step(d) {
+    var i = variants.findIndex(function(x){ return x.key === current() });
+    show(variants[(i + d + variants.length) % variants.length].key);
+  }
+
+  document.getElementById("prev").onclick = function(){ step(-1) };
+  document.getElementById("next").onclick = function(){ step(1) };
+  document.addEventListener("keydown", function(e) {
+    if (/INPUT|TEXTAREA/.test((e.target || {}).tagName || "")) return;
+    if (e.key === "ArrowLeft") step(-1);
+    if (e.key === "ArrowRight") step(1);
+  });
+
+  // 方案 A/D：点击行展开/收起行内配置
+  document.querySelectorAll(".row-expandable").forEach(function(row) {
+    row.addEventListener("click", function() {
+      row.classList.toggle("expanded");
+      document.getElementById(row.dataset.detail).classList.toggle("show");
+    });
+  });
+
+  // 开关可点着玩；在可展开行/卡片里点击开关不触发展开或 sheet
+  document.querySelectorAll(".sw").forEach(function(sw) {
+    sw.addEventListener("click", function(e) {
+      if (sw.closest(".row-expandable") || sw.closest(".card")) e.stopPropagation();
+      sw.classList.toggle("on");
+    });
+  });
+
+  // ── 方案 C：点卡片推进详情页配置（无弹窗；字段对应 configSchema 的 kind 动态渲染） ──
+  var ICONS = {
+    note: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6.5 5.5 8 8.5 4.5"/><path d="M11.5 6.5H20"/><path d="M4 17.5 5.5 19 8.5 15.5"/><path d="M11.5 17.5H20"/></svg>'
+  };
+  // fields.kind: choice（选择）/ dest（保存位置）/ toggle（开关）——对应 ConfigField.Kind
+  var SHEETS = {
+    notes: { title: "Apple Notes", icon: ICONS.note, tile: "b3",
+      cap: "识别不到意图时 Enter 兜底存备忘录；也可说「记一下 …」主动存。",
+      fields: [
+        { kind: "dest", label: "保存位置", value: "备忘录（iCloud）", btn: "更改…" },
+        { kind: "toggle", label: "AI 加工", fcap: "开启后保存前先让 AI 整理；默认原文直通", on: false }
+      ] },
+    reminders: { title: "Apple Reminders", icon: ICONS.check, tile: "b4",
+      cap: "识别为待办时存进提醒事项；也可说「提醒我 …」「待办：…」主动存。",
+      fields: [
+        { kind: "dest", label: "保存位置", value: "尚未配置", warn: true, btn: "选择列表…", accent: true },
+        { kind: "choice", label: "默认到期", value: "当前时间" }
+      ] }
+  };
+
+  function dRow(f) {
+    if (f.kind === "toggle") {
+      return '<div class="row"><div class="tt"><div>' + f.label + '</div><div class="sub">' + f.fcap + '</div></div><span class="sw sm' + (f.on ? ' on' : '') + '"></span></div>';
+    }
+    var val = f.kind === "dest" ? '<span class="v' + (f.warn ? ' warn' : '') + '">' + f.value + '</span>' : '';
+    var right = f.kind === "choice"
+      ? '<span class="popup">' + f.value + '<span class="updn">▴▾</span></span>'
+      : '<span class="btn' + (f.accent ? ' accent' : '') + '">' + f.btn + '</span>';
+    return '<div class="row"><div class="tt kv"><span class="k">' + f.label + '</span>' + val + '</div>' + right + '</div>';
+  }
+  function openDetail(id) {
+    var d = SHEETS[id];
+    var el = document.getElementById("cDetail");
+    el.innerHTML =
+      '<span class="dback" id="cBack">‹ Actions</span>' +
+      '<div class="dtitle"><span class="tile ' + d.tile + '">' + d.icon + '</span><div><div class="dname">' + d.title + '</div><div class="dsub">' + d.cap + '</div></div></div>' +
+      '<h2 class="sec">配置</h2><div class="box">' + d.fields.map(dRow).join("") + '</div>' +
+      '<p class="sec-foot">配置项随 action 的 configSchema 动态渲染，新增字段自动出现在这里。</p>';
+    document.getElementById("cGrid").style.display = "none";
+    el.style.display = "block";
+    document.getElementById("cBack").onclick = closeDetail;
+    el.querySelectorAll(".sw").forEach(function(sw) {
+      sw.addEventListener("click", function() { sw.classList.toggle("on"); });
+    });
+    document.querySelector(".content").scrollTop = 0;
+  }
+  function closeDetail() {
+    var el = document.getElementById("cDetail");
+    if (el) el.style.display = "none";
+    var g = document.getElementById("cGrid");
+    if (g) g.style.display = "";
+  }
+  document.querySelectorAll(".vC .card[data-cfg]").forEach(function(card) {
+    card.addEventListener("click", function() { openDetail(card.dataset.cfg); });
+  });
+  document.addEventListener("keydown", function(e) {
+    if (e.key === "Escape") closeDetail();
+  });
+
+  show(current());
+</script>
+</body>
+</html>

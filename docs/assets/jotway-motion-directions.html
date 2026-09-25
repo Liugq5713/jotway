@@ -1,0 +1,329 @@
+<meta charset="utf-8">
+<style>
+  #jotway-motion-directions { --sm-flash: light-dark(#315f57, #e6fff4); --sm-glow: light-dark(#75b9ac, #90e6d2); }
+  #jotway-motion-directions { --sm-ink: light-dark(#232c29, #e6eee9); --sm-muted: light-dark(#697770, #a2b0a8); --sm-stage: light-dark(#eef1ed, #171e1b); --sm-sheet: light-dark(#fcfdfa, #303c35); --sm-line: light-dark(#d5ded6, #536159); --sm-accent: light-dark(#537a64, #b4d1b6); --sm-shadow: light-dark(#a8b6ac, #080e0a); --sm-selected: light-dark(#263d30, #d3e8d4); --sm-selected-ink: light-dark(#f9fcf8, #213526); color: var(--sm-ink); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; width: 100%; }
+  #jotway-motion-directions .sm-choices { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  #jotway-motion-directions button { font: inherit; cursor: pointer; border: 1px solid var(--sm-line); background: transparent; color: var(--sm-ink); border-radius: 9px; padding: 8px 13px; min-height: 38px; }
+  #jotway-motion-directions button[aria-pressed="true"] { background: var(--sm-selected); color: var(--sm-selected-ink); border-color: transparent; }
+  #jotway-motion-directions .sm-stage { position: relative; background: var(--sm-stage); border-radius: 15px; overflow: hidden; }
+  #jotway-motion-directions .sm-menubar { height: 34px; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; color: var(--sm-muted); font-size: 12px; border-bottom: 1px solid var(--sm-line); }
+  #jotway-motion-directions .sm-brand { font-weight: 500; color: var(--sm-ink); letter-spacing: .04em; }
+  #jotway-motion-directions canvas { display: block; width: 100%; height: 248px; }
+  #jotway-motion-directions .sm-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+  #jotway-motion-directions .sm-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  #jotway-motion-directions .sm-primary { background: var(--sm-selected); color: var(--sm-selected-ink); border-color: transparent; }
+  #jotway-motion-directions .sm-info { color: var(--sm-muted); font-size: 12px; }
+  #jotway-motion-directions .sm-caption { padding: 0 18px 15px; min-height: 21px; text-align: center; color: var(--sm-muted); font-size: 12px; }
+  @media (pointer: coarse) { #jotway-motion-directions button { min-height: 44px; } }
+  @media (max-width: 420px) { #jotway-motion-directions .sm-choices { gap: 6px; } #jotway-motion-directions .sm-choices button { flex: 0 1 calc((100% - 12px) / 3); padding: 8px 5px; } #jotway-motion-directions canvas { height: 238px; } }
+</style>
+<div id="jotway-motion-directions" aria-label="Jotway 提交动效概念对比">
+  <div class="sm-choices" role="group" aria-label="选择动效方向">
+    <button type="button" data-motion="wind" aria-pressed="true">随风飘散</button>
+    <button type="button" data-motion="ufo" aria-pressed="false">飞碟消失</button>
+    <button type="button" data-motion="gentle" aria-pressed="false">轻轻收起</button>
+    <button type="button" data-motion="fold" aria-pressed="false">折叠合上</button>
+    <button type="button" data-motion="soft" aria-pressed="false">柔性收拢</button>
+  </div>
+  <div class="sm-stage">
+    <div class="sm-menubar"><span class="sm-brand">JOTWAY</span><span>卡片自身 · 退场动效</span></div>
+    <canvas role="img" aria-label="随风飘散方案从卡片右侧开始解构，正文和背景化成小碎片，向右上方轻轻飘散并淡出。也可比较飞碟消失、轻轻收起、折叠合上和柔性收拢。">卡片的正文和背景从右向左逐渐化成小碎片，顺着风向右上方飘散。</canvas>
+    <div class="sm-caption" aria-live="polite">边缘松开 · 随风飘散 · 轻轻消失</div>
+  </div>
+  <div class="sm-footer">
+    <div class="sm-actions">
+      <button type="button" class="sm-primary" data-play>播放提交 ↵</button>
+      <button type="button" data-slow aria-pressed="false">慢放 ×3</button>
+    </div>
+    <span class="sm-info" data-info>退场 500 ms</span>
+  </div>
+</div>
+<script>
+(() => {
+  const root = document.getElementById('jotway-motion-directions');
+  const canvas = root.querySelector('canvas');
+  const ctx = canvas.getContext('2d');
+  const caption = root.querySelector('.sm-caption');
+  const info = root.querySelector('[data-info]');
+  const playButton = root.querySelector('[data-play]');
+  const slowButton = root.querySelector('[data-slow]');
+  const state = { motion: 'wind', duration: 500, slow: false };
+  const descriptions = { wind: '边缘松开 · 随风飘散 · 轻轻消失', ufo: '压成亮线 · 收成光点 · 闪一下消失', gentle: '整体轻缩 · 原地淡出', fold: '上下合折 · 合上后淡出', soft: '两侧内弯 · 柔性压拢' };
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  let width = 0, height = 0, paper, colors, texture, frameID = 0;
+  let runStart = 0, lastProgress = 0;
+  const clamp = v => Math.max(0, Math.min(1, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const smooth = t => { t = clamp(t); return t * t * (3 - 2 * t); };
+  const out = t => 1 - Math.pow(1 - clamp(t), 3);
+  // 与快速记录面板一致的 SF Symbol：tray.full，随整张卡片一起退场。
+  const traySymbol = new Image();
+  const trayTexture = document.createElement('canvas');
+  trayTexture.width = 64; trayTexture.height = 64;
+
+  function resolveColor(token) {
+    const probe = document.createElement('span');
+    probe.style.color = `var(${token})`;
+    root.appendChild(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+  }
+
+  function roundRect(context, x, y, w, h, radius) {
+    context.beginPath(); context.roundRect(x, y, w, h, radius);
+  }
+
+  function buildTexture() {
+    const surface = document.createElement('canvas');
+    const scale = 2;
+    surface.width = Math.ceil(paper.w * scale); surface.height = paper.h * scale;
+    const c = surface.getContext('2d'); c.scale(scale, scale);
+    roundRect(c, 0, 0, paper.w, paper.h, 16);
+    c.fillStyle = colors.sheet; c.fill();
+    c.strokeStyle = colors.line; c.lineWidth = 1; c.stroke();
+    c.fillStyle = colors.muted; c.font = '11px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+    c.fillText('刚刚想到', 20, 26);
+    c.fillStyle = colors.ink; c.font = '16px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+    c.fillText('让好想法，有个落点。', 20, 60);
+    c.fillStyle = colors.muted; c.font = '12px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+    c.fillText('先收起来，继续手上的事。', 20, 87);
+    c.strokeStyle = colors.line; c.beginPath(); c.moveTo(20, 107); c.lineTo(paper.w - 20, 107); c.stroke();
+    c.fillStyle = colors.muted; c.font = '11px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+    c.drawImage(trayTexture, 14, 117, 16, 16);
+    c.fillText('⌘⇧P', 36, 129);
+    c.textAlign = 'right'; c.fillText('⇧↵ 换行     ↵ 提交', paper.w - 14, 129);
+    return surface;
+  }
+
+  function basePaper(opacity = 1, scale = 1) {
+    ctx.save(); ctx.globalAlpha = opacity;
+    ctx.translate(paper.x + paper.w / 2, paper.y + paper.h / 2);
+    ctx.scale(scale, scale); ctx.shadowColor = colors.shadow; ctx.shadowBlur = 18; ctx.shadowOffsetY = 8;
+    ctx.drawImage(texture, -paper.w / 2, -paper.h / 2, paper.w, paper.h); ctx.restore();
+  }
+
+  function gentlePaper(t) {
+    basePaper(1 - smooth(t), lerp(1, 0.94, out(t)));
+  }
+
+  function windPaper(t) {
+    if (t <= 0) { basePaper(); return; }
+    if (t >= 1) return;
+    const columns = Math.ceil(paper.w / 5), rows = Math.ceil(paper.h / 5);
+    const cellWidth = paper.w / columns, cellHeight = paper.h / rows;
+    const sourceScaleX = texture.width / paper.w, sourceScaleY = texture.height / paper.h;
+
+    // 阴影随最先松动的边缘淡去，碎片直接取自原卡片，保留正文和背景的连续性。
+    if (t < 0.18) basePaper(1 - smooth(t / 0.18));
+    for (let row = 0; row < rows; row++) for (let column = 0; column < columns; column++) {
+      const noise = Math.sin(column * 127.1 + row * 311.7) * 43758.5453;
+      const flutterNoise = Math.sin(column * 269.5 + row * 183.3) * 24634.6345;
+      const seed = noise - Math.floor(noise);
+      const flutter = flutterNoise - Math.floor(flutterNoise);
+      const delay = (1 - column / (columns - 1)) * 0.54 + seed * 0.13;
+      const progress = clamp((t - delay) / 0.33);
+      if (progress >= 1) continue;
+      const x = column * cellWidth, y = row * cellHeight;
+      if (progress <= 0) {
+        ctx.drawImage(texture, x * sourceScaleX, y * sourceScaleY,
+          cellWidth * sourceScaleX, cellHeight * sourceScaleY,
+          paper.x + x, paper.y + y, cellWidth, cellHeight);
+        continue;
+      }
+
+      const drift = progress * 0.7 + progress * progress * 0.3;
+      const dx = (34 + seed * 46) * drift;
+      const dy = -(8 + flutter * 27) * progress
+        + Math.sin(progress * Math.PI * 2 + seed * Math.PI * 2) * progress * 5;
+      const size = 1 - smooth(progress) * 0.78;
+      ctx.save();
+      ctx.globalAlpha = 1 - smooth((progress - 0.18) / 0.82);
+      ctx.translate(paper.x + x + cellWidth / 2 + dx, paper.y + y + cellHeight / 2 + dy);
+      ctx.rotate((flutter - 0.5) * progress * 2.2);
+      ctx.scale(size, size * (1 - Math.sin(progress * Math.PI) * flutter * 0.35));
+      ctx.drawImage(texture, x * sourceScaleX, y * sourceScaleY,
+        cellWidth * sourceScaleX, cellHeight * sourceScaleY,
+        -cellWidth / 2, -cellHeight / 2, cellWidth, cellHeight);
+      ctx.restore();
+    }
+  }
+
+  function ufoPaper(t) {
+    if (t <= 0) { basePaper(); return; }
+    if (t >= 1) return;
+    const compress = smooth(t / 0.46);
+    const collapse = smooth((t - 0.46) / 0.30);
+    const luminous = smooth((t - 0.30) / 0.16);
+    const cardWidth = paper.w * lerp(1, 1.08, compress);
+    const cardHeight = lerp(paper.h, 3, compress);
+    ctx.save();
+    ctx.translate(paper.x + paper.w / 2, paper.y + paper.h / 2);
+
+    // 先把整张卡片压扁，文字和图标仍连续可见，再由同位置的亮线接续。
+    ctx.globalAlpha = 1 - smooth((t - 0.30) / 0.20);
+    ctx.shadowColor = colors.shadow; ctx.shadowBlur = 18 * (1 - compress);
+    ctx.shadowOffsetY = 8 * (1 - compress);
+    ctx.drawImage(texture, -cardWidth / 2, -cardHeight / 2, cardWidth, cardHeight);
+
+    const lineWidth = lerp(cardWidth, 2, collapse);
+    const lineHeight = lerp(3, 2, collapse);
+    ctx.globalAlpha = luminous * (1 - smooth((t - 0.82) / 0.18));
+    ctx.shadowColor = colors.glow; ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 0;
+    const glow = ctx.createLinearGradient(-lineWidth / 2, 0, lineWidth / 2, 0);
+    glow.addColorStop(0, 'transparent'); glow.addColorStop(0.1, colors.glow);
+    glow.addColorStop(0.5, colors.flash); glow.addColorStop(0.9, colors.glow);
+    glow.addColorStop(1, 'transparent');
+    ctx.fillStyle = glow;
+    roundRect(ctx, -lineWidth / 2, -lineHeight / 2, lineWidth, lineHeight, lineHeight / 2);
+    ctx.fill();
+
+    // 最后只在中心闪一次小星芒，不移动卡片中心，也不留下其他承接元素。
+    const twinkle = Math.sin(clamp((t - 0.72) / 0.28) * Math.PI);
+    if (twinkle > 0) {
+      const radius = 10 * twinkle, waist = 1.2 * twinkle;
+      ctx.globalAlpha = twinkle;
+      ctx.fillStyle = colors.flash; ctx.shadowBlur = 14 * twinkle;
+      ctx.beginPath(); ctx.moveTo(0, -radius);
+      ctx.quadraticCurveTo(waist, -waist, radius, 0);
+      ctx.quadraticCurveTo(waist, waist, 0, radius);
+      ctx.quadraticCurveTo(-waist, waist, -radius, 0);
+      ctx.quadraticCurveTo(-waist, -waist, 0, -radius);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function softPaper(t) {
+    if (t <= 0) { basePaper(); return; }
+    if (t >= 1) return;
+    const strips = Math.ceil(paper.h / 2);
+    const stripHeight = paper.h / strips;
+    const progress = smooth(t);
+    const centerX = paper.x + paper.w / 2, centerY = paper.y + paper.h / 2;
+    const verticalScale = 1 - progress * 0.88;
+    ctx.save(); ctx.globalAlpha = 1 - smooth((t - 0.55) / 0.45);
+    for (let i = 0; i < strips; i++) {
+      const row = i / strips;
+      // 中心保持不动，两侧先内弯；所有切片一起压拢，仍是一张连续的卡片。
+      const bend = Math.sin(progress * Math.PI) * 0.17 * (1 - Math.pow(row * 2 - 1, 2));
+      const sliceWidth = paper.w * (1 - progress * 0.55 - bend);
+      const y = centerY + (row - 0.5) * paper.h * verticalScale;
+      ctx.drawImage(texture, 0, i * stripHeight * 2, texture.width, stripHeight * 2,
+        centerX - sliceWidth / 2, y, sliceWidth, stripHeight * verticalScale + 0.5);
+    }
+    ctx.restore();
+  }
+
+  function foldedPaper(t) {
+    if (t <= 0) { basePaper(); return; }
+    if (t >= 1) return;
+    const folding = smooth(t / 0.7);
+    const closing = smooth((t - 0.6) / 0.4);
+    const centerX = paper.x + paper.w / 2;
+    const centerY = paper.y + paper.h / 2;
+    const third = paper.h / 3;
+    const flap = Math.cos(folding * Math.PI);
+    ctx.save();
+    ctx.translate(centerX, centerY); ctx.scale(1 - out(t) * 0.08, 1 - closing * 0.9);
+    ctx.globalAlpha = 1 - smooth((t - 0.72) / 0.28);
+    ctx.shadowColor = colors.shadow; ctx.shadowBlur = 12; ctx.shadowOffsetY = 5;
+    ctx.drawImage(texture, 0, third * 2, texture.width, third * 2, -paper.w / 2, -third / 2, paper.w, third);
+    ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+    for (const sign of [-1, 1]) {
+      const hinge = sign * third / 2;
+      const outer = hinge + sign * third * flap;
+      const top = Math.min(hinge, outer), h = Math.max(0.2, Math.abs(outer - hinge));
+      if (flap >= 0) {
+        const sourceY = sign < 0 ? 0 : third * 4;
+        ctx.drawImage(texture, 0, sourceY, texture.width, third * 2, -paper.w / 2, top, paper.w, h);
+      } else {
+        ctx.fillStyle = colors.sheet; ctx.fillRect(-paper.w / 2, top, paper.w, h);
+        ctx.globalAlpha *= 0.75; ctx.strokeStyle = colors.line; ctx.lineWidth = 1;
+        ctx.strokeRect(-paper.w / 2, top, paper.w, h); ctx.globalAlpha /= 0.75;
+      }
+      ctx.save(); ctx.globalAlpha *= Math.sin(folding * Math.PI) * 0.25;
+      ctx.fillStyle = colors.shadow; ctx.fillRect(-paper.w / 2, top, paper.w, h); ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  function draw(t) {
+    if (!paper) return;
+    lastProgress = t;
+    ctx.clearRect(0, 0, width, height);
+    if (reduceMotion.matches) { if (t < 1) basePaper(1 - t); }
+    else if (state.motion === 'wind') windPaper(t);
+    else if (state.motion === 'ufo') ufoPaper(t);
+    else if (state.motion === 'soft') softPaper(t);
+    else if (state.motion === 'fold') foldedPaper(t);
+    else gentlePaper(t);
+  }
+
+  function layout() {
+    width = canvas.clientWidth; height = canvas.clientHeight;
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    colors = {};
+    for (const [name, token] of Object.entries({ ink: 'ink', muted: 'muted', sheet: 'sheet', line: 'line', accent: 'accent', shadow: 'shadow', stage: 'stage', flash: 'flash', glow: 'glow' })) colors[name] = resolveColor('--sm-' + token);
+    const w = Math.min(380, width - 40);
+    paper = { w, h: 146, x: (width - w) / 2, y: 42 };
+    const icon = trayTexture.getContext('2d');
+    icon.clearRect(0, 0, 64, 64);
+    if (traySymbol.complete && traySymbol.naturalWidth) {
+      icon.drawImage(traySymbol, 0, 0, 64, 64);
+      icon.globalCompositeOperation = 'source-in';
+      icon.fillStyle = colors.muted; icon.fillRect(0, 0, 64, 64);
+      icon.globalCompositeOperation = 'source-over';
+    }
+    texture = buildTexture(); draw(lastProgress);
+  }
+
+  function renderSettings() {
+    cancelAnimationFrame(frameID);
+    playButton.textContent = '播放提交 ↵';
+    caption.textContent = reduceMotion.matches ? '已跟随系统「减少动态效果」：仅淡出' : descriptions[state.motion];
+    info.textContent = reduceMotion.matches ? '淡出 100 ms' : `退场 ${state.duration} ms`;
+    root.querySelectorAll('[data-motion]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.motion === state.motion)));
+    slowButton.setAttribute('aria-pressed', String(state.slow));
+    draw(0);
+  }
+
+  function play() {
+    cancelAnimationFrame(frameID);
+    runStart = performance.now(); draw(0);
+    playButton.textContent = '再次播放 ↵';
+    const rate = state.slow ? 3 : 1;
+    const duration = (reduceMotion.matches ? 100 : state.duration) * rate;
+    const tick = now => {
+      const elapsed = now - runStart;
+      const t = clamp(elapsed / duration);
+      draw(t);
+      if (t < 1) frameID = requestAnimationFrame(tick);
+      else caption.textContent = '已提交';
+    };
+    caption.textContent = reduceMotion.matches ? '已跟随系统「减少动态效果」：仅淡出' : descriptions[state.motion];
+    frameID = requestAnimationFrame(tick);
+  }
+
+  root.querySelectorAll('[data-motion]').forEach(button => button.addEventListener('click', () => {
+    state.motion = button.dataset.motion;
+    state.duration = state.motion === 'wind' ? 500 : state.motion === 'ufo' ? 320 : 220;
+    renderSettings();
+  }));
+  playButton.addEventListener('click', play);
+  slowButton.addEventListener('click', () => { state.slow = !state.slow; renderSettings(); });
+  new ResizeObserver(layout).observe(canvas);
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', layout);
+  reduceMotion.addEventListener('change', renderSettings);
+  traySymbol.addEventListener('load', layout);
+  traySymbol.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6QAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAQKADAAQAAAABAAAAQAAAAABlmWCKAAAEoUlEQVR4Ae2YW4hVVRyHzUrT7EoXK/ECkXSZIAQzM8kCfZDsAsEgBN0miAq7PORLLxEIgk++SA0GWtZDUQ8JPeQlzCBKKkmaoSalhmggK0uztKzvk7NguZvDrLP3nnMOtH7wsdfee11/+78u50yYkJUdyA5kB7ID2YHsQHYgO5AdyA5kB7ID2YH/nQOnjdOIrfd8mAwTK7ZxgvJ/wCH4p2Jd/yletwE9tPAw3AoaUHXwVHFSmnAQtkM/DEDXaSU92geH4W/wa9WJdVr3XrgLukr30ZuvYTwGXjTRNgbhbqisOqbAMnqxGS4C63OuroO3YQSOQRVNovBlcC+sgmmgKT+Az3ZDxzSXlofAOWqnDFG/zDlQh7lUc1KuJeeC0+wo2JaR4JSbBaVVpZMX0OpWmA+ng516Cl6GX2Eq3AlzwPdl5CCdWm/BcTgPHoU1oP6CXbACNL9tOoOWXoM/wYHLBrgYghaR+AjcwqrwIeWvh6DpJDZBaNeI6IdSH7NUIRp7Hp6Gs0Ftg4fgW7Bj6kxYDJdDlQiwzg/AaFD22ajShJtB/QYvwFpvxlu9NPAThC8wRPoqGG2QPtOIKoxWrxF4LXwHoR+eE+6AltRqBCyg9jfgikYrzjsb9Qs5H5XvboCzvKlRTqNPwNVfaept4G5jWxqhIa4Hn0PtmkGNfm1D0cZc+fugONBXeWaEHKmZH6lvA8Saws0TEKLAjzAAl0CSDKUU6fYr4NwLUbOe9Ovgl4m1hZtDYOfqlIudu0Esn7kW9IAfw+nidPTZcgjrBslqeobiwWWv74IHkm6R2+NOiPv4SJ2d21Oo3G1pYp0NVKzLL38TxAbsSKkzhPNYeZ3PHmyCfichNpiqb8j4JHwMzULTqbYQ1sFMSJXjcEuOp9333IfFumk9qWtAPHgr8774rGkjjRcekly1v4KDjWfFy4U8WArzii9K3Cf1r91h7KEo/krFcfnOPHUoKbpTIyDukHvxS+AxOEUPkOlGcLs0AjbCMBRlhy+FJY0XTrFd4JE7RZPJtAquScncap54cXmTwknh1Wjkca4eUEIdL5Je1HgXX27nxq025NtP+n5IlWvAexDK/5JaMCVfqNRrqwa4EO0GD06hnn2kV8N8WADPwQCE9y6S28E1IVVda4ADuAe+AAcWBtnsap7PYBm0oq42wIH0wl5w7RjNCJ95snON8TzfqkoZUGYRbLVjIb/H5k/hQVgMc8F9Xx2DL2EHuEjuh7aonQY4oEF4Fhy4K75bnlPBQ8sI+GOmrWq3AWFwx0kMNwjPOnItcxBKOmB0ZDSnNmpkjakyBhg13WiCfZo05ogLGVIN8D+3oCtJFP8ECe86efUYPSfqQNzn6PGpydQ14ADFehpFr+baB/3gttVp+eU9mfpLc0bUmQNRumky1YB3qOE6CKG/hvRjMAwuaJ2UO8psmB51wvm/NbqvnDS0PM/Hx1kb6Ubs4xDEhnBbXcupwor9v8+DSzeZYV88Yf4M/qZYAkkKIZ2UmUyzYSXcAs63adBqHRSpVUahC54R+j5sAadmVnYgO5AdyA5kB7ID2YHsQHYgO5AdyA5kB7IDozvwL4tzovnebwskAAAAAElFTkSuQmCC';
+  layout(); renderSettings();
+  if (globalThis.Tweak) {
+    const tweak = new Tweak({ container: root, onChange: renderSettings });
+    tweak.addSlider(state, 'duration', { label: '退场时长', min: 160, max: 800, step: 10, unit: 'ms' });
+  }
+})();
+</script>

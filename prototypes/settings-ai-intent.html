@@ -1,0 +1,308 @@
+<!doctype html>
+<!--
+  PROTOTYPE（一次性，看完即弃）：设置 →「插件」拆成「AI」+「意图识别」
+  三帧对照，用底部浮条或 ←/→ 键切换，URL ?variant=A|B|C 可分享。
+    A  拆分后 ·「AI」页        —— 只管内容怎么生成（AI 来源 / 模型 / 密钥）
+    B  拆分后 ·「意图识别」页  —— 决策（Jev 判断去向）在上，微调（你的纠正）在下
+    C  拆分前 ·「插件」页      —— 对比：三块挤一页，名不副实且臃肿
+  控件与文案取自真实代码：Sources/App/SettingsView.swift（aiSourceSection）、
+  Sources/App/JevSettingsView.swift（keySection / correctionsSection）。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设置：AI / 意图识别 拆分原型</title>
+<style>
+  :root {
+    --accent: #007aff;
+    --text: #1d1d1f;
+    --text-2: rgba(60, 60, 67, .6);
+    --text-3: rgba(60, 60, 67, .33);
+    --hairline: rgba(0, 0, 0, .08);
+    --box-bg: #fff;
+    --page-bg: #f2f2f3;
+    --warn: #ff9f0a;
+    --danger: #ff3b30;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+    font-size: 13px; color: var(--text);
+    background: #c8c8cc;
+    background-image: radial-gradient(1200px 800px at 30% 20%, #d9d9de, #b9b9c0);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; padding: 40px 0 90px;
+    user-select: none;
+  }
+
+  /* ── macOS 窗口外壳 ─────────────────────────── */
+  .window {
+    width: 700px; height: 520px; background: var(--page-bg);
+    border-radius: 10px; overflow: hidden;
+    box-shadow: 0 22px 70px rgba(0,0,0,.35), 0 0 0 .5px rgba(0,0,0,.25);
+    display: flex; position: relative;
+  }
+  .lights { position: absolute; top: 13px; left: 13px; display: flex; gap: 8px; z-index: 2; }
+  .lights i { width: 12px; height: 12px; border-radius: 50%; }
+  .lights i:nth-child(1){ background:#ff5f57; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.15);}
+  .lights i:nth-child(2){ background:#febc2e; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.15);}
+  .lights i:nth-child(3){ background:#28c840; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.15);}
+
+  /* ── 侧栏 ─────────────────────────────────── */
+  .sidebar {
+    width: 180px; flex: none; padding: 52px 8px 8px;
+    background: rgba(232,232,234,.9);
+    border-right: .5px solid rgba(0,0,0,.1);
+  }
+  .side-item {
+    display: flex; align-items: center; gap: 7px;
+    padding: 4px 8px; border-radius: 6px; margin-bottom: 1px;
+    font-size: 13px; line-height: 20px;
+  }
+  .side-item svg { width: 15px; height: 15px; color: var(--accent); flex: none; }
+  .side-item.sel { background: rgba(0,0,0,.08); font-weight: 500; }
+  .side-after, .side-before { display: none; }
+
+  /* ── 内容区 ────────────────────────────────── */
+  .content { flex: 1; overflow: hidden auto; padding: 22px 20px 20px; }
+  h1 { font-size: 22px; font-weight: 600; margin-bottom: 14px; }
+  h2.sec { font-size: 13px; font-weight: 500; margin: 18px 2px 6px; }
+  h2.sec:first-of-type { margin-top: 0; }
+  h2.sec .trial { font-weight: 400; color: var(--warn); font-size: 11px; }
+  .sec-foot { font-size: 11px; color: var(--text-2); margin: 6px 2px 0; line-height: 1.45; }
+
+  .box { background: var(--box-bg); border: .5px solid var(--hairline); border-radius: 7px; overflow: hidden; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; min-height: 40px; }
+  .row + .row, .row + .radio, .radio + .row { border-top: .5px solid var(--hairline); }
+  .row .tt { flex: 1; min-width: 0; }
+  .row .tt .name { font-size: 13px; }
+  .row .tt .sub { font-size: 11px; color: var(--text-2); margin-top: 1px; line-height: 1.35; }
+
+  .kv { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; }
+  .kv .k { color: var(--text); }
+  .kv .v { color: var(--text-2); }
+  .kv .v.warn { color: var(--warn); }
+
+  /* 单选（radioGroup） */
+  .radio .opt { display: flex; align-items: center; gap: 9px; padding: 8px 12px; }
+  .radio .opt + .opt { border-top: .5px solid var(--hairline); }
+  .dot { width: 15px; height: 15px; border-radius: 50%; border: 1px solid rgba(0,0,0,.3); flex: none; display: grid; place-items: center; }
+  .opt.on .dot { border-color: var(--accent); }
+  .opt.on .dot::after { content:""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .opt .lbl { font-size: 13px; }
+  .opt .tag { font-size: 10px; color: var(--text-2); margin-left: 4px; }
+
+  /* 文本 / 密钥输入框 */
+  .input { flex: 1; height: 24px; border-radius: 5px; border: .5px solid rgba(0,0,0,.18);
+    background: #fff; box-shadow: inset 0 1px 1.5px rgba(0,0,0,.05);
+    display: flex; align-items: center; padding: 0 8px; font-size: 12px; color: var(--text-3); }
+  .input.filled { color: var(--text); letter-spacing: 3px; }
+
+  /* 按钮 / 弹出选择 */
+  .btn { font-size: 12px; padding: 3px 10px; border-radius: 6px; background: #fff; border: .5px solid rgba(0,0,0,.18); box-shadow: 0 .5px 1.5px rgba(0,0,0,.06); cursor: default; flex: none; }
+  .btn.accent { background: var(--accent); border-color: transparent; color: #fff; }
+  .btn.danger { color: var(--danger); }
+  .btn[disabled] { opacity: .4; }
+  .popup { display: inline-flex; align-items: center; gap: 6px; background: #fff; border: .5px solid rgba(0,0,0,.18); box-shadow: 0 .5px 1.5px rgba(0,0,0,.06); border-radius: 6px; padding: 3px 8px; font-size: 12px; }
+  .popup .updn { color: var(--text-3); font-size: 9px; line-height: 1; }
+  .link { color: var(--accent); font-size: 12px; }
+  .status { font-size: 11px; color: var(--text-2); }
+  .btnrow { display: flex; gap: 8px; align-items: center; }
+
+  /* 决策/微调 两块的左侧因果标记 */
+  .layer { position: relative; }
+  .layer > h2.sec { padding-left: 12px; }
+  .layer > h2.sec::before { content:""; position: absolute; left: 2px; top: 3px; bottom: 0; width: 3px; border-radius: 2px; }
+  .layer.decide > h2.sec::before { background: var(--accent); height: 14px; }
+  .layer.tune > h2.sec::before { background: var(--warn); height: 14px; }
+
+  /* ── 底部切换浮条 ─────────────────────────── */
+  .switcher {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 4px;
+    background: rgba(30,30,32,.92); color: #f5f5f7;
+    border-radius: 999px; padding: 6px 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.35);
+    font-size: 12px; z-index: 10;
+  }
+  .switcher button { width: 26px; height: 26px; border: 0; border-radius: 50%; background: transparent; color: #f5f5f7; font-size: 15px; cursor: pointer; }
+  .switcher button:hover { background: rgba(255,255,255,.14); }
+  .switcher .label { min-width: 210px; text-align: center; font-weight: 500; }
+  .switcher .hint { color: rgba(245,245,247,.45); font-size: 10.5px; padding-right: 8px; }
+  #idea { font-size: 12px; color: rgba(255,255,255,.85); text-shadow: 0 1px 3px rgba(0,0,0,.4); max-width: 700px; text-align: center; line-height: 1.5; }
+
+  .variant { display: none; }
+  body[data-variant="A"] .vA, body[data-variant="B"] .vB, body[data-variant="C"] .vC { display: block; }
+</style>
+</head>
+<body data-variant="A">
+
+<div class="window">
+  <div class="lights"><i></i><i></i><i></i></div>
+
+  <aside class="sidebar">
+    <div class="side-item" id="side-general"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg>通用</div>
+
+    <!-- 拆分后：AI + 意图识别 -->
+    <div class="side-item side-after" id="side-ai"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5z"/><path d="M18 14l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/></svg>AI</div>
+    <div class="side-item side-after" id="side-intent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M6 4v7"/><circle cx="6" cy="13" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M8 12.5c3 0 4-1.5 5-3l1-1.5"/></svg>意图识别</div>
+
+    <!-- 拆分前：插件 -->
+    <div class="side-item side-before" id="side-plugins"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h5a2 2 0 1 1 4 0h7v6a2 2 0 1 0 0 4v3H4z"/></svg>插件</div>
+
+    <div class="side-item" id="side-actions"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5z"/></svg>Actions</div>
+    <div class="side-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 10h16M4 14h10M4 18h7"/></svg>Instructions</div>
+    <div class="side-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.3a2.6 2.6 0 1 1 3.6 2.4c-.8.35-1.1.8-1.1 1.8"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>使用入门</div>
+    <div class="side-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 14a4 4 0 0 0 6 .4l3-3a4 4 0 1 0-5.6-5.6L12 7.2"/><path d="M14 10a4 4 0 0 0-6-.4l-3 3a4 4 0 1 0 5.6 5.6L12 16.8"/></svg>联系我</div>
+  </aside>
+
+  <main class="content">
+
+    <!-- ═══════ A：拆分后 ·「AI」页 ═══════ -->
+    <section class="variant vA">
+      <h1>AI</h1>
+      <h2 class="sec">AI 来源</h2>
+      <div class="box">
+        <div class="row"><div class="tt"><div class="name">用于补充与待办</div></div></div>
+        <div class="radio">
+          <div class="opt on"><span class="dot"></span><span class="lbl">DeepSeek</span></div>
+          <div class="opt"><span class="dot"></span><span class="lbl">Kimi</span></div>
+        </div>
+        <div class="row"><div class="kv"><span class="k">模型</span><span class="popup">deepseek-chat<span class="updn">▴▾</span></span></div></div>
+        <div class="row"><div class="input filled">••••••••••••</div></div>
+        <div class="row"><span class="status">密钥已保存，不在此处显示</span></div>
+        <div class="row"><div class="btnrow"><span class="btn" disabled>保存</span><span class="btn">移除密钥</span></div></div>
+        <div class="row"><span class="link">申请 DeepSeek API Key…</span></div>
+        <div class="row"><span class="btn accent">测试连接</span></div>
+      </div>
+      <p class="sec-foot">密钥保存在本机明文文件，仅当前账户可读写。先保存再测试；切换或移除密钥只影响新请求。测试使用固定文字及已保存的 Instructions，不发送记录。</p>
+    </section>
+
+    <!-- ═══════ B：拆分后 ·「意图识别」页（决策 / 微调） ═══════ -->
+    <section class="variant vB">
+      <h1>意图识别</h1>
+
+      <div class="layer decide">
+        <h2 class="sec">决策 · Jev 判断去向<span class="trial">（试用）</span></h2>
+        <div class="box">
+          <div class="row"><div class="input">输入新密钥以替换</div></div>
+          <div class="row"><span class="status">密钥已保存，配置后即常态识别，Enter 主路由</span></div>
+          <div class="row"><div class="btnrow"><span class="btn">替换密钥</span><span class="btn">移除密钥</span><span class="btn accent">测试连接</span></div></div>
+          <div class="row"><span class="link">获取 Jev API Key…</span></div>
+        </div>
+        <p class="sec-foot">尚未提交的草稿文字会发送给 TypeSafe 判断建议动作；费用由你的 TypeSafe 账户承担。识别不会自动执行动作。连接正常不代表中文识别效果已验证。</p>
+      </div>
+
+      <div class="layer tune">
+        <h2 class="sec">微调 · 你的纠正</h2>
+        <div class="box">
+          <div class="row"><div class="tt"><div class="name">把周报同步给张伟</div><div class="sub">Jev 存到备忘录 → 你改为 提醒事项</div></div></div>
+          <div class="row"><div class="tt"><div class="name">下午三点提醒我对齐需求</div><div class="sub">Jev 打开日历 → 你改为 提醒事项</div></div></div>
+          <div class="row"><div class="tt"><div class="name">order confirm 的逻辑再看下</div><div class="sub">Jev 提醒事项 → 你改为 存到备忘录</div></div></div>
+          <div class="row"><span class="btn danger">清空纠正记录</span></div>
+        </div>
+        <p class="sec-foot">仅本地保存、永不外传，用于回看 Jev 判错的情况；后续可据此沉淀本地规则。</p>
+      </div>
+    </section>
+
+    <!-- ═══════ C：拆分前 ·「插件」页（臃肿对比） ═══════ -->
+    <section class="variant vC">
+      <h1>插件</h1>
+      <h2 class="sec">AI 来源</h2>
+      <div class="box">
+        <div class="row"><div class="tt"><div class="name">用于补充与待办</div></div></div>
+        <div class="radio">
+          <div class="opt on"><span class="dot"></span><span class="lbl">DeepSeek</span></div>
+          <div class="opt"><span class="dot"></span><span class="lbl">Kimi</span></div>
+        </div>
+        <div class="row"><div class="kv"><span class="k">模型</span><span class="popup">deepseek-chat<span class="updn">▴▾</span></span></div></div>
+        <div class="row"><div class="input filled">••••••••••••</div></div>
+        <div class="row"><div class="btnrow"><span class="btn" disabled>保存</span><span class="btn">移除密钥</span><span class="btn accent">测试连接</span></div></div>
+      </div>
+      <h2 class="sec">意图识别（Jev，试用）</h2>
+      <div class="box">
+        <div class="row"><div class="input">Jev API Key</div></div>
+        <div class="row"><div class="btnrow"><span class="btn">保存密钥</span><span class="btn">移除密钥</span><span class="btn accent">测试连接</span></div></div>
+        <div class="row"><span class="link">获取 Jev API Key…</span></div>
+      </div>
+      <h2 class="sec">Jev 纠正记录</h2>
+      <div class="box">
+        <div class="row"><div class="tt"><div class="name">把周报同步给张伟</div><div class="sub">Jev 存到备忘录 → 你改为 提醒事项</div></div></div>
+        <div class="row"><div class="tt"><div class="name">下午三点提醒我对齐需求</div><div class="sub">Jev 打开日历 → 你改为 提醒事项</div></div></div>
+        <div class="row"><span class="btn danger">清空纠正记录</span></div>
+      </div>
+      <p class="sec-foot">同一页压了三类东西：内容怎么生成（AI 来源）、输入去哪（Jev）、以及对 Jev 的纠正——彼此无关，且都不是可装卸的「插件」。</p>
+    </section>
+
+  </main>
+</div>
+
+<div id="idea"></div>
+
+<div class="switcher">
+  <button id="prev" aria-label="上一帧">‹</button>
+  <span class="label" id="label"></span>
+  <button id="next" aria-label="下一帧">›</button>
+  <span class="hint">←/→ 切换</span>
+</div>
+
+<script>
+  var variants = [
+    { key: "A", name: "拆分后 ·「AI」页", side: "ai",
+      idea: "「AI」只管内容怎么生成：来源（DeepSeek / Kimi）· 模型 · 密钥 · 测试连接。原「插件」的 AI 部分，独立成页。" },
+    { key: "B", name: "拆分后 ·「意图识别」页", side: "intent",
+      idea: "决策（蓝，Jev 判断去向）在上，微调（橙，你的纠正）在下——因果分层：机器先判，你再校准。纠正记录是未来「立本地规则」的入口。" },
+    { key: "C", name: "拆分前 ·「插件」页（对比）", side: "plugins",
+      idea: "旧貌：AI 来源 + Jev + 纠正记录三块挤一页。名不副实（不可装卸）、且把两件无关的事捆在一起——这就是「臃肿」。" }
+  ];
+
+  function current() {
+    var v = new URLSearchParams(location.search).get("variant");
+    return variants.some(function(x){ return x.key === v }) ? v : "A";
+  }
+  function show(key) {
+    document.body.dataset.variant = key;
+    var i = variants.findIndex(function(x){ return x.key === key });
+    var v = variants[i];
+    document.getElementById("label").textContent = key + " · " + v.name;
+    document.getElementById("idea").textContent = v.idea;
+
+    // 侧栏：before/after 结构切换 + 选中项高亮
+    var before = key === "C";
+    document.querySelectorAll(".side-after").forEach(function(e){ e.style.display = before ? "none" : "flex"; });
+    document.querySelectorAll(".side-before").forEach(function(e){ e.style.display = before ? "flex" : "none"; });
+    document.querySelectorAll(".side-item").forEach(function(e){ e.classList.remove("sel"); });
+    var sel = document.getElementById("side-" + v.side);
+    if (sel) sel.classList.add("sel");
+
+    try { history.replaceState(null, "", "?variant=" + key); } catch (e) {}
+    document.querySelector(".content").scrollTop = 0;
+  }
+  function step(d) {
+    var i = variants.findIndex(function(x){ return x.key === current() });
+    show(variants[(i + d + variants.length) % variants.length].key);
+  }
+
+  document.getElementById("prev").onclick = function(){ step(-1); };
+  document.getElementById("next").onclick = function(){ step(1); };
+  document.addEventListener("keydown", function(e) {
+    if (e.key === "ArrowLeft") step(-1);
+    if (e.key === "ArrowRight") step(1);
+  });
+
+  // 单选 / 开关可点着玩
+  document.querySelectorAll(".radio").forEach(function(group) {
+    group.querySelectorAll(".opt").forEach(function(opt) {
+      opt.addEventListener("click", function() {
+        group.querySelectorAll(".opt").forEach(function(o){ o.classList.remove("on"); });
+        opt.classList.add("on");
+      });
+    });
+  });
+
+  show(current());
+</script>
+</body>
+</html>

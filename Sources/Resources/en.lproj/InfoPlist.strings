@@ -1,0 +1,3 @@
+"NSAppleEventsUsageDescription" = "Jotway saves the text you confirm to the selected Notes folder.";
+"NSCalendarsFullAccessUsageDescription" = "Jotway creates events from the schedule text you confirm in the selected calendar.";
+"NSRemindersFullAccessUsageDescription" = "Jotway saves the reminder text you confirm to the selected Reminders list.";

@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+    </array>
+    <key>CFBundleDisplayName</key>
+    <string>Jotway</string>
+    <key>CFBundleExecutable</key>
+    <string>Jotway</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.liuguangqi.jotway</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleName</key>
+    <string>Jotway</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>15.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>JotwayUpdatesEnabled</key>
+    <false/>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
+    <key>SUAllowsAutomaticUpdates</key>
+    <false/>
+    <key>SUAutomaticallyUpdate</key>
+    <false/>
+    <key>SUEnableSystemProfiling</key>
+    <false/>
+    <key>SUEnableInstallerLauncherService</key>
+    <true/>
+    <key>SUVerifyUpdateBeforeExtraction</key>
+    <true/>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Jotway saves the text you confirm to the selected Notes folder.</string>
+    <key>NSRemindersFullAccessUsageDescription</key>
+    <string>Jotway saves the reminder text you confirm to the selected Reminders list.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Jotway creates events from the schedule text you confirm in the selected calendar.</string>
+</dict>
+</plist>

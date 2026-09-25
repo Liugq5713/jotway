@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<!--
+  PROTOTYPE — 一次性设置页 UI 原型，用完即弃。
+  问题：设置界面怎么组织更好？（配合「意图识别并入 AI」）
+  三个结构完全不同的变体，?variant=A/B/C 切换，底部浮条或 ←/→ 键翻页。
+  打开方式：open docs/development/prototype-settings.html
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jotway 设置原型</title>
+<style>
+  :root {
+    --desktop: linear-gradient(135deg, #6a85b6 0%, #bac8e0 100%);
+    --window-bg: #f5f5f7;
+    --sidebar-bg: rgba(238, 238, 240, 0.85);
+    --card-bg: #ffffff;
+    --text: #1d1d1f;
+    --text-2: rgba(60, 60, 67, 0.6);
+    --text-3: rgba(60, 60, 67, 0.36);
+    --separator: rgba(0, 0, 0, 0.08);
+    --accent: #007aff;
+    --green: #34c759;
+    --orange: #ff9500;
+    --red: #ff3b30;
+    --teal: #5ac8fa;
+    --control-bg: rgba(120, 120, 128, 0.12);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --desktop: linear-gradient(135deg, #1c1c2e 0%, #2d2d44 100%);
+      --window-bg: #232325;
+      --sidebar-bg: rgba(40, 40, 42, 0.85);
+      --card-bg: #2e2e30;
+      --text: #f5f5f7;
+      --text-2: rgba(235, 235, 245, 0.6);
+      --text-3: rgba(235, 235, 245, 0.32);
+      --separator: rgba(255, 255, 255, 0.1);
+      --control-bg: rgba(120, 120, 128, 0.24);
+    }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+    background: var(--desktop);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text);
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ===== macOS 窗口框 ===== */
+  .window {
+    width: 760px; height: 560px;
+    background: var(--window-bg);
+    border-radius: 12px;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.35), 0 0 0 0.5px rgba(0,0,0,0.15);
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    position: relative;
+  }
+  .window.narrow { width: 580px; }
+  .titlebar {
+    height: 40px; flex: none;
+    display: flex; align-items: center;
+    padding: 0 14px;
+    position: relative; z-index: 5;
+  }
+  .lights { display: flex; gap: 8px; }
+  .light { width: 12px; height: 12px; border-radius: 50%; }
+  .light.r { background: #ff5f57; } .light.y { background: #febc2e; } .light.g { background: #28c840; }
+  .titlebar .doc-title {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    font-weight: 600; color: var(--text-2); font-size: 13px;
+  }
+
+  .variant-note {
+    position: absolute; top: 8px; right: 12px; z-index: 20;
+    font-size: 11px; color: var(--text-3);
+    background: var(--control-bg); padding: 3px 8px; border-radius: 10px;
+    max-width: 320px;
+  }
+
+  /* ===== 通用控件 ===== */
+  .card {
+    background: var(--card-bg);
+    border-radius: 10px;
+    box-shadow: 0 0 0 0.5px var(--separator);
+    overflow: hidden;
+  }
+  .row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; min-height: 36px;
+    position: relative;
+  }
+  .row + .row::before {
+    content: ""; position: absolute; top: 0; left: 12px; right: 0;
+    height: 0.5px; background: var(--separator);
+  }
+  .row .label { flex: none; }
+  .row .spacer { flex: 1; }
+  .value { color: var(--text-2); }
+  .section-title {
+    font-size: 11px; color: var(--text-2);
+    margin: 18px 12px 6px; text-transform: none;
+  }
+  .section-foot { font-size: 11px; color: var(--text-2); margin: 6px 12px 0; line-height: 1.5; }
+  h2.page-title { font-size: 20px; font-weight: 700; margin: 4px 0 2px; }
+  .muted { color: var(--text-2); }
+  .small { font-size: 11px; }
+  .btn {
+    font-size: 12px; padding: 3px 12px; border-radius: 6px;
+    background: var(--card-bg); color: var(--text);
+    border: none; box-shadow: 0 0 0 0.5px var(--separator), 0 1px 2px rgba(0,0,0,0.06);
+    cursor: default;
+  }
+  .btn.primary { background: var(--accent); color: #fff; box-shadow: none; }
+  .field {
+    background: var(--card-bg); box-shadow: 0 0 0 0.5px var(--separator);
+    border-radius: 6px; padding: 3px 8px; font-size: 12px; color: var(--text-3);
+    min-width: 180px;
+  }
+  .toggle {
+    width: 38px; height: 23px; border-radius: 12px; background: var(--green);
+    position: relative; flex: none;
+  }
+  .toggle::after {
+    content: ""; position: absolute; top: 2px; right: 2px;
+    width: 19px; height: 19px; border-radius: 50%; background: #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  }
+  .toggle.off { background: var(--control-bg); }
+  .toggle.off::after { right: auto; left: 2px; }
+  .seg { display: inline-flex; background: var(--control-bg); border-radius: 7px; padding: 1.5px; }
+  .seg span { padding: 2px 14px; border-radius: 5px; font-size: 12px; color: var(--text-2); }
+  .seg span.on { background: var(--card-bg); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,0.12); font-weight: 500; }
+  .pill {
+    font-size: 10px; font-weight: 500; padding: 2px 7px; border-radius: 5px;
+  }
+  .pill.blue { color: var(--accent); background: rgba(0,122,255,0.12); }
+  .pill.orange { color: var(--orange); background: rgba(255,149,0,0.12); }
+  .pill.red { color: var(--red); background: rgba(255,59,48,0.12); }
+  .pill.gray { color: var(--text-2); background: var(--control-bg); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .dot.green { background: var(--green); }
+  .dot.gray { background: var(--text-3); }
+  .tile {
+    width: 26px; height: 26px; border-radius: 7px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 13px;
+  }
+  .chev { color: var(--text-3); font-size: 12px; }
+  .scroll { overflow-y: auto; flex: 1; }
+  .page-pad { padding: 16px 22px 24px; }
+  .disclosure { color: var(--text); }
+  .disclosure .tri { display: inline-block; font-size: 9px; color: var(--text-2); width: 14px; transition: transform .15s; }
+  .disclosure.open .tri { transform: rotate(90deg); }
+
+  /* ===== Variant A：侧边栏 ===== */
+  .a-body { display: flex; flex: 1; min-height: 0; }
+  .a-sidebar {
+    width: 190px; flex: none;
+    background: var(--sidebar-bg);
+    backdrop-filter: blur(20px);
+    border-right: 0.5px solid var(--separator);
+    padding: 8px;
+    display: flex; flex-direction: column; gap: 1px;
+  }
+  .a-side-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 8px; border-radius: 6px; font-size: 13px;
+    color: var(--text);
+  }
+  .a-side-item .sicon {
+    width: 22px; height: 22px; border-radius: 5px;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 11px; flex: none;
+  }
+  .a-side-item.on { background: rgba(0,0,0,0.08); font-weight: 500; }
+  @media (prefers-color-scheme: dark) { .a-side-item.on { background: rgba(255,255,255,0.12); } }
+  .a-content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .a-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .a-action-card {
+    background: var(--card-bg); border-radius: 10px;
+    box-shadow: 0 0 0 0.5px var(--separator);
+    padding: 10px 12px; display: flex; flex-direction: column; gap: 5px;
+  }
+  .a-action-card .sub { font-size: 11px; color: var(--text-2); line-height: 1.4; min-height: 30px; }
+  .a-action-card .foot {
+    border-top: 0.5px solid var(--separator); padding-top: 6px;
+    font-size: 11px; color: var(--text-2);
+    display: flex; align-items: center; gap: 4px;
+  }
+  .a-action-card .foot.warn { color: var(--orange); }
+
+  /* ===== Variant B：状态总览 drill-in ===== */
+  .b-body { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+  .b-page {
+    position: absolute; inset: 0; overflow-y: auto;
+    padding: 12px 24px 28px;
+    transition: transform .25s ease, opacity .25s ease;
+    background: var(--window-bg);
+  }
+  .b-page.hidden-left { transform: translateX(-24px); opacity: 0; pointer-events: none; }
+  .b-page.hidden-right { transform: translateX(24px); opacity: 0; pointer-events: none; }
+  .b-row { cursor: default; border-radius: 0; }
+  .b-row.clickable:hover { background: var(--control-bg); }
+  .b-back {
+    display: inline-flex; align-items: center; gap: 3px;
+    color: var(--text-2); font-size: 12px;
+    background: var(--control-bg); padding: 3px 10px; border-radius: 12px;
+    margin-bottom: 10px;
+  }
+  .b-hero {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 18px;
+  }
+  .b-hero .icon {
+    width: 44px; height: 44px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 20px;
+  }
+
+  /* ===== Variant C：Raycast 搜索风 ===== */
+  .c-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .c-search {
+    flex: none; padding: 14px 16px 10px;
+    border-bottom: 0.5px solid var(--separator);
+    display: flex; align-items: center; gap: 9px;
+  }
+  .c-search .glass { color: var(--text-3); font-size: 15px; }
+  .c-search input {
+    border: none; outline: none; background: transparent;
+    font-size: 16px; color: var(--text); width: 100%;
+    font-family: inherit;
+  }
+  .c-search input::placeholder { color: var(--text-3); }
+  .c-list { flex: 1; overflow-y: auto; padding: 6px 8px 12px; }
+  .c-group { font-size: 11px; color: var(--text-3); padding: 10px 10px 3px; }
+  .c-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 10px; border-radius: 7px; min-height: 34px;
+  }
+  .c-item.on { background: var(--accent); color: #fff; }
+  .c-item.on .value, .c-item.on .chev, .c-item.on .muted { color: rgba(255,255,255,0.75); }
+  .c-footer {
+    flex: none; border-top: 0.5px solid var(--separator);
+    padding: 7px 16px; font-size: 11px; color: var(--text-3);
+    display: flex; gap: 16px;
+  }
+  kbd {
+    font-family: inherit; font-size: 10px;
+    background: var(--control-bg); border-radius: 4px; padding: 1px 5px;
+  }
+
+  /* ===== 底部浮条 ===== */
+  .switcher {
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 4px;
+    background: rgba(30,30,32,0.92); color: #fff;
+    border-radius: 22px; padding: 6px 8px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+    font-size: 12px; z-index: 100;
+    backdrop-filter: blur(10px);
+    user-select: none;
+  }
+  .switcher button {
+    background: none; border: none; color: #fff; font-size: 15px;
+    width: 30px; height: 30px; border-radius: 50%; cursor: pointer;
+  }
+  .switcher button:hover { background: rgba(255,255,255,0.15); }
+  .switcher .cur { min-width: 190px; text-align: center; }
+  .switcher .cur b { font-weight: 600; }
+  .switcher .cur .sub { opacity: 0.55; font-size: 11px; display: block; }
+  .proto-tag {
+    position: fixed; top: 14px; left: 14px; z-index: 100;
+    font-size: 10px; letter-spacing: 1px; font-weight: 700;
+    color: #fff; background: var(--orange);
+    padding: 3px 8px; border-radius: 4px;
+  }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="proto-tag">PROTOTYPE · 一次性</div>
+
+<!-- ==================== Variant A ==================== -->
+<div class="window" id="variant-a">
+  <div class="variant-note">A · 侧边栏收敛：7 项 → 5 项，意图识别并入 AI 页</div>
+  <div class="a-body" style="margin-top:-40px; padding-top:40px;">
+    <div class="a-sidebar">
+      <div class="titlebar" style="padding:0 4px 8px;"><div class="lights"><div class="light r"></div><div class="light y"></div><div class="light g"></div></div></div>
+      <div class="a-side-item" data-apage="general"><span class="sicon" style="background:#8e8e93;">⚙</span>通用</div>
+      <div class="a-side-item on" data-apage="ai"><span class="sicon" style="background:#5e5ce6;">✦</span>AI</div>
+      <div class="a-side-item" data-apage="actions"><span class="sicon" style="background:#ff9500;">⚡</span>动作</div>
+      <div class="a-side-item" data-apage="guide"><span class="sicon" style="background:#30b0c7;">?</span>使用入门</div>
+      <div class="a-side-item" data-apage="about"><span class="sicon" style="background:#8e8e93;">ⓘ</span>关于</div>
+    </div>
+    <div class="a-content">
+
+      <!-- A · AI 页（重点：意图识别并入） -->
+      <div class="scroll page-pad" id="a-page-ai">
+        <h2 class="page-title">AI</h2>
+        <div class="section-title">来源</div>
+        <div class="card">
+          <div class="row"><span class="label">提供方</span><span class="spacer"></span>
+            <span class="seg"><span>DeepSeek</span><span class="on">Kimi</span></span>
+          </div>
+          <div class="row"><span class="label">模型</span><span class="spacer"></span><span class="value">kimi-k2-0905-preview ▾</span></div>
+          <div class="row"><span class="label">API Key</span><span class="spacer"></span>
+            <span class="field">••••••••••••••••</span><button class="btn">替换</button>
+          </div>
+          <div class="row"><span class="label small muted">密钥已保存，不在此处显示 · 申请 Kimi API Key…</span><span class="spacer"></span></div>
+          <div class="row"><button class="btn">测试连接</button><span class="small muted"><span class="dot green"></span> 连接正常</span><span class="spacer"></span></div>
+        </div>
+        <div class="section-foot">密钥保存在本机明文文件，仅当前账户可读写。测试使用固定文字，不发送草稿。</div>
+
+        <div class="section-title">意图识别</div>
+        <div class="card">
+          <div class="row"><span class="label">用 AI 识别意图</span><span class="spacer"></span><span class="toggle"></span></div>
+          <div class="row"><span class="label">识别不到时</span><span class="spacer"></span><span class="value">存到备忘录 ▾</span></div>
+          <div class="row disclosure" data-disclosure><span class="tri">▶</span><span class="label">纠正记录（3 条）</span><span class="spacer"></span><span class="small muted">仅本地保存</span></div>
+          <div class="hidden">
+            <div class="row"><span class="label small">「周五下午三点周报」Jev 判为日程 → 你改为待办</span></div>
+            <div class="row"><span class="label small">「查一下机票」Jev 判为备忘录 → 你改为 Google</span></div>
+            <div class="row"><span class="label small">「记一下门禁密码」Jev 判为待办 → 你改为备忘录</span></div>
+          </div>
+        </div>
+        <div class="section-foot">识别复用上面配置的来源与模型，不再单独配置密钥。未配置密钥或识别不到时，Enter 永远兜底到默认动作，打字不落空。</div>
+
+        <div class="section-title">INSTRUCTIONS</div>
+        <div class="card">
+          <div class="row disclosure" data-disclosure><span class="tri">▶</span><span class="label">通用背景与共同要求</span><span class="spacer"></span><span class="small muted">已自定义</span></div>
+          <div class="hidden">
+            <div class="row"><span class="field" style="width:100%; min-height:70px; padding:8px;">我从事前端开发，日常使用 pnpm monorepo……</span></div>
+            <div class="row"><button class="btn">保存</button><button class="btn">取消</button><span class="spacer"></span><span class="small muted">Enter 换行</span></div>
+          </div>
+        </div>
+        <div class="section-foot">供所有 AI 功能使用，保存后只影响新请求。</div>
+      </div>
+
+      <!-- A · 动作页 -->
+      <div class="scroll page-pad hidden" id="a-page-actions">
+        <h2 class="page-title">动作</h2>
+        <div class="section-title">默认动作（地板）</div>
+        <div class="card">
+          <div class="row"><span class="label">识别不到意图时</span><span class="spacer"></span><span class="value">存到备忘录 ▾</span></div>
+        </div>
+        <div class="section-foot">保证「打字 Enter」永远有确定结果。搜索动作不参与兜底。</div>
+        <div class="section-title">已启用（4）</div>
+        <div class="a-grid">
+          <div class="a-action-card">
+            <div style="display:flex; justify-content:space-between;"><span class="tile" style="background:var(--orange);">📝</span><span class="pill blue">默认兜底</span></div>
+            <b>Apple Notes</b><div class="sub">识别不到时 Enter 兜底；也可说「记一下…」</div>
+            <div class="foot">保存到：Jotway<span class="spacer"></span><span class="chev">›</span></div>
+          </div>
+          <div class="a-action-card">
+            <div style="display:flex; justify-content:space-between;"><span class="tile" style="background:var(--teal);">✓</span><span class="pill orange">待办</span></div>
+            <b>Apple Reminders</b><div class="sub">识别为待办时存入，到期默认当前时间</div>
+            <div class="foot">保存到：提醒<span class="spacer"></span><span class="chev">›</span></div>
+          </div>
+          <div class="a-action-card">
+            <div style="display:flex; justify-content:space-between;"><span class="tile" style="background:var(--red);">📅</span><span class="pill red">日程</span></div>
+            <b>Apple Calendar</b><div class="sub">识别为有明确时间的日程时新建事件</div>
+            <div class="foot warn">尚未配置保存位置<span class="spacer"></span><span class="chev">›</span></div>
+          </div>
+          <div class="a-action-card">
+            <div style="display:flex; justify-content:space-between;"><span class="tile" style="background:#4285f4;">🔍</span><span class="pill gray">发送</span></div>
+            <b>Chrome · Google 搜索</b><div class="sub">说「搜一下…」用默认浏览器 Google 搜索</div>
+            <div class="foot"><span class="toggle" style="transform:scale(0.8);"></span><span class="spacer"></span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- A · 通用页 -->
+      <div class="scroll page-pad hidden" id="a-page-general">
+        <h2 class="page-title">通用</h2>
+        <div class="section-title">外观</div>
+        <div class="card">
+          <div class="row"><span class="label">主题</span><span class="spacer"></span><span class="seg"><span class="on">跟随系统</span><span>浅色</span><span>深色</span></span></div>
+          <div class="row"><span class="label">在 Dock 中显示 Jotway</span><span class="spacer"></span><span class="toggle off"></span></div>
+          <div class="row"><span class="label">在鼠标所在屏幕打开</span><span class="spacer"></span><span class="toggle"></span></div>
+          <div class="row"><span class="label">消失特效</span><span class="spacer"></span><span class="value">随风飘散 ▾</span></div>
+        </div>
+        <div class="section-title">快捷键与启动</div>
+        <div class="card">
+          <div class="row"><span class="label">唤起记录面板</span><span class="spacer"></span><span class="field" style="min-width:0;">⌥ Space</span></div>
+          <div class="row"><span class="label">登录时启动</span><span class="spacer"></span><span class="toggle"></span></div>
+        </div>
+        <div class="section-title">诊断</div>
+        <div class="card">
+          <div class="row"><span class="label">记录运行日志</span><span class="spacer"></span><span class="toggle off"></span></div>
+        </div>
+      </div>
+
+      <!-- A · 入门 / 关于（从略） -->
+      <div class="scroll page-pad hidden" id="a-page-guide">
+        <h2 class="page-title">使用入门</h2>
+        <p class="muted" style="margin-top:8px; line-height:1.7;">先记下来，继续手头的事。打一句话按 Enter，Jotway 识别意图送到该去的地方。<br>⌥↑/⌥↓ 改选目标 · @ 点名发送 · / 打开应用 · Esc 收起。</p>
+        <div style="margin-top:14px;"><button class="btn primary">开始记录</button></div>
+      </div>
+      <div class="scroll page-pad hidden" id="a-page-about">
+        <h2 class="page-title">关于</h2>
+        <div class="section-title">版本与更新</div>
+        <div class="card">
+          <div class="row"><span class="label">当前版本</span><span class="spacer"></span><span class="value">0.9.0</span></div>
+          <div class="row"><span class="label">自动检查更新</span><span class="spacer"></span><span class="toggle"></span></div>
+        </div>
+        <div class="section-title">联系我</div>
+        <div class="card"><div class="row"><span class="label">@Liugq5713</span><span class="spacer"></span><button class="btn">打开 GitHub 主页</button></div></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ==================== Variant B ==================== -->
+<div class="window hidden" id="variant-b">
+  <div class="titlebar"><div class="lights"><div class="light r"></div><div class="light y"></div><div class="light g"></div></div><span class="doc-title">设置</span></div>
+  <div class="variant-note">B · 状态总览：无侧边栏，首页一眼看全当前配置，点行钻取</div>
+  <div class="b-body">
+
+    <!-- B · 总览首页 -->
+    <div class="b-page" id="b-home">
+      <h2 class="page-title" style="margin-bottom:14px;">设置</h2>
+      <div class="section-title">AI</div>
+      <div class="card">
+        <div class="row b-row clickable" data-bgo="ai">
+          <span class="tile" style="background:#5e5ce6;">✦</span><span class="label">AI 来源</span>
+          <span class="spacer"></span><span class="dot green"></span><span class="value">Kimi · 已连接</span><span class="chev">›</span>
+        </div>
+        <div class="row b-row clickable" data-bgo="ai">
+          <span class="tile" style="background:#bf5af2;">⑂</span><span class="label">意图识别</span>
+          <span class="spacer"></span><span class="value">已开启 · 使用 Kimi</span><span class="chev">›</span>
+        </div>
+        <div class="row b-row">
+          <span class="tile" style="background:#8e8e93;">☰</span><span class="label">Instructions</span>
+          <span class="spacer"></span><span class="value">已自定义</span><span class="chev">›</span>
+        </div>
+      </div>
+      <div class="section-title">动作</div>
+      <div class="card">
+        <div class="row b-row">
+          <span class="tile" style="background:var(--accent);">⇥</span><span class="label">默认动作</span>
+          <span class="spacer"></span><span class="value">存到备忘录</span><span class="chev">›</span>
+        </div>
+        <div class="row b-row">
+          <span class="tile" style="background:var(--orange);">⚡</span><span class="label">动作管理</span>
+          <span class="spacer"></span><span class="value">5 个已启用 · 1 个待配置</span><span class="chev">›</span>
+        </div>
+      </div>
+      <div class="section-title">通用</div>
+      <div class="card">
+        <div class="row b-row">
+          <span class="tile" style="background:#30b0c7;">⌘</span><span class="label">快捷键</span>
+          <span class="spacer"></span><span class="value">⌥ Space</span><span class="chev">›</span>
+        </div>
+        <div class="row b-row">
+          <span class="tile" style="background:#8e8e93;">◐</span><span class="label">外观</span>
+          <span class="spacer"></span><span class="value">跟随系统 · 随风飘散</span><span class="chev">›</span>
+        </div>
+      </div>
+      <div class="section-title">支持</div>
+      <div class="card">
+        <div class="row b-row">
+          <span class="tile" style="background:#30b0c7;">?</span><span class="label">使用入门</span><span class="spacer"></span><span class="chev">›</span>
+        </div>
+        <div class="row b-row">
+          <span class="tile" style="background:#8e8e93;">ⓘ</span><span class="label">关于 Jotway</span>
+          <span class="spacer"></span><span class="value">0.9.0</span><span class="chev">›</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- B · AI 详情页（内容与 A 的 AI 页相同，比较的是组织方式） -->
+    <div class="b-page hidden-right" id="b-ai">
+      <span class="b-back" data-bback>‹ 设置</span>
+      <div class="b-hero">
+        <span class="icon" style="background:#5e5ce6;">✦</span>
+        <div><b style="font-size:16px;">AI</b><div class="small muted">来源、密钥、意图识别与 Instructions</div></div>
+      </div>
+      <div class="section-title">来源</div>
+      <div class="card">
+        <div class="row"><span class="label">提供方</span><span class="spacer"></span>
+          <span class="seg"><span>DeepSeek</span><span class="on">Kimi</span></span>
+        </div>
+        <div class="row"><span class="label">模型</span><span class="spacer"></span><span class="value">kimi-k2-0905-preview ▾</span></div>
+        <div class="row"><span class="label">API Key</span><span class="spacer"></span>
+          <span class="field">••••••••••••••••</span><button class="btn">替换</button>
+        </div>
+        <div class="row"><button class="btn">测试连接</button><span class="small muted"><span class="dot green"></span> 连接正常</span><span class="spacer"></span></div>
+      </div>
+      <div class="section-title">意图识别</div>
+      <div class="card">
+        <div class="row"><span class="label">用 AI 识别意图</span><span class="spacer"></span><span class="toggle"></span></div>
+        <div class="row"><span class="label">识别不到时</span><span class="spacer"></span><span class="value">存到备忘录 ▾</span></div>
+        <div class="row disclosure" data-disclosure><span class="tri">▶</span><span class="label">纠正记录（3 条）</span><span class="spacer"></span><span class="small muted">仅本地保存</span></div>
+      </div>
+      <div class="section-foot">识别复用来源配置，不再单独配置密钥；未配置或识别不到时 Enter 兜底默认动作。</div>
+      <div class="section-title">INSTRUCTIONS</div>
+      <div class="card">
+        <div class="row disclosure" data-disclosure><span class="tri">▶</span><span class="label">通用背景与共同要求</span><span class="spacer"></span><span class="small muted">已自定义</span></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ==================== Variant C ==================== -->
+<div class="window narrow hidden" id="variant-c">
+  <div class="variant-note">C · Raycast 风：窄窗口 + 搜索直达设置项</div>
+  <div class="c-body" style="margin-top:-40px; padding-top:0;">
+    <div class="titlebar"><div class="lights"><div class="light r"></div><div class="light y"></div><div class="light g"></div></div></div>
+    <div class="c-search">
+      <span class="glass">🔍</span>
+      <input id="c-input" type="text" placeholder="搜索设置…" autocomplete="off">
+    </div>
+    <div class="c-list" id="c-list">
+      <div class="c-group">AI</div>
+      <div class="c-item on" data-k="ai 来源 提供方 provider kimi deepseek moonshot"><span class="tile" style="background:#5e5ce6;">✦</span>AI 来源<span class="spacer"></span><span class="value">Kimi</span><span class="chev">›</span></div>
+      <div class="c-item" data-k="ai 模型 model kimi-k2"><span class="tile" style="background:#5e5ce6;">◈</span>模型<span class="spacer"></span><span class="value">kimi-k2-0905-preview</span><span class="chev">›</span></div>
+      <div class="c-item" data-k="ai key 密钥 apikey api 密码"><span class="tile" style="background:#5e5ce6;">⚿</span>API Key<span class="spacer"></span><span class="value">已保存</span><span class="chev">›</span></div>
+      <div class="c-item" data-k="测试 连接 test connection"><span class="tile" style="background:#5e5ce6;">↻</span>测试连接<span class="spacer"></span><span class="value"><span class="dot green"></span> 正常</span></div>
+      <div class="c-item" data-k="意图 识别 intent 路由 jev"><span class="tile" style="background:#bf5af2;">⑂</span>用 AI 识别意图<span class="spacer"></span><span class="toggle" style="transform:scale(0.75);"></span></div>
+      <div class="c-item" data-k="纠正 记录 correction 微调"><span class="tile" style="background:#bf5af2;">✎</span>纠正记录<span class="spacer"></span><span class="value">3 条</span><span class="chev">›</span></div>
+      <div class="c-item" data-k="instructions 指令 提示词 prompt 背景"><span class="tile" style="background:#8e8e93;">☰</span>Instructions<span class="spacer"></span><span class="value">已自定义</span><span class="chev">›</span></div>
+      <div class="c-group">动作</div>
+      <div class="c-item" data-k="默认 动作 地板 default 兜底"><span class="tile" style="background:var(--accent);">⇥</span>默认动作<span class="spacer"></span><span class="value">存到备忘录</span><span class="chev">›</span></div>
+      <div class="c-item" data-k="备忘录 notes apple 保存位置"><span class="tile" style="background:var(--orange);">📝</span>Apple Notes<span class="spacer"></span><span class="value">保存到 Jotway</span><span class="chev">›</span></div>
+      <div class="c-item" data-k="提醒 reminders 待办"><span class="tile" style="background:var(--teal);">✓</span>Apple Reminders<span class="spacer"></span><span class="value">保存到 提醒</span><span class="chev">›</span></div>
+      <div class="c-item" data-k="日历 calendar 日程"><span class="tile" style="background:var(--red);">📅</span>Apple Calendar<span class="spacer"></span><span class="value" style="color:var(--orange);">待配置</span><span class="chev">›</span></div>
+      <div class="c-item" data-k="chrome google 搜索 浏览器"><span class="tile" style="background:#4285f4;">🔍</span>Chrome 搜索<span class="spacer"></span><span class="toggle" style="transform:scale(0.75);"></span></div>
+      <div class="c-group">通用</div>
+      <div class="c-item" data-k="快捷键 热键 唤起 shortcut"><span class="tile" style="background:#30b0c7;">⌘</span>唤起记录面板<span class="spacer"></span><span class="value">⌥ Space</span><span class="chev">›</span></div>
+      <div class="c-item" data-k="主题 外观 深色 浅色 theme"><span class="tile" style="background:#8e8e93;">◐</span>主题<span class="spacer"></span><span class="value">跟随系统</span><span class="chev">›</span></div>
+      <div class="c-item" data-k="dock 显示"><span class="tile" style="background:#8e8e93;">▣</span>在 Dock 中显示<span class="spacer"></span><span class="toggle off" style="transform:scale(0.75);"></span></div>
+      <div class="c-item" data-k="特效 消失 动画"><span class="tile" style="background:#8e8e93;">✨</span>消失特效<span class="spacer"></span><span class="value">随风飘散</span><span class="chev">›</span></div>
+      <div class="c-item" data-k="启动 登录 launch"><span class="tile" style="background:#8e8e93;">▶</span>登录时启动<span class="spacer"></span><span class="toggle" style="transform:scale(0.75);"></span></div>
+      <div class="c-group">支持</div>
+      <div class="c-item" data-k="入门 教程 帮助 guide"><span class="tile" style="background:#30b0c7;">?</span>使用入门<span class="chev" style="margin-left:auto;">›</span></div>
+      <div class="c-item" data-k="关于 版本 更新 about"><span class="tile" style="background:#8e8e93;">ⓘ</span>关于 Jotway<span class="spacer"></span><span class="value">0.9.0</span><span class="chev">›</span></div>
+    </div>
+    <div class="c-footer"><span><kbd>↑↓</kbd> 选择</span><span><kbd>⏎</kbd> 打开</span><span><kbd>esc</kbd> 返回</span><span class="spacer"></span><span id="c-count">20 项</span></div>
+  </div>
+</div>
+
+<!-- ==================== 切换浮条 ==================== -->
+<div class="switcher">
+  <button id="prev" title="←">‹</button>
+  <div class="cur" id="cur-label"></div>
+  <button id="next" title="→">›</button>
+</div>
+
+<script>
+const variants = [
+  { key: 'A', name: '侧边栏收敛', desc: '7 项 → 5 项 · 意图识别并入 AI 页' },
+  { key: 'B', name: '状态总览', desc: '首页看全配置状态 · 点行钻取' },
+  { key: 'C', name: 'Raycast 搜索', desc: '窄窗口 · 搜索直达设置项' },
+];
+const order = ['a', 'b', 'c'];
+
+function currentVariant() {
+  const v = new URLSearchParams(location.search).get('variant');
+  return order.includes((v || '').toLowerCase()) ? v.toLowerCase() : 'a';
+}
+function show(key, push = true) {
+  for (const k of order) document.getElementById('variant-' + k).classList.toggle('hidden', k !== key);
+  const meta = variants[order.indexOf(key)];
+  document.getElementById('cur-label').innerHTML = `<b>${meta.key}</b> · ${meta.name}<span class="sub">${meta.desc}</span>`;
+  if (push) {
+    const url = new URL(location.href); url.searchParams.set('variant', meta.key);
+    history.replaceState(null, '', url);
+  }
+  document.title = `Jotway 设置原型 · ${meta.key}`;
+}
+function step(delta) {
+  const i = order.indexOf(currentVariant());
+  show(order[(i + delta + order.length) % order.length]);
+}
+document.getElementById('prev').onclick = () => step(-1);
+document.getElementById('next').onclick = () => step(1);
+document.addEventListener('keydown', (e) => {
+  const t = e.target;
+  if (t.matches('input, textarea, [contenteditable]')) return;
+  if (e.key === 'ArrowLeft') step(-1);
+  if (e.key === 'ArrowRight') step(1);
+});
+
+// Variant A：侧边栏切页
+document.querySelectorAll('#variant-a .a-side-item').forEach(item => {
+  item.addEventListener('click', () => {
+    document.querySelectorAll('#variant-a .a-side-item').forEach(i => i.classList.remove('on'));
+    item.classList.add('on');
+    for (const p of ['general', 'ai', 'actions', 'guide', 'about'])
+      document.getElementById('a-page-' + p).classList.toggle('hidden', p !== item.dataset.apage);
+  });
+});
+
+// 折叠组
+document.querySelectorAll('[data-disclosure]').forEach(d => {
+  d.addEventListener('click', () => {
+    d.classList.toggle('open');
+    const body = d.nextElementSibling;
+    if (body) body.classList.toggle('hidden');
+  });
+});
+
+// Variant B：钻取
+document.querySelectorAll('[data-bgo]').forEach(row => row.addEventListener('click', () => {
+  document.getElementById('b-home').classList.add('hidden-left');
+  const target = document.getElementById('b-' + row.dataset.bgo);
+  target.classList.remove('hidden-right');
+}));
+document.querySelectorAll('[data-bback]').forEach(b => b.addEventListener('click', () => {
+  document.getElementById('b-home').classList.remove('hidden-left');
+  document.getElementById('b-ai').classList.add('hidden-right');
+}));
+
+// Variant C：搜索过滤 + 键盘选中
+const cInput = document.getElementById('c-input');
+const cItems = [...document.querySelectorAll('#variant-c .c-item')];
+let cIndex = 0;
+function cSelect(i) {
+  const visible = cItems.filter(it => !it.classList.contains('hidden'));
+  if (!visible.length) return;
+  cIndex = (i + visible.length) % visible.length;
+  cItems.forEach(it => it.classList.remove('on'));
+  visible[cIndex].classList.add('on');
+  visible[cIndex].scrollIntoView({ block: 'nearest' });
+}
+cInput.addEventListener('input', () => {
+  const q = cInput.value.trim().toLowerCase();
+  let n = 0;
+  cItems.forEach(it => {
+    const hit = !q || it.textContent.toLowerCase().includes(q) || (it.dataset.k || '').toLowerCase().includes(q);
+    it.classList.toggle('hidden', !hit);
+    if (hit) n++;
+  });
+  document.querySelectorAll('#variant-c .c-group').forEach(g => {
+    let sib = g.nextElementSibling, any = false;
+    while (sib && !sib.classList.contains('c-group')) { if (!sib.classList.contains('hidden')) any = true; sib = sib.nextElementSibling; }
+    g.classList.toggle('hidden', !any);
+  });
+  document.getElementById('c-count').textContent = `${n} 项`;
+  cSelect(0);
+});
+cInput.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); cSelect(cIndex + 1); }
+  if (e.key === 'ArrowUp') { e.preventDefault(); cSelect(cIndex - 1); }
+});
+cItems.forEach((it, i) => it.addEventListener('click', () => cSelect(i)));
+
+show(currentVariant(), false);
+</script>
+</body>
+</html>

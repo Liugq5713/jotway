@@ -1,0 +1,51 @@
+# Swift Package Manager
+.build/
+repos/
+.swiftpm/
+Package.pins
+
+# Xcode generated
+*.xcodeproj
+!/Vendor/KeyboardShortcuts/Example/KeyboardShortcutsExample.xcodeproj/
+*.xcworkspace
+xcuserdata/
+DerivedData/
+*.xcuserstate
+
+# Build products
+*.app/
+*.dSYM/
+*.bun-build
+/release/*/
+/release/.release.lock
+
+# Temporary design output (retained references belong in docs/assets)
+/output/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Editor / tooling
+.opencode/
+/.agents/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Local credentials and configuration
+.env
+.env.*
+!.env.example
+*.p12
+*.p8
+*.key
+*.pem
+__pycache__/
+*.pyc
