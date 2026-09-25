@@ -30,14 +30,18 @@ The guide covers the four bundled actions plus local application opening, curren
 
 The Actions page shows the bundled actions:
 
-- Apple Notes requires a Notes destination and is the preferred fallback. It also supports an optional fixed text tag, AI-generated related tags, and an independent AI rewrite switch and style instruction.
+- Apple Notes requires a Notes destination and permission to execute and is the preferred fallback. It also supports an optional fixed text tag, AI-generated related tags, and an independent AI rewrite switch and style instruction.
 - Apple Reminders requires a reminder list and has its own AI rewrite switch and style instruction. Disabling rewrite also disables natural-language due-date extraction, so the due date falls back to the current time.
 - Apple Calendar requires a calendar and has its own AI rewrite switch and style instruction. Disabling rewrite also disables natural-language time extraction, so the event falls back to a one-hour range starting at the current time.
 - Chrome exposes an enable switch. When disabled, it is removed from recognition, selection, and routing.
 
 The Actions page is generated from the registry's settings entries, including disabled, unconfigured, and temporarily unavailable modules. Labels, icon and tint, grouping, dynamic summary, enablement policy, and fallback marker all come from module declarations and state. Storage actions appear as full-width, keyboard-accessible rows with their selected destinations. Selecting a row opens the module-provided detail page; navigation stores only the stable action ID, and the header's back button returns to the list. Chrome's enable switch is directly available in the search section. Long destination names wrap instead of being truncated.
 
-Each storage module owns its typed destination picker, validation sheet, rewrite controls, and persistence adapter. The common settings host neither switches on concrete action IDs nor uses a generic configuration-field DSL. User-editable style text cannot replace the system-owned date and structured-output rules. A user-selectable default action is not implemented; the available module with the lowest declared fallback priority wins, currently Notes, then Reminders, then Calendar.
+Each storage module owns its typed destination picker, validation sheet, rewrite controls, and persistence adapter. The common settings host neither switches on concrete action IDs nor uses a generic configuration-field DSL. User-editable style text cannot replace the system-owned date and structured-output rules. A user-selectable default action is not implemented; the ready module with the lowest declared fallback priority wins, currently Notes, then Reminders, then Calendar. If no storage action is ready, the launcher offers Set Up Notes rather than executing another kind of action.
+
+Notes uses the same folder configuration view from its settings detail and the launcher’s Set Up Notes entry. A user opens the configuration flow before its initial Apple Events folder read can request authorization; background typing and prewarming do not request permission. Verify and Finish is an explicit operation with a visible explanation that it creates a fixed test note. It never uses or submits the current draft. Completing or cancelling launcher setup returns to the original text and selection; a successful setup waits for another Enter to save.
+
+Denied or revoked Notes authorization preserves the saved destination and offers another folder read plus a link to System Settings → Privacy & Security → Automation → Jotway → Notes. Permission errors retain their meaning instead of appearing as an empty folder list. The app does not reset system permissions or automatically retry an uncertain write.
 
 After all bundled modules are registered, Jotway removes saved rules and `actionEnabled.*` keys whose action ID is no longer registered. A registered action keeps its preferences when the user disables it or its external destination is temporarily unavailable. Existing destination, rewrite, prompt, tag, enablement, and rule keys retain their previous encoding and meaning.
 

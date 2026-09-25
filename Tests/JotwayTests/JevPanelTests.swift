@@ -189,7 +189,7 @@ final class JevPanelTests: XCTestCase {
     }
 
     func testReturnAndCommandReturnUseExistingConnectorOnceWithoutPendingConfirmation() async throws {
-        // 没有 Jev Key / 建议时，唯一的非默认 action 仍可先显式选中，再确认执行；不写模型反馈。
+        // 没有 Jev Key / 建议时，非默认 action 仍可先显式选中，再确认执行；不写模型反馈。
         do {
             let manual = try fixture(draft: "手动选择搜索")
             defer { manual.close() }
@@ -200,7 +200,9 @@ final class JevPanelTests: XCTestCase {
             XCTAssertTrue(manual.controller.session.state.intentDeviated)
             manual.app.setActionEnabled(false, for: ChromeModule.moduleDescriptor.id)
             XCTAssertTrue(manual.controller.session.state.intentDeviated)
-            XCTAssertTrue(manual.controller.session.state.intentCandidates.first?.isSelected == true)
+            XCTAssertTrue(manual.controller.session.state.intentCandidates.contains {
+                $0.id == "chrome" && $0.isSelected
+            })
             manual.controller.session.send(.confirm(.button))
             let unavailableQueries = await manual.actions.chromeQueries
             XCTAssertTrue(unavailableQueries.isEmpty)
@@ -218,8 +220,8 @@ final class JevPanelTests: XCTestCase {
         defer { value.close() }
         let editor = value.editor
         _ = try XCTUnwrap(editor.focusTarget)
-        editor.keyDown(with: key()) // No suggestion yet: this must not reserve a future action.
         try await until { value.classifier.calls.count == 1 }
+        XCTAssertEqual(value.controller.session.state.displayedActionTitle, "Set Up Notes")
         value.controller.session.send(.cycleTarget(forward: true))
         XCTAssertTrue(value.controller.session.state.intentDeviated)
         let pendingFeedback = try await value.feedback()
@@ -228,7 +230,7 @@ final class JevPanelTests: XCTestCase {
         XCTAssertTrue(beforeReply.isEmpty)
         XCTAssertEqual(value.classifier.calls[0].text, body)
         try value.classifier.reply(0, action: .google)
-        try await until { value.controller.session.state.intentTitle == "Google Search" }
+        try await until { value.controller.session.state.intentTitle == "Google Search" && value.controller.session.state.intentStatus == nil }
         XCTAssertTrue(value.controller.session.state.intentDeviated,
                       "迟到建议即使与显式目标相同，也不能清除用户选择")
         let beforeConfirmation = await value.actions.chromeQueries
@@ -271,7 +273,7 @@ final class JevPanelTests: XCTestCase {
         // ⇧⏎ 永远换行，不再取决于提交方式偏好。
         editor.keyDown(with: key([.shift]))
         XCTAssertTrue(editor.string.contains("\n"))
-        XCTAssertNil(value.controller.session.state.intentTitle)
+        XCTAssertEqual(value.controller.session.state.intentTitle, "Set Up Notes")
         let searchesAfterNewline = await value.actions.chromeQueries
         let feedbackAfterNewline = try await value.feedback()
         XCTAssertTrue(searchesAfterNewline.isEmpty)
@@ -371,11 +373,23 @@ final class JevPanelTests: XCTestCase {
                 value.controller.session.catalog.replaceApplications([
                     local.installed, .init(url: local.directory.appendingPathComponent("Other.app"),
                     name: "TestLaunch Other", searchNames: [])])
-                XCTAssertNil(value.controller.session.state.intentTitle, "目录新增冲突使旧建议立即失效")
+                XCTAssertEqual(value.controller.session.state.intentTitle, "Set Up Notes", "目录新增冲突使旧建议失效并恢复兜底")
             } else {
                 try FileManager.default.removeItem(at: local.installed.url)
             }
+            var setupOpened = false
+            if invalidation == "conflict" {
+                // 捕获配置 effect，离屏测试不打开配置窗口或请求系统授权。
+                value.controller.session.handleEffect = { effect in
+                    if case .showActionSetup(let request) = effect {
+                        XCTAssertEqual(request.snapshot.id, "apple-notes")
+                        setupOpened = true
+                    }
+                    return true
+                }
+            }
             value.editor.keyDown(with: invalidation == "missing" ? key([]) : key())
+            XCTAssertEqual(setupOpened, invalidation == "conflict")
             XCTAssertTrue(value.opener.urls.isEmpty, "执行时重验目标与唯一性")
             XCTAssertEqual(value.editor.string, "TestL")
             XCTAssertEqual(value.controller.session.draft.content, "TestL")
@@ -468,14 +482,14 @@ final class JevPanelTests: XCTestCase {
         try await until { value.classifier.calls.count == 1 }
         try value.classifier.reply(0, action: nil)
         try await until { value.controller.session.state.intentStatus == nil }
-        XCTAssertNil(value.controller.session.state.intentTitle); XCTAssertNil(value.controller.session.state.intentIssue)
+        XCTAssertEqual(value.controller.session.state.intentTitle, "Set Up Notes"); XCTAssertNil(value.controller.session.state.intentIssue)
         try await preview("no-suggestion")
 
         edit("第二条合成记录")
         try await until { value.classifier.calls.count == 2 }
         try value.classifier.fail(1, error: Jev.Failure.invalidResponse)
         try await until { value.controller.session.state.intentIssue != nil }
-        XCTAssertNil(value.controller.session.state.intentStatus); XCTAssertNil(value.controller.session.state.intentTitle)
+        XCTAssertNil(value.controller.session.state.intentStatus); XCTAssertEqual(value.controller.session.state.intentTitle, "Set Up Notes")
         XCTAssertEqual(value.controller.session.state.intentIssue, "The Jev response could not be understood. Try again later.")
         try await preview("request-error")
 
@@ -488,7 +502,7 @@ final class JevPanelTests: XCTestCase {
         try await preview("prefix-suggestion-compact")
         value.editor.keyDown(with: key([.shift]))
         XCTAssertEqual(value.editor.string, "TestL\n")
-        XCTAssertNil(value.controller.session.state.intentTitle)
+        XCTAssertEqual(value.controller.session.state.intentTitle, "Set Up Notes")
         XCTAssertTrue(value.opener.urls.isEmpty)
         edit("TestL")
         try await until { value.controller.session.state.intentTitle == "Open “TestLaunch”" }
@@ -539,7 +553,7 @@ final class JevPanelTests: XCTestCase {
             _ = try XCTUnwrap(value.editor.focusTarget)
             try await until { value.classifier.calls.count == 1 }
             try value.classifier.reply(0, action: .google)
-            try await until { value.controller.session.state.intentTitle != nil }
+            try await until { value.controller.session.state.intentTitle == "Google Search" }
             switch trigger {
             case .enter: value.editor.keyDown(with: key([]))
             case .commandEnter: value.editor.keyDown(with: key())

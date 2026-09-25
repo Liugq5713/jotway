@@ -25,6 +25,7 @@ final class AppleNotesModule: ActionModule {
     private let preferences: UserDefaults
     private let run: @MainActor @Sendable (AppleNotes.Request) async throws -> AppleNotes.Response
     private(set) var destination: AppleNotes.Destination?
+    private(set) var repairFailure: ActionFailure?
     private(set) var configurationRevision = 0
 
     init(preferences: UserDefaults,
@@ -39,8 +40,9 @@ final class AppleNotesModule: ActionModule {
 
     var state: ActionModuleState {
         .init(configurationRevision: configurationRevision,
-              availability: destination == nil
-                  ? .needsConfiguration(message: L10n.text("action.state.select_notes")) : .ready,
+              availability: repairFailure.map { .needsConfiguration(message: $0.localizedDescription) }
+                  ?? (destination == nil
+                      ? .needsConfiguration(message: L10n.text("action.state.select_notes")) : .ready),
               summary: destination.map { L10n.text("action.state.save_to", $0.name) }
                   ?? L10n.text("action.state.no_destination"),
               hasSavedConfiguration: ["notesDestination", "notesTag", "notesAITagsEnabled",
@@ -52,6 +54,14 @@ final class AppleNotesModule: ActionModule {
         ActionSettings { [unowned self] in AnyView(AppleNotesSettingsView(module: self)) }
     }
 
+    var setup: ActionSetup? {
+        let lifetime = AppleNotesSetupLifetime()
+        return ActionSetup(title: L10n.text("action.notes.setup.action_title"),
+                           invalidate: { lifetime.invalidate() }) { [self] onFinish in
+            AnyView(AppleNotesSetupView(module: self, lifetime: lifetime, onFinish: onFinish))
+        }
+    }
+
     func refreshAvailability() {}
 
     func makeAction() -> any LauncherAction {
@@ -59,7 +69,9 @@ final class AppleNotesModule: ActionModule {
         return AppleNotesAction(descriptor: descriptor, destination: destination,
             processor: actionTextProcessor(preferences: preferences, id: descriptor.id, mode: .notes,
                 notesAutoTags: rewrites && isAITagsEnabled),
-            tag: notesTag.isEmpty ? nil : notesTag, run: run)
+            tag: notesTag.isEmpty ? nil : notesTag, run: { [self] request in
+                try await perform(request)
+            })
     }
 
     var isAIRewriteEnabled: Bool { enabledPreference("aiRewriteEnabled.\(descriptor.id)") }
@@ -74,12 +86,25 @@ final class AppleNotesModule: ActionModule {
             throw ActionFailure(localized: "error.destination_save_failed", code: .storage)
         }
         destination = value
+        repairFailure = nil
         changed()
     }
 
     func loadDestinations() async throws -> [AppleNotes.Destination] {
-        let response = try await run(.init(requestID: UUID().uuidString, operation: "folders"))
-        guard response.status == "ok", let folders = response.folders, !folders.isEmpty else {
+        let expectedRevision = configurationRevision
+        let response = try await perform(.init(requestID: UUID().uuidString, operation: "folders"))
+        guard configurationRevision == expectedRevision else {
+            throw ActionFailure(localized: "error.notes.configuration_changed", code: .stale)
+        }
+        guard let folders = response.folders else {
+            throw ActionFailure(localized: "error.notes.folders_failed", code: .validation)
+        }
+        if repairFailure?.osStatus == -1743
+            || (repairFailure != nil && folders.contains(where: { $0.id == destination?.id })) {
+            repairFailure = nil
+            changed()
+        }
+        guard !folders.isEmpty else {
             throw ActionFailure(localized: "error.notes.no_folders", code: .configuration,
                                 osStatus: response.osStatus)
         }
@@ -87,15 +112,45 @@ final class AppleNotesModule: ActionModule {
     }
 
     func verifyAndSetDestination(_ value: AppleNotes.Destination) async throws {
+        let expectedRevision = configurationRevision
         let content = AppleNotes.content(fromPlainText: "Jotway Connection Test\nText, links, and escaping <&> test\nhttps://example.com\nThis item can be deleted after verification.")
         let requestID = UUID().uuidString
-        let response = try await run(.init(requestID: requestID, operation: "create",
+        let response = try await perform(.init(requestID: requestID, operation: "create",
                                            folderID: value.id, html: content.html))
         guard response.confirms(requestID: requestID, folderID: value.id, plaintext: content.plaintext) else {
             throw ActionFailure(localized: "error.notes.verification_failed",
                                 code: .validation, osStatus: response.osStatus)
         }
+        guard configurationRevision == expectedRevision else {
+            throw ActionFailure(localized: "error.notes.configuration_changed", code: .stale)
+        }
         try setDestination(value)
+    }
+
+    private func perform(_ request: AppleNotes.Request) async throws -> AppleNotes.Response {
+        try Task.checkCancellation()
+        let expectedRevision = configurationRevision
+        do {
+            let response = try await run(request)
+            // A closed setup view cannot apply a late folder/verification response.
+            try Task.checkCancellation()
+            if let failure = AppleNotes.actionFailure(for: response, operation: request.operation) {
+                throw failure
+            }
+            return response
+        } catch {
+            try Task.checkCancellation()
+            if error is CancellationError { throw error }
+            let failure = AppleNotes.actionFailure(for: error, operation: request.operation)
+            let missingCurrentDestination = failure.osStatus == -1728
+                && request.folderID != nil && request.folderID == destination?.id
+            if configurationRevision == expectedRevision,
+               failure.osStatus == -1743 || missingCurrentDestination {
+                repairFailure = failure
+                changed()
+            }
+            throw failure
+        }
     }
 
     func setAIRewriteEnabled(_ enabled: Bool) { preferences.set(enabled, forKey: "aiRewriteEnabled.\(descriptor.id)"); changed() }
@@ -117,7 +172,7 @@ final class AppleNotesModule: ActionModule {
 /// 存到备忘录（见 launcher-refactor.md §2.4-2.5）。
 ///
 /// 双身份：既是可自然语言点名的普通 action（「记一下 XXX」「存备忘录：XXX」），
-/// 又是识别不到意图时的默认兜底——「打字 Enter」永远有确定结果。
+/// 又是识别不到意图时优先采用的已配置存入目标；未配置时由模块提供配置入口。
 ///
 /// 写入用备忘录公开的 Apple Event 接口（复用 `AppleNotes.run`），系统自带、无需额外权限基础设施。
 /// 形状：`原始文本 → AI 处理（第一版直通）→ 写入 Apple Notes → 结束`。过境即走，本地不留记录。
@@ -163,18 +218,17 @@ struct AppleNotesAction: LauncherAction {
         return PreparedAction(actionID: descriptor.id, inputIdentity: input.identity) {
                 do {
                     let response = try await run(request)
-                    guard response.status == "ok", response.noteID?.isEmpty == false else {
+                    if let failure = AppleNotes.actionFailure(for: response, operation: request.operation) {
+                        throw failure
+                    }
+                    guard response.noteID?.isEmpty == false else {
                         throw ActionFailure(localized: "error.notes.save_failed",
                                             code: .processFailed, osStatus: response.osStatus)
                     }
                     return ActionOutcome(messageKey: "result.notes.saved")
-                } catch let failure as AppleNotes.Failure {
-                    throw ActionFailure(localized: "error.notes.save_failed", code: .processFailed,
-                                        osStatus: failure.osStatus)
-                } catch let failure as ActionFailure {
-                    throw failure
                 } catch {
-                    throw ActionFailure(localized: "error.notes.save_failed_retry", code: RuntimeLog.code(error))
+                    if error is CancellationError { throw error }
+                    throw AppleNotes.actionFailure(for: error, operation: request.operation)
                 }
             }
     }

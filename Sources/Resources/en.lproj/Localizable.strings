@@ -143,7 +143,7 @@
 "guide.example.app.title" = "Open an App";
 "guide.example.app.input" = "Open Safari";
 "guide.example.app.result" = "After matching a local app, the panel shows it as the target; press Enter to confirm.";
-"guide.fallback.help" = "When no clearer target exists, Jotway prefers configured Apple Notes, then another configured save action. Configure Actions if no save location is available.";
+"guide.fallback.help" = "When no clearer target exists, Jotway uses a configured save action, preferring Apple Notes. If none is ready, Set Up Notes opens configuration and preserves your draft. After setup, press Enter again to save.";
 "guide.time.help" = "Reminders without a parsed due date use the current time. Calendar events without a parsed start time begin now; missing end times default to one hour. Natural-language time parsing requires AI rewriting for that action.";
 "guide.input_shortcuts" = "Input and Shortcuts";
 "guide.shortcut.execute" = "Run Current Target";
@@ -229,9 +229,12 @@
 "action.setup.choose_then_verify" = "Choose a location, then verify the connection. Verification does not submit the current draft.";
 "action.setup.reload" = "Reload Save Locations";
 "action.setup.verify_finish" = "Verify and Finish";
-"action.notes.setup.title" = "Save to Notes";
+"action.notes.setup.action_title" = "Set Up Notes";
+"action.notes.setup.title" = "Set Up Notes";
 "action.notes.setup.explanation" = "Choose a folder for notes and ideas saved through Jotway.";
-"action.notes.setup.permission" = "On first use, allow Jotway to access Notes in the system prompt.";
+"action.notes.setup.permission" = "On first use, allow Jotway to access Notes in the system prompt. If access was denied or revoked, enable Notes for Jotway in System Settings → Privacy & Security → Automation, then reload the folders.";
+"action.notes.setup.open_automation" = "Open Automation Settings";
+"action.notes.setup.saved_location" = "Saved location: %@";
 "action.notes.setup.test_help" = "Verification creates a “Jotway Connection Test” note that you can delete afterward. It does not submit the current draft.";
 "action.notes.setup.loading" = "Loading Notes save locations…";
 "action.notes.setup.verifying" = "Creating and reading back a test note…";
@@ -320,6 +323,7 @@
 "launcher.system_open_failed" = "The system did not return an application that could be opened";
 "update.blocked.panel_closing" = "The panel is closing. Try again in a moment.";
 "update.blocked.app_opening" = "An application is opening. Try again in a moment.";
+"update.blocked.action_setup" = "Finish or close action setup before updating.";
 "update.blocked.composition" = "Finish text composition before updating.";
 "update.blocked.usage_save" = "Application usage could not be saved. Try again.";
 "update.blocked.draft_save" = "The draft could not be saved. Your text was preserved; try again.";
@@ -403,6 +407,12 @@
 "zip.save_failed" = "Could not save the ZIP file.";
 "error.destination_save_failed" = "The destination could not save the content.";
 "error.notes.no_folders" = "Notes returned no available folders.";
+"error.notes.folders_failed" = "The Notes folders could not be read. Open Notes to check your accounts, then reload the folders.";
+"error.notes.launch_failed" = "Notes could not be opened. Open Notes manually, then reload the folders.";
+"error.notes.automation_denied" = "Allow Notes under Jotway in System Settings → Privacy & Security → Automation, then reload the folders. Your saved location is preserved.";
+"error.notes.destination_missing" = "The Notes folder or note no longer exists. Reload the folders and choose a save location.";
+"error.notes.save_uncertain" = "Notes did not confirm the write. Check Notes before trying again; the note may already exist.";
+"error.notes.configuration_changed" = "The Notes configuration changed during verification. Your newer settings were preserved. Reload the folders to continue.";
 "error.notes.verification_failed" = "The test note could not be verified.";
 "error.notes.choose_destination" = "Choose a Notes save location first.";
 "error.notes.empty" = "There is no note content to save.";

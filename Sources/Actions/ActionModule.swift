@@ -27,15 +27,54 @@ struct ActionSettings {
     let makeView: @MainActor () -> AnyView
 }
 
+enum ActionSetupResult: Sendable, Equatable {
+    case completed
+    case cancelled
+}
+
+@MainActor
+struct ActionSetup {
+    let title: String
+    let invalidate: @MainActor () -> Void
+    let makeView: @MainActor (@escaping @MainActor (ActionSetupResult) -> Void) -> AnyView
+
+    init(title: String, invalidate: @escaping @MainActor () -> Void = {},
+         makeView: @escaping @MainActor (@escaping @MainActor (ActionSetupResult) -> Void) -> AnyView) {
+        self.title = title
+        self.invalidate = invalidate
+        self.makeView = makeView
+    }
+}
+
+@MainActor
+struct ActionSetupSnapshot {
+    let descriptor: ActionDescriptor
+    let moduleInstance: UUID
+    let setup: ActionSetup
+
+    var id: String { descriptor.id }
+}
+
+@MainActor
+struct ActionSetupRequest {
+    let id: UUID
+    let snapshot: ActionSetupSnapshot
+}
+
 @MainActor
 protocol ActionModule: AnyObject {
     var descriptor: ActionDescriptor { get }
     var state: ActionModuleState { get }
     var settings: ActionSettings? { get }
+    var setup: ActionSetup? { get }
     var onChange: (@MainActor () -> Void)? { get set }
 
     func refreshAvailability()
     func makeAction() -> any LauncherAction
+}
+
+extension ActionModule {
+    var setup: ActionSetup? { nil }
 }
 
 struct ActionConfigurationIdentity: Hashable, Sendable {

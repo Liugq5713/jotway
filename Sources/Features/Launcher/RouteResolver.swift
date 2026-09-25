@@ -9,6 +9,8 @@ struct RouteInput: Sendable {
     let recognitionIsCurrent: Bool
     let defaultActionID: String?
     let applicationIDs: Set<String>
+    var setupActions: [ActionDescriptor] = []
+    var defaultSetupActionID: String? = nil
 }
 
 enum RouteFailure: Equatable, Sendable {
@@ -26,13 +28,14 @@ enum RouteSource: Equatable, Sendable {
 
 enum RouteDecision: Equatable, Sendable {
     case action(String, source: RouteSource)
+    case setup(String, source: RouteSource)
     case application(String, source: RouteSource)
     case unavailable(RouteFailure, source: RouteSource)
     case empty
 
     var targetID: String? {
         switch self {
-        case .action(let id, _), .application(let id, _): id
+        case .action(let id, _), .setup(let id, _), .application(let id, _): id
         case .unavailable(.targetUnavailable(let id), _): id
         case .unavailable(.noDefaultAction, _), .empty: nil
         }
@@ -40,7 +43,7 @@ enum RouteDecision: Equatable, Sendable {
 
     var source: RouteSource? {
         switch self {
-        case .action(_, let source), .application(_, let source), .unavailable(_, let source): source
+        case .action(_, let source), .setup(_, let source), .application(_, let source), .unavailable(_, let source): source
         case .empty: nil
         }
     }
@@ -53,8 +56,10 @@ struct RouteResolver: Sendable {
         guard !text.isEmpty else { return .empty }
 
         let actionIDs = Set(input.actions.map(\.id))
+        let setupIDs = Set(input.setupActions.map(\.id))
         func target(_ id: String, source: RouteSource) -> RouteDecision {
             if actionIDs.contains(id) { return .action(id, source: source) }
+            if setupIDs.contains(id) { return .setup(id, source: source) }
             if input.applicationIDs.contains(id) { return .application(id, source: source) }
             return .unavailable(.targetUnavailable(id), source: source)
         }
@@ -69,19 +74,23 @@ struct RouteResolver: Sendable {
             return target(rule.actionID, source: .userRule)
         }
 
-        if let action = input.actions.first(where: { descriptor in
+        if let action = (input.actions + input.setupActions).first(where: { descriptor in
             descriptor.intentHints.localKeywords.contains { Self.matchesLocalPrefix($0, in: lowercased) }
         }) {
-            return .action(action.id, source: .localKeyword)
+            return target(action.id, source: .localKeyword)
         }
 
-        if input.recognitionIsCurrent, let recognized = input.recognizedTargetID {
+        if input.recognitionIsCurrent, let recognized = input.recognizedTargetID,
+           actionIDs.contains(recognized) || input.applicationIDs.contains(recognized) {
             return target(recognized, source: .recognition)
         }
 
         if let defaultActionID = input.defaultActionID,
            input.actions.contains(where: { $0.id == defaultActionID }) {
             return .action(defaultActionID, source: .fallback)
+        }
+        if let defaultID = input.defaultSetupActionID, setupIDs.contains(defaultID) {
+            return .setup(defaultID, source: .fallback)
         }
         return .unavailable(.noDefaultAction, source: .fallback)
     }

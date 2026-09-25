@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// Action 模块的唯一目录。宿主只从这里读取设置条目、可执行快照与配置修订。
+/// Action 模块的唯一目录。宿主从这里读取设置、配置入口、可执行快照与配置修订。
 @MainActor @Observable
 final class ActionRegistry {
     static let didChangeNotification = Notification.Name("ActionRegistry.didChange")
@@ -75,6 +75,32 @@ final class ActionRegistry {
 
     func executionSnapshot(for id: String) -> ActionExecutionSnapshot? {
         registered.first { $0.module.descriptor.id == id }.flatMap(makeExecutionSnapshot)
+    }
+
+    /// Configuration is a selectable route, never an executable or model-facing action.
+    func setupSnapshots() -> [ActionSetupSnapshot] {
+        registered.compactMap { entry in
+            guard isEnabled(entry.module.descriptor.id), !entry.module.state.availability.isReady,
+                  let setup = entry.module.setup else { return nil }
+            return ActionSetupSnapshot(descriptor: entry.module.descriptor,
+                                       moduleInstance: entry.instanceID, setup: setup)
+        }
+    }
+
+    func setupSnapshot(for id: String) -> ActionSetupSnapshot? {
+        setupSnapshots().first { $0.id == id }
+    }
+
+    func containsModule(id: String, instance: UUID) -> Bool {
+        isEnabled(id) && registered.contains { $0.module.descriptor.id == id && $0.instanceID == instance }
+    }
+
+    var fallbackSetupActionID: String? {
+        setupSnapshots().enumerated().compactMap { index, snapshot -> (Int, Int, String)? in
+            snapshot.descriptor.fallbackPriority.map { ($0, index, snapshot.id) }
+        }.min { lhs, rhs in
+            lhs.0 == rhs.0 ? lhs.1 < rhs.1 : lhs.0 < rhs.0
+        }?.2
     }
 
     var fallbackActionID: String? {

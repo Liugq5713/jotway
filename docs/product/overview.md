@@ -9,7 +9,7 @@ Jotway is a native macOS launcher for short, in-the-moment input. The user opens
 1. Open the quick record panel from the global shortcut, menu bar, Dock, or application launch.
 2. Enter plain text. Markdown-looking syntax, `/`, and `、` remain literal text; pasted rich text loses its styling, while image-only and file input is ignored.
 3. Jotway combines explicit selection, local matching, Jev's suggestion, and the default action to choose a destination. A direct application name or `打开 应用名` can resolve to a local application launch without opening a separate command menu.
-4. Press Enter to execute. Shift+Enter inserts a newline.
+4. Press Enter to execute. If the target is Set Up Notes, Enter opens configuration and retains the draft; after setup, press Enter again to save. Shift+Enter inserts a newline.
 5. On success the panel clears and closes. On failure the draft is restored with an actionable message.
 
 ## Quick record panel appearance
@@ -27,7 +27,9 @@ The default panel width is 560 pt and can narrow to 360 pt. The input card has a
 - Apple Calendar: creates an event for time-bound input.
 - Chrome: opens a Google search.
 
-Apple Notes is the preferred default. When it is not configured, Jotway tries another available storage action. Chrome never becomes an implicit fallback.
+Apple Notes is the preferred default. When it cannot execute, Jotway tries another ready storage action. If none is ready, Set Up Notes is the fallback. Unconfigured Notes remains available for explicit selection and local Notes prefixes even when another storage action supplies the fallback. Chrome never becomes an implicit fallback. An unavailable recognition suggestion is ignored so it cannot remove the fallback; an unavailable explicit selection still reports its error rather than silently choosing another action.
+
+Notes setup preserves the draft and selection, pauses recognition, and uses a single configuration window. It is not a submission: completing or cancelling setup returns to the original draft without execution feedback or automatic saving. Successful setup selects Notes; the user confirms again to save. The explicitly requested connection test creates a disclosed test note, never the draft. Permission refusal retains the saved location and offers Automation settings guidance and another folder read.
 
 ## Product boundaries
 
@@ -41,7 +43,7 @@ Apple Notes is the preferred default. When it is not configured, Jotway tries an
 ## Design principles
 
 - One sentence in, one explicit outcome out.
-- A safe default exists even when recognition is unavailable.
+- A usable execution or configuration path exists even when recognition is unavailable.
 - Local and explicit signals outrank a model guess.
 - Each action owns one descriptor, availability, preparation, and execution.
 - Optional AI processing must degrade to a usable non-AI path.

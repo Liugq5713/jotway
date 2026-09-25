@@ -43,12 +43,56 @@ enum AppleNotes {
     }
 
     struct Failure: LocalizedError {
+        enum Kind: Sendable { case operation, launch }
         let message: String
         /// 仅能证明请求根本未送达的 Apple Event 错误可直接重试。
         var notStarted = false
         /// 失败时的 Apple Event OSStatus，用于诊断日志。
         var osStatus: Int? = nil
+        var kind: Kind = .operation
         var errorDescription: String? { message }
+    }
+
+    /// Preserve actionable Apple Event errors at the injectable adapter boundary.
+    /// External error text is not shown directly because it may contain note content.
+    static func actionFailure(for response: Response, operation: String) -> ActionFailure? {
+        guard response.status != "ok" else { return nil }
+        return actionFailure(osStatus: response.osStatus, operation: operation,
+                             mayHaveWritten: response.status == "uncertain")
+    }
+
+    static func actionFailure(for error: Error, operation: String) -> ActionFailure {
+        if let failure = error as? ActionFailure {
+            guard let status = failure.osStatus, [-1743, -1728].contains(status) else { return failure }
+            return actionFailure(osStatus: status, operation: operation)
+        }
+        if let failure = error as? Failure {
+            if failure.kind == .launch {
+                return ActionFailure(localized: "error.notes.launch_failed", code: .unavailable,
+                                     osStatus: failure.osStatus)
+            }
+            return actionFailure(osStatus: failure.osStatus, operation: operation)
+        }
+        let error = error as NSError
+        return actionFailure(osStatus: error.domain == NSOSStatusErrorDomain ? error.code : nil,
+                             operation: operation)
+    }
+
+    private static func actionFailure(osStatus: Int?, operation: String,
+                                      mayHaveWritten: Bool = false) -> ActionFailure {
+        switch osStatus {
+        case -1743:
+            return ActionFailure(localized: "error.notes.automation_denied", code: .configuration,
+                                 osStatus: osStatus)
+        case -1728:
+            return ActionFailure(localized: "error.notes.destination_missing", code: .configuration,
+                                 osStatus: osStatus)
+        default:
+            let key = operation == "folders" ? "error.notes.folders_failed"
+                : mayHaveWritten ? "error.notes.save_uncertain" : "error.notes.save_failed"
+            return ActionFailure(localized: key, code: osStatus == -1712 ? .timeout : .processFailed,
+                                 osStatus: osStatus)
+        }
     }
 
     /// 纯文本 → Notes 内容（启动器路径，不经沉淀层的 Note）：
@@ -87,6 +131,7 @@ enum AppleNotes {
 
     @MainActor
     static func run(_ request: Request) async throws -> Response {
+        try Task.checkCancellation()
         if NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Notes").isEmpty {
             let options = NSWorkspace.OpenConfiguration()
             options.activates = false
@@ -95,9 +140,11 @@ enum AppleNotes {
                 _ = try await NSWorkspace.shared.openApplication(
                     at: URL(fileURLWithPath: "/System/Applications/Notes.app"), configuration: options)
             } catch {
-                throw Failure(message: L10n.text("notes.launch_failed", error.localizedDescription), notStarted: true)
+                throw Failure(message: L10n.text("notes.launch_failed", error.localizedDescription),
+                              notStarted: true, kind: .launch)
             }
         }
+        try Task.checkCancellation()
         // AESend 等待不占用主线程，关窗不会取消外部写入。超时后绝不自动重发。
         return await Task.detached(priority: .userInitiated) {
             let target = NSAppleEventDescriptor(bundleIdentifier: "com.apple.Notes")
@@ -197,13 +244,17 @@ enum AppleNotes {
                 return Response(version: 1, requestID: request.requestID, status: "ok", noteID: noteID,
                     folderID: try text(0x49442020, of: actualFolder), plaintext: try text(0x74657874, of: note))
             } catch {
-                let code = (error as NSError).code
+                let failure = error as? Failure
+                let nativeError = error as NSError
+                let code = failure?.osStatus
+                    ?? (nativeError.domain == NSOSStatusErrorDomain ? nativeError.code : nil)
                 let message: String
                 if code == -1743 {
-                    message = L10n.text("notes.automation_denied", code)
+                    message = L10n.text("notes.automation_denied", -1743)
                 } else if code == -1728 {
-                    message = L10n.text("notes.destination_missing", code)
-                } else { message = "\(error.localizedDescription)（\(code)）" }
+                    message = L10n.text("notes.destination_missing", -1728)
+                } else if let code { message = "\(error.localizedDescription) (\(code))" }
+                else { message = error.localizedDescription }
                 return Response(version: 1, requestID: request.requestID, status: mayHaveWritten ? "uncertain" : "failed",
                                message: message, osStatus: code)
             }

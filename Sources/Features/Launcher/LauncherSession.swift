@@ -18,6 +18,7 @@ enum LauncherEvent {
     case preloadApplications
     case cancelApplicationPreload
     case restoreFailedSubmission
+    case actionSetupFinished(UUID, ActionSetupResult)
 }
 
 enum LauncherEffect {
@@ -27,6 +28,9 @@ enum LauncherEffect {
     case hidePanel(submitted: Bool, presentationPolicy: PresentationPolicy)
     case hideForApplicationLaunch
     case showPanel
+    case showActionSetup(ActionSetupRequest)
+    case closeActionSetup(UUID)
+    case restoreEditorAfterSetup
     case openApplication(URL, @MainActor (Result<Void, Error>) -> Void)
 }
 
@@ -77,6 +81,12 @@ final class LauncherSession {
     private var submissions: [UUID: Task<Void, Never>] = [:]
     private var explicitTargetID: String?
     private var explicitTargetIdentity: ActionInput.Identity?
+    private struct PendingSetup {
+        let request: ActionSetupRequest
+        let identity: ActionInput.Identity
+        let panelSession: Int
+    }
+    private var pendingSetup: PendingSetup?
     private(set) var failedSubmission: FailedSubmission?
 
     private let actionExecutor = ActionExecutor()
@@ -142,12 +152,14 @@ final class LauncherSession {
         case .preloadApplications: preloadApplications()
         case .cancelApplicationPreload: cancelApplicationPreload()
         case .restoreFailedSubmission: state.lastEventSucceeded = restoreFailedSubmission()
+        case .actionSetupFinished(let id, let result): finishSetup(id: id, result: result)
         }
     }
 
     func updateInput(_ text: String) {
         guard !isReplacingEditor else { return }
         if draft.content != text {
+            invalidateSetup()
             draft.content = text
             revision += 1
             clearExplicitTarget()
@@ -160,6 +172,7 @@ final class LauncherSession {
     @discardableResult
     func prepare(quote: String? = nil) -> Bool {
         guard !state.isComposingText else { return false }
+        invalidateSetup()
         var content = draft.content
         if let quote {
             if !content.isEmpty {
@@ -179,11 +192,13 @@ final class LauncherSession {
     }
 
     func resumePresentation() {
+        invalidateSetup()
         panelSession += 1
         activate()
     }
 
     func activate() {
+        guard pendingSetup == nil else { return }
         acceptsIntentSuggestions = true
         refresh()
     }
@@ -195,6 +210,7 @@ final class LauncherSession {
     }
 
     func panelClosed() {
+        invalidateSetup()
         suspend()
         clearExplicitTarget()
         actionExecutor.reset()
@@ -219,6 +235,11 @@ final class LauncherSession {
     }
 
     private func cancel() {
+        if let pendingSetup {
+            _ = handleEffect(.closeActionSetup(pendingSetup.request.id))
+            finishSetup(id: pendingSetup.request.id, result: .cancelled)
+            return
+        }
         guard preserveDraft() else {
             state.lastEventSucceeded = false
             return
@@ -231,6 +252,10 @@ final class LauncherSession {
     func refresh() {
         guard !isReplacingEditor else { return }
         registry.refreshAvailability()
+        if let pendingSetup, !registry.containsModule(id: pendingSetup.request.snapshot.id,
+                                                      instance: pendingSetup.request.snapshot.moduleInstance) {
+            invalidateSetup()
+        }
         state.isIntentRecognitionEnabled = true
         if configuration().hasAPIKey, acceptsIntentSuggestions, hasPreparedDraft,
            catalog.applications == nil, !catalog.isLoading {
@@ -242,6 +267,7 @@ final class LauncherSession {
 
     private var currentIntentSnapshot: IntentRecognition.Snapshot? {
         guard acceptsIntentSuggestions, hasPreparedDraft, !isSubmitting,
+              pendingSetup == nil,
               !state.isReadingGettingStarted, !state.isComposingText,
               !state.isOpeningApplication, applicationOpenID == nil,
               !draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
@@ -284,12 +310,14 @@ final class LauncherSession {
             recognizedTargetID: recognizedID,
             recognitionIsCurrent: recognition.suggestion?.snapshot == snapshot,
             defaultActionID: registry.fallbackActionID,
-            applicationIDs: Set((snapshot?.applications ?? []).map(\.id))))
+            applicationIDs: Set((snapshot?.applications ?? []).map(\.id)),
+            setupActions: registry.setupSnapshots().map(\.descriptor),
+            defaultSetupActionID: registry.fallbackSetupActionID))
     }
 
     private func renderIntentSuggestion() {
         updateRecognizingHint()
-        guard !state.isComposingText else { return }
+        guard !state.isComposingText, pendingSetup == nil else { return }
         let decision = routeDecision
         let candidates = makeIntentCandidates()
         let routeTargetID = decision.targetID
@@ -325,6 +353,9 @@ final class LauncherSession {
         case .application(let id, _):
             let application = currentIntentSnapshot?.applications.first { $0.id == id }
             state.displayedActionTitle = application.map { L10n.text("launcher.open_application", $0.name) }
+            actionExecutor.reset()
+        case .setup(let id, _):
+            state.displayedActionTitle = registry.setupSnapshot(for: id)?.setup.title
             actionExecutor.reset()
         case .unavailable, .empty:
             state.displayedActionTitle = nil
@@ -364,7 +395,9 @@ final class LauncherSession {
             if !values.contains(where: { $0.0 == id }) { values.append((id, title)) }
         }
         if let suggestion = recognition.suggestion,
-           suggestion.snapshot == currentIntentSnapshot {
+           suggestion.snapshot == currentIntentSnapshot,
+           registry.executionSnapshot(for: suggestion.targetID) != nil
+            || currentIntentSnapshot?.applications.contains(where: { $0.id == suggestion.targetID }) == true {
             append(suggestion.targetID, suggestion.title)
         }
         for snapshot in registry.executionSnapshots() where snapshot.id != defaultID {
@@ -372,6 +405,9 @@ final class LauncherSession {
         }
         if let defaultID, let descriptor = registry.descriptor(for: defaultID) {
             append(defaultID, descriptor.localizedTitle)
+        }
+        for snapshot in registry.setupSnapshots() {
+            append(snapshot.id, snapshot.setup.title)
         }
         if explicitTargetIdentity == actionInput().identity, let explicitTargetID,
            !values.contains(where: { $0.0 == explicitTargetID }) {
@@ -381,6 +417,7 @@ final class LauncherSession {
     }
 
     private func targetTitle(_ id: String) -> String? {
+        if let snapshot = registry.setupSnapshot(for: id) { return snapshot.setup.title }
         if let descriptor = registry.descriptor(for: id) { return descriptor.localizedTitle }
         return currentIntentSnapshot?.applications.first(where: { $0.id == id })
             .map { L10n.text("launcher.open_application", $0.name) }
@@ -408,6 +445,7 @@ final class LauncherSession {
 
     func confirm(_ source: IntentRecognition.ConfirmationSource) {
         guard hasPreparedDraft, acceptsIntentSuggestions, !isSubmitting,
+              pendingSetup == nil,
               !state.isOpeningApplication, !state.isComposingText,
               !state.isReadingGettingStarted else { return }
         if draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -423,7 +461,7 @@ final class LauncherSession {
         let acceptsSuggestion: Bool = switch resolved {
         case .action(let id, let routeSource), .application(let id, let routeSource):
             (routeSource == .recognition || routeSource == .explicit) && suggestion?.targetID == id
-        case .unavailable, .empty: false
+        case .setup, .unavailable, .empty: false
         }
         func finishFeedback() -> UUID? {
             if let suggestion, resolved.source == .explicit, suggestion.targetID != resolved.targetID,
@@ -434,6 +472,9 @@ final class LauncherSession {
             return acceptsSuggestion ? consumed.flatMap { recordFeedback($0, source: source) } : nil
         }
         switch resolved {
+        case .setup(let id, _):
+            guard let snapshot = registry.setupSnapshot(for: id) else { return }
+            beginSetup(snapshot)
         case .action(let id, _):
             guard let snapshot = registry.executionSnapshot(for: id) else {
                 state.message = L10n.text("launcher.action_unavailable")
@@ -458,6 +499,45 @@ final class LauncherSession {
         case .unavailable(.noDefaultAction, _), .empty:
             state.message = L10n.text("launcher.no_default_action")
         }
+    }
+
+    private func beginSetup(_ snapshot: ActionSetupSnapshot) {
+        guard pendingSetup == nil else { return }
+        let request = ActionSetupRequest(id: UUID(), snapshot: snapshot)
+        pendingSetup = PendingSetup(request: request, identity: actionInput().identity,
+                                    panelSession: panelSession)
+        state.isConfiguringAction = true
+        state.isIntentCandidateMenuVisible = false
+        actionExecutor.reset()
+        suspend()
+        if !handleEffect(.showActionSetup(request)) {
+            finishSetup(id: request.id, result: .cancelled)
+        }
+    }
+
+    private func finishSetup(id: UUID, result: ActionSetupResult) {
+        guard let pending = pendingSetup, pending.request.id == id else { return }
+        pending.request.snapshot.setup.invalidate()
+        pendingSetup = nil
+        state.isConfiguringAction = false
+        guard pending.identity == actionInput().identity, pending.panelSession == panelSession,
+              !state.isComposingText,
+              registry.containsModule(id: pending.request.snapshot.id,
+                                      instance: pending.request.snapshot.moduleInstance) else { return }
+        if result == .completed, registry.executionSnapshot(for: pending.request.snapshot.id) != nil {
+            explicitTargetID = pending.request.snapshot.id
+            explicitTargetIdentity = pending.identity
+        }
+        activate()
+        _ = handleEffect(.restoreEditorAfterSetup)
+    }
+
+    private func invalidateSetup() {
+        guard let pending = pendingSetup else { return }
+        pendingSetup = nil
+        state.isConfiguringAction = false
+        pending.request.snapshot.setup.invalidate()
+        _ = handleEffect(.closeActionSetup(pending.request.id))
     }
 
     private func recordCorrection(suggestion: IntentRecognition.Suggestion, chosenTargetID: String) {

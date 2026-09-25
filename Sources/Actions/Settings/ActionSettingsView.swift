@@ -141,7 +141,9 @@ struct AppleNotesSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .sheet(isPresented: $showsSetup) { AppleNotesSetupView(module: module) }
+        .sheet(isPresented: $showsSetup) {
+            AppleNotesSetupView(module: module) { _ in showsSetup = false }
+        }
     }
 }
 
@@ -211,31 +213,154 @@ private func destinationSection(name: String?, label: String, show: @escaping @M
     }
 }
 
-private struct AppleNotesSetupView: View {
+/// Also owned by the setup window, so closing it cancels before SwiftUI tears down.
+@MainActor
+final class AppleNotesSetupLifetime {
+    private(set) var isActive = true
+    var task: Task<Void, Never>?
+
+    func invalidate() {
+        isActive = false
+        task?.cancel()
+        task = nil
+    }
+}
+
+struct AppleNotesSetupView: View {
     let module: AppleNotesModule
-    @Environment(\.dismiss) private var dismiss
+    let onFinish: @MainActor (ActionSetupResult) -> Void
+    @Environment(\.openURL) private var openURL
     @State private var destinations: [AppleNotes.Destination] = []
     @State private var selectedID = ""
     @State private var isBusy = false
     @State private var status: DestinationSetupStatus?
-    var body: some View {
-        destinationSetup(title: L10n.text("action.notes.setup.title"), explanation: L10n.text("action.notes.setup.explanation"),
-            permission: L10n.text("action.notes.setup.permission"), pickerLabel: L10n.text("action.setup.save_to"),
-            values: destinations.map { ($0.id, $0.name) }, selectedID: $selectedID, isBusy: isBusy,
-            message: status?.text ?? L10n.text("action.notes.setup.test_help"),
-            reload: load, verify: verify, dismiss: { dismiss() })
-        .task { load() }
+    @State private var isActive = false
+    @State private var operationID: UUID?
+    @State private var lifetime: AppleNotesSetupLifetime
+
+    init(module: AppleNotesModule, lifetime: AppleNotesSetupLifetime = AppleNotesSetupLifetime(),
+         onFinish: @escaping @MainActor (ActionSetupResult) -> Void) {
+        self.module = module
+        self.onFinish = onFinish
+        _lifetime = State(initialValue: lifetime)
     }
-    private func load() { run(messageKey: "action.notes.setup.loading") {
-        let values = try await module.loadDestinations(); destinations = values
-        selectedID = values.first(where: { $0.id == module.destination?.id })?.id ?? values[0].id
-        status = .key("action.setup.choose_then_verify")
-    } }
-    private func verify() { guard let value = destinations.first(where: { $0.id == selectedID }) else { return }
-        run(messageKey: "action.notes.setup.verifying") { try await module.verifyAndSetDestination(value); dismiss() } }
-    private func run(messageKey: String, _ work: @escaping @MainActor () async throws -> Void) {
-        isBusy = true; status = .key(messageKey)
-        Task { defer { isBusy = false }; do { try await work() } catch { status = .failure(ActionFailure.presentation(for: error)) } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(L10n.text("action.notes.setup.title")).font(.headline)
+            Text(L10n.text("action.notes.setup.explanation")).font(.callout)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L10n.text("action.notes.setup.permission"))
+                Button(L10n.text("action.notes.setup.open_automation")) {
+                    guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") else { return }
+                    openURL(url)
+                }
+                if let destination = module.destination {
+                    Text(L10n.text("action.notes.setup.saved_location", destination.name))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !destinations.isEmpty {
+                    Picker(L10n.text("action.setup.save_to"), selection: $selectedID) {
+                        ForEach(destinations) { Text($0.name).tag($0.id) }
+                    }
+                    .disabled(isBusy)
+                }
+                Button(L10n.text("action.setup.reload"), action: load).disabled(isBusy)
+            }
+            .font(.callout)
+            Text(L10n.text("action.notes.setup.test_help"))
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let status {
+                Text(status.text).font(.caption).foregroundStyle(.secondary)
+                    .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("notes-setup-status")
+            }
+            HStack {
+                if isBusy { ProgressView().controlSize(.small) }
+                Spacer()
+                Button(L10n.text("common.close")) { finish(.cancelled) }
+                    .keyboardShortcut(.cancelAction)
+                Button(L10n.text("action.setup.verify_finish"), action: verify)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isBusy || !destinations.contains(where: { $0.id == selectedID }))
+            }
+        }
+        .padding(24).frame(width: 440)
+        .onAppear {
+            isActive = true
+            selectedID = module.destination?.id ?? ""
+            load()
+        }
+        .onDisappear { invalidate() }
+    }
+
+    private func load() {
+        guard let id = beginOperation(messageKey: "action.notes.setup.loading") else { return }
+        destinations = []
+        lifetime.task = Task {
+            do {
+                let values = try await module.loadDestinations()
+                guard isCurrent(id) else { return }
+                destinations = values
+                selectedID = values.first(where: { $0.id == selectedID })?.id
+                    ?? values.first(where: { $0.id == module.destination?.id })?.id
+                    ?? values[0].id
+                status = .key("action.setup.choose_then_verify")
+                completeOperation()
+            } catch { show(error, for: id) }
+        }
+    }
+
+    private func verify() {
+        guard let value = destinations.first(where: { $0.id == selectedID }),
+              let id = beginOperation(messageKey: "action.notes.setup.verifying") else { return }
+        lifetime.task = Task {
+            do {
+                try await module.verifyAndSetDestination(value)
+                guard isCurrent(id) else { return }
+                completeOperation()
+                finish(.completed)
+            } catch { show(error, for: id) }
+        }
+    }
+
+    private func beginOperation(messageKey: String) -> UUID? {
+        guard isActive, lifetime.isActive, !isBusy else { return nil }
+        let id = UUID()
+        operationID = id
+        isBusy = true
+        status = .key(messageKey)
+        return id
+    }
+
+    private func isCurrent(_ id: UUID) -> Bool {
+        isActive && lifetime.isActive && operationID == id && !Task.isCancelled
+    }
+
+    private func show(_ error: Error, for id: UUID) {
+        guard isCurrent(id) else { return }
+        status = .failure(ActionFailure.presentation(for: error))
+        completeOperation()
+    }
+
+    private func completeOperation() {
+        operationID = nil
+        lifetime.task = nil
+        isBusy = false
+    }
+
+    private func finish(_ result: ActionSetupResult) {
+        guard isActive, lifetime.isActive else { return }
+        invalidate()
+        onFinish(result)
+    }
+
+    private func invalidate() {
+        isActive = false
+        lifetime.invalidate()
+        completeOperation()
     }
 }
 

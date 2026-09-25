@@ -27,10 +27,11 @@ final class LauncherViewState {
     var intentIssue: String?
     /// 悬浮层候选目标列表（含当前选中项，非选中项显形可点）。
     var intentCandidates: [IntentCandidate] = []
-    /// 动作行显示的可执行动作标题；与按 Enter 实际执行的动作共用同一解析结果。
+    /// 动作行显示的执行或配置标题；与按 Enter 的行为共用同一解析结果。
     var displayedActionTitle: String?
     var isIntentCandidateMenuVisible = false
     var isIntentRecognitionEnabled = false
     var isOpeningApplication = false
+    var isConfiguringAction = false
     var lastEventSucceeded = true
 }
