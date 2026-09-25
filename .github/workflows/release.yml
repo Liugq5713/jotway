@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: macos-26
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcode-select -p
+          swift --version
+
+      - name: Read version from tag
+        id: version
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag must use vMAJOR.MINOR.PATCH: $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build and package DMG
+        run: |
+          ./scripts/release.py "${{ steps.version.outputs.version }}" \
+            --notes "Jotway ${{ github.ref_name }}"
+
+      - name: Create checksum file
+        shell: bash
+        run: |
+          release_dir="$(find release -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
+          test -n "$release_dir"
+          shasum -a 256 "$release_dir"/*.dmg > "$release_dir/SHA256SUMS.txt"
+          echo "RELEASE_DIR=$release_dir" >> "$GITHUB_ENV"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jotway-${{ steps.version.outputs.version }}-arm64
+          path: |
+            ${{ env.RELEASE_DIR }}/*.dmg
+            ${{ env.RELEASE_DIR }}/release.json
+            ${{ env.RELEASE_DIR }}/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            "$RELEASE_DIR"/*.dmg \
+            "$RELEASE_DIR/release.json" \
+            "$RELEASE_DIR/SHA256SUMS.txt" \
+            --title "Jotway ${{ github.ref_name }}" \
+            --generate-notes

@@ -2,7 +2,7 @@
 
 > Role: **Current**
 
-Jotway includes Sparkle, but packaged builds currently use local updates. There is no configured update feed or automatic publication destination. The release script produces a local DMG and release metadata.
+Jotway includes Sparkle, but packaged builds currently use local updates. The repository now has GitHub Actions for continuous build/test validation and tag-triggered GitHub Releases. The published packages remain ad-hoc signed and do not enable Sparkle online updates.
 
 ## Client behavior
 
@@ -35,7 +35,19 @@ Build a local patch release:
 5. ad-hoc signs and verifies the application, then creates and verifies the DMG;
 6. calculates the DMG SHA-256 and writes local release metadata.
 
-This command does not upload files, read login credentials, create update-signing keys, or generate an appcast. GitHub Releases and a replacement update feed are not yet configured.
+This command does not upload files, read login credentials, create update-signing keys, or generate an appcast. GitHub Releases are published only by the tag-triggered workflow described below; a replacement Sparkle update feed is not yet configured.
+
+## GitHub Actions release
+
+Pull requests and pushes to `main` run `swift build` and `swift test` on an arm64 macOS runner. A semver tag such as `v0.1.1` starts the release workflow, which:
+
+1. builds the release application;
+2. creates and verifies the arm64 DMG;
+3. records the SHA-256 checksum and release metadata;
+4. uploads the DMG and metadata as workflow artifacts; and
+5. creates a GitHub Release with the same files attached.
+
+The workflow uses the repository's `GITHUB_TOKEN` only for creating the GitHub Release. It does not require Apple credentials or Sparkle signing keys because the artifact is ad-hoc signed, not notarized, and has online updates disabled.
 
 Users can install a downloaded DMG by replacing the application. For local development delivery, `./scripts/build-app.sh release --update` replaces and restarts the installed application.
 
