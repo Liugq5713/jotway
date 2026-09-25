@@ -23,6 +23,7 @@ Terminology lives only in [CONTEXT.md](../CONTEXT.md). When a Current document a
 | [AI capability](plugins/ai.md) | Optional text processing and configuration |
 | [Plugin distribution](plugins/README.md) | Source and package boundaries for optional capability |
 | [App updates](product/updates.md) | Sparkle configuration and user-visible update behavior |
+| [Website and usage images](development/website.md) | English static site, interactive demo, verified download metadata, and README captures |
 
 ## Current actions and routing
 
@@ -42,7 +43,6 @@ These describe active or candidate changes. Their contents do not override Curre
 |---|---|
 | [Launcher UI](development/launcher-ui.md) | Active design brief |
 | [ChatGPT action](development/chatgpt-action.md) | Development brief; extends the current Action module boundary and opens a desktop conversation with prefilled text and manual send |
-| [Website](product/website.md) | Candidate public site and distribution work |
 
 Delete a Work document after its resulting behavior has been merged into the relevant Current document.
 

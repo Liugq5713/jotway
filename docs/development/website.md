@@ -2,7 +2,7 @@
 
 > Role: **Current**
 
-The repository contains a static English-language website at `website/`. Its hosting target is [liugq5713.github.io/jotway](https://liugq5713.github.io/jotway/) on GitHub Pages. The site currently reports that no public app release is available until a stable GitHub Release is verified.
+The repository contains a static English-language website at `website/`. It is published at [liugq5713.github.io/jotway](https://liugq5713.github.io/jotway/) through GitHub Pages. The site currently reports that no public app release is available until a stable GitHub Release is verified.
 
 ## Pages and behavior
 
