@@ -1,6 +1,28 @@
 import AppKit
+import CoreText
 import KeyboardShortcuts
 import SwiftUI
+
+/// 同一套中性颜色供 SwiftUI 卡片与 AppKit 正文、placeholder、光标使用。
+private enum EditorPalette {
+    static let surface = adaptive(0xFAFBFC, 0x202226)
+    static let outline = adaptive(0xDCE0E5, 0x3F4248)
+    static let text = adaptive(0x24262A, 0xE7E9EE)
+    static let secondary = adaptive(0x777C85, 0x959BA7)
+    static let button = adaptive(0xEDF0F4, 0x2C2F35)
+    static let buttonText = adaptive(0x5B6471, 0xB9C1CD)
+    static let keycap = adaptive(0xDFE5ED, 0x3A4350)
+    static let accent = adaptive(0x285BAF, 0x72BDED)
+
+    private static func adaptive(_ light: UInt32, _ dark: UInt32) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let rgb = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+            return NSColor(srgbRed: CGFloat((rgb >> 16) & 255) / 255,
+                           green: CGFloat((rgb >> 8) & 255) / 255,
+                           blue: CGFloat(rgb & 255) / 255, alpha: 1)
+        }
+    }
+}
 
 /// AppKit 编辑器与窗口之间的焦点、组词和用户事件桥接。
 @MainActor @Observable
@@ -26,9 +48,7 @@ private struct LauncherInputCardHeightKey: PreferenceKey {
 struct EditorView: View {
     @Binding var text: String
     var appState: AppState? = nil
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let focusTarget: EditorFocusTarget
     let state: LauncherViewState
@@ -68,7 +88,7 @@ struct EditorView: View {
             reportedCardHeight = card
             scheduleGeometryReport()
         }
-        // 材质和描边只响应外观，状态切换不改变卡片轮廓。
+        // 表面和描边只响应外观，状态切换不改变卡片轮廓。
         stack
             .frame(maxHeight: .infinity, alignment: .top)
     }
@@ -99,33 +119,18 @@ struct EditorView: View {
     }
 
     private var accent: Color {
-        colorScheme == .dark
-            ? Color(red: 0.38, green: 0.76, blue: 1)
-            : Color(red: 0.10, green: 0.34, blue: 0.72)
+        Color(nsColor: EditorPalette.accent)
     }
 
-    private var cardSurface: LinearGradient {
-        LinearGradient(
-            colors: colorScheme == .dark
-                ? [Color(red: 0.10, green: 0.14, blue: 0.20), Color(red: 0.055, green: 0.08, blue: 0.12)]
-                : [Color(red: 0.97, green: 0.98, blue: 1), Color(red: 0.91, green: 0.94, blue: 0.98)],
-            startPoint: .topLeading, endPoint: .bottomTrailing
-        )
-    }
-
-    /// 冷色实底稳定正文对比，少量原生材质保留环境层次；降低透明度时使用完全实色。
-    private func cardChrome<Content: View>(_ content: Content, cornerRadius: CGFloat) -> some View {
+    /// 实色表面不受桌面颜色影响，也满足 Reduce Transparency。
+    private func cardChrome<Content: View>(_ content: Content, cornerRadius: CGFloat,
+                                         onBackgroundClick: (() -> Void)? = nil) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         // 圆角之外保持透明；外扩阴影在浅色桌面上会形成一圈灰底。
         return content
-            .background(WindowDragHandle()) // 拖拽只挂在非文本区域。
+            .background(WindowDragHandle(onClick: onBackgroundClick)) // 拖拽只挂在非文本区域。
             .background {
-                ZStack {
-                    if !reduceTransparency { shape.fill(.regularMaterial) }
-                    shape.fill(cardSurface)
-                        .opacity(reduceTransparency || colorSchemeContrast == .increased ? 1 : 0.94)
-                }
-                .allowsHitTesting(false)
+                shape.fill(Color(nsColor: EditorPalette.surface)).allowsHitTesting(false)
             }
             .overlay { cardOutline(shape) }
     }
@@ -133,13 +138,7 @@ struct EditorView: View {
     private func cardOutline(_ shape: RoundedRectangle) -> some View {
         shape
             .strokeBorder(
-                LinearGradient(
-                    colors: colorSchemeContrast == .increased
-                        ? [Color.primary.opacity(0.70), Color.primary.opacity(0.45)]
-                        : [accent.opacity(colorScheme == .dark ? 0.48 : 0.30),
-                           Color.primary.opacity(0.09), accent.opacity(0.18)],
-                    startPoint: .topLeading, endPoint: .bottomTrailing
-                ),
+                colorSchemeContrast == .increased ? Color.primary.opacity(0.70) : Color(nsColor: EditorPalette.outline),
                 lineWidth: colorSchemeContrast == .increased ? 1.5 : 1
             )
             .allowsHitTesting(false)
@@ -164,17 +163,22 @@ struct EditorView: View {
                 actionRow
             }
             .padding(.horizontal, LauncherMetrics.cardPaddingH)
-            .padding(.vertical, LauncherMetrics.cardPaddingV)
+            .padding(.top, LauncherMetrics.cardPaddingTop)
+            .padding(.bottom, LauncherMetrics.cardPaddingBottom)
             .background(
                 GeometryReader { proxy in
                     Color.clear.preference(key: LauncherInputCardHeightKey.self, value: proxy.size.height)
                 }
             ),
-            cornerRadius: LauncherMetrics.inputCardCornerRadius
+            cornerRadius: LauncherMetrics.inputCardCornerRadius,
+            onBackgroundClick: {
+                guard let textView = focusTarget.textView else { return }
+                textView.window?.makeFirstResponder(textView)
+            }
         )
     }
 
-    // MARK: - D2 动作行（固定 28pt，始终占位）
+    // MARK: - 动作行（固定 22pt，始终占位）
 
     /// 状态行文字的优先级：阻断性失败 > 明确用户操作反馈 > 识别中提示。
     /// 动作摘要已下线——目标由右侧动作标签单一承载，不再与「存到备忘录」重复叙述。
@@ -192,7 +196,7 @@ struct EditorView: View {
             if let status = actionRowStatusText {
                 Text(status)
                     .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(colorSchemeContrast == .increased ? Color.secondary : Color(nsColor: EditorPalette.secondary))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(-1) // 窄窗口先压反馈
@@ -219,10 +223,10 @@ struct EditorView: View {
         if let title = state.displayedActionTitle, !state.isReadingGettingStarted {
             primaryActionLabel(title: title)
         }
-        // 空草稿：动作标签留白，动作行容器仍占位（28pt）。
+        // 空草稿：动作标签留白，动作行容器仍占位（22pt）。
     }
 
-    /// 冷蓝动作按钮与独立回车键帽强化可执行目标；点击与 Enter 共用同一路由解析。
+    /// 中性动作按钮保留蓝色回车键帽符号；点击与 Enter 共用同一路由解析。
     /// ⌥↑/⌥↓ 在有多个目标时切换（无图标提示，切换说明落在 tooltip）。
     private func primaryActionLabel(title: String) -> some View {
         Button { send(.confirm(.button)) } label: {
@@ -234,25 +238,26 @@ struct EditorView: View {
                 Text(title)
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
+                    .frame(maxWidth: 260, alignment: .leading)
                 Text("↵")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(accent)
                     .frame(width: 16, height: 16)
-                    .background(accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 3))
+                    .background(Color(nsColor: EditorPalette.keycap), in: RoundedRectangle(cornerRadius: 3))
             }
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
-            .background(accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 6))
-            .overlay {
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(accent.opacity(0.24), lineWidth: 0.75)
-            }
+            .background(Color(nsColor: EditorPalette.button), in: RoundedRectangle(cornerRadius: 6))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(accent)
+        .fixedSize(horizontal: true, vertical: false)
+        .layoutPriority(1)
+        .foregroundStyle(colorSchemeContrast == .increased ? Color.primary : Color(nsColor: EditorPalette.buttonText))
         .disabled(isAnySelectorVisible)
         .opacity(isAnySelectorVisible ? 0.45 : 1)
         .accessibilityIdentifier("jev-confirm-intent")
+        .accessibilityLabel(title)
         .help(actionTargetHelp)
     }
 
@@ -378,15 +383,28 @@ struct HintPresentation: NSViewRepresentable {
 }
 
 private struct WindowDragHandle: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        WindowDragNSView()
+    var onClick: (() -> Void)? = nil
+
+    func makeNSView(context: Context) -> WindowDragNSView {
+        let view = WindowDragNSView()
+        view.onClick = onClick
+        return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func updateNSView(_ nsView: WindowDragNSView, context: Context) {
+        nsView.onClick = onClick
+    }
 }
 
 private final class WindowDragNSView: NSView {
+    var onClick: (() -> Void)?
+
     override var acceptsFirstResponder: Bool { false }
+
+    // 失焦后第一次点击输入卡留白也要恢复编辑；拖动把手本身不占用键盘焦点。
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        onClick != nil || super.acceptsFirstMouse(for: event)
+    }
 
     override func mouseDown(with event: NSEvent) {
         // performWindowDragWithEvent: 未导入 Swift，用经典手动拖动循环（纯公开 API）
@@ -394,6 +412,7 @@ private final class WindowDragNSView: NSView {
         let originStart = window.frame.origin
         let mouseStart = NSEvent.mouseLocation
         let recordPanel = window as? RecordPanel
+        var didDrag = false
         defer { recordPanel?.endUserDrag() }
         while true {
             guard let next = window.nextEvent(
@@ -402,7 +421,11 @@ private final class WindowDragNSView: NSView {
                 inMode: .default,
                 dequeue: true
             ) else { break }
-            if next.type == NSEvent.EventType.leftMouseUp { break }
+            if next.type == NSEvent.EventType.leftMouseUp {
+                if !didDrag { onClick?() }
+                break
+            }
+            didDrag = true
             let mouse = NSEvent.mouseLocation
             let origin = NSPoint(
                 x: originStart.x + mouse.x - mouseStart.x,
@@ -422,6 +445,8 @@ private final class WindowDragNSView: NSView {
 
 private struct EditorTextViewRepresentable: NSViewRepresentable {
     @Binding var text: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     let focusTarget: EditorFocusTarget
     let state: LauncherViewState
     let send: (LauncherEvent) -> Void
@@ -449,24 +474,27 @@ private struct EditorTextViewRepresentable: NSViewRepresentable {
         textView.send = send
         textView.placeholder = placeholder
         textView.onContentHeightChange = onContentHeightChange
-        textView.font = NSFont.systemFont(ofSize: 15) // 15pt：指令输入不抢眼，多行备忘也清爽
+        let font = NSFont.systemFont(ofSize: LauncherMetrics.editorFontSize, weight: .regular)
+        textView.font = font
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = LauncherMetrics.editorLineSpacing
+        // 最小行高会把原生光标拉长、把字形压到行框下方；用行间距保留自然光标几何。
+        let naturalLineHeight = NSLayoutManager().defaultLineHeight(for: font)
+        paragraphStyle.lineSpacing = max(0, LauncherMetrics.editorLineHeight - naturalLineHeight)
         textView.defaultParagraphStyle = paragraphStyle
         textView.typingAttributes[.paragraphStyle] = paragraphStyle
-        textView.textColor = .labelColor
-        textView.insertionPointColor = NSColor(name: "JotwayInsertionPoint") { appearance in
-            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-                ? NSColor(srgbRed: 0.38, green: 0.76, blue: 1, alpha: 1)
-                : NSColor(srgbRed: 0.10, green: 0.34, blue: 0.72, alpha: 1)
-        }
+        textView.textColor = EditorPalette.text
+        textView.increasesContrast = colorSchemeContrast == .increased
+        textView.insertionPointColor = EditorPalette.accent
+        textView.reducesMotion = reduceMotion
         textView.drawsBackground = false
         textView.isRichText = false
         textView.importsGraphics = false
         textView.isAutomaticLinkDetectionEnabled = false
         textView.isAutomaticDataDetectionEnabled = false
         textView.allowsUndo = true
-        textView.textContainerInset = .zero // 内边距由输入卡统一承担（16/14）
+        // 全部留白由卡片承担，避免原生默认的 5pt lineFragmentPadding 再次叠加。
+        textView.textContainerInset = .zero
+        textView.textContainer?.lineFragmentPadding = 0
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
@@ -487,7 +515,9 @@ private struct EditorTextViewRepresentable: NSViewRepresentable {
         textView.send = send
         textView.placeholder = placeholder
         textView.onContentHeightChange = onContentHeightChange
+        textView.reducesMotion = reduceMotion
         context.coordinator.send = send
+        textView.increasesContrast = colorSchemeContrast == .increased
         textView.setPlainText(text, reason: .synchronize)
     }
 
@@ -527,6 +557,24 @@ final class EditorTextView: NSTextView {
     }
     /// 文本排版高度变化上报（输入卡自动长高用）。
     var onContentHeightChange: ((CGFloat) -> Void)?
+    var reducesMotion = false {
+        didSet { if reducesMotion != oldValue { updatePlaceholderVisibility() } }
+    }
+    var increasesContrast = false {
+        didSet {
+            guard increasesContrast != oldValue else { return }
+            textColor = increasesContrast ? .labelColor : EditorPalette.text
+            needsDisplay = true
+        }
+    }
+
+    private let placeholderStorage = NSTextContentStorage()
+    private lazy var placeholderLayoutManager: NSTextLayoutManager = {
+        let manager = NSTextLayoutManager()
+        placeholderStorage.addTextLayoutManager(manager)
+        manager.textContainer = NSTextContainer(size: .zero)
+        return manager
+    }()
 
     private var suppressesIntentReturnRepeats = false
     private var observesUndo = false
@@ -613,7 +661,25 @@ final class EditorTextView: NSTextView {
     func reportContentHeight() {
         guard let onContentHeightChange, let textLayoutManager else { return }
         textLayoutManager.ensureLayout(for: textLayoutManager.documentRange)
-        let height = ceil(textLayoutManager.usageBoundsForTextContainer.height)
+        let layoutHeight = textLayoutManager.usageBoundsForTextContainer.height
+        var height = ceil(layoutHeight)
+        // TextKit 的行框不包含部分 emoji/组合字符的末行下伸墨迹。
+        // renderingSurfaceBounds 又含普通文字的空白余量，不能直接用它把每行都加高。
+        textLayoutManager.enumerateTextLayoutFragments(from: textLayoutManager.documentRange.location, options: [.ensuresLayout]) { fragment in
+            guard fragment.layoutFragmentFrame.maxY >= layoutHeight,
+                  let line = fragment.textLineFragments.last, line.characterRange.length > 0 else { return true }
+            let content = line.attributedString.attributedSubstring(from: line.characterRange)
+            let ink = CTLineGetImageBounds(CTLineCreateWithAttributedString(content), nil)
+            if !ink.isNull, !ink.isInfinite {
+                let baseline = fragment.layoutFragmentFrame.minY + line.typographicBounds.minY + line.glyphOrigin.y
+                height = max(height, ceil(baseline - ink.minY))
+            }
+            return true
+        }
+        // 达到滚动上限后，末行墨迹也必须属于文档高度，才能完整滚入可见区域。
+        if frame.height < height {
+            super.setFrameSize(NSSize(width: frame.width, height: height))
+        }
         onContentHeightChange(height)
     }
 
@@ -644,23 +710,27 @@ final class EditorTextView: NSTextView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard placeholderAlpha > 0.01 else { return }
-        // 保留语义颜色对主题和玻璃材质的适配；淡入淡出单独作用于绘制透明度。
+        guard string.isEmpty, !hasMarkedText(), placeholderAlpha > 0.01,
+              let context = NSGraphicsContext.current?.cgContext else { return }
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
-        NSGraphicsContext.current?.cgContext.setAlpha(placeholderAlpha)
+        context.setAlpha(placeholderAlpha)
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font ?? NSFont.preferredFont(forTextStyle: .body),
-            .foregroundColor: NSColor.placeholderTextColor,
+            .foregroundColor: increasesContrast ? NSColor.secondaryLabelColor : EditorPalette.secondary,
             .paragraphStyle: defaultParagraphStyle ?? NSParagraphStyle.default,
         ]
-        let linePadding = textContainer?.lineFragmentPadding ?? 0
-        let origin = NSPoint(
-            x: textContainerInset.width + linePadding,
-            y: textContainerInset.height
-        )
-        NSAttributedString(string: placeholder, attributes: attributes)
-            .draw(at: origin)
+        // 和正文一样通过 TextKit 2 排版，不用绘制偏移补偿基线。
+        let layout = placeholderLayoutManager
+        layout.textContainer?.size = NSSize(width: textContainer?.size.width ?? bounds.width,
+                                            height: .greatestFiniteMagnitude)
+        layout.textContainer?.lineFragmentPadding = textContainer?.lineFragmentPadding ?? 0
+        placeholderStorage.textStorage?.setAttributedString(NSAttributedString(string: placeholder, attributes: attributes))
+        layout.enumerateTextLayoutFragments(from: layout.documentRange.location, options: [.ensuresLayout]) { fragment in
+            fragment.draw(at: NSPoint(x: self.textContainerOrigin.x + fragment.layoutFragmentFrame.minX,
+                                      y: self.textContainerOrigin.y + fragment.layoutFragmentFrame.minY), in: context)
+            return true
+        }
     }
 
     // MARK: - Placeholder 淡入淡出
@@ -669,18 +739,28 @@ final class EditorTextView: NSTextView {
     private var placeholderTarget: CGFloat = 1
     private var placeholderTimer: Timer?
 
-    /// placeholder 随「有无内容」0.15s 淡入淡出，避免打字瞬间生硬闪现。
+    /// 有正文或组词时立即让位；仅删空时淡入，旧计时器不能重画 placeholder。
     private func updatePlaceholderVisibility() {
         let target: CGFloat = (string.isEmpty && !hasMarkedText()) ? 1 : 0
+        if target == 0 || reducesMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            placeholderTimer?.invalidate()
+            placeholderTimer = nil
+            placeholderTarget = target
+            placeholderAlpha = target
+            needsDisplay = true
+            return
+        }
         guard target != placeholderTarget else { return }
         placeholderTarget = target
         placeholderTimer?.invalidate()
         let from = placeholderAlpha
         let start = CFAbsoluteTimeGetCurrent()
         let duration: CFAbsoluteTime = 0.15
-        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
+            let timerID = ObjectIdentifier(timer)
             MainActor.assumeIsolated {
-                guard let self else { return }
+                guard let self, self.placeholderTimer.map(ObjectIdentifier.init) == timerID,
+                      self.string.isEmpty, !self.hasMarkedText() else { return }
                 let p = CGFloat(min((CFAbsoluteTimeGetCurrent() - start) / duration, 1))
                 self.placeholderAlpha = from + (target - from) * p
                 self.needsDisplay = true
@@ -716,7 +796,10 @@ final class EditorTextView: NSTextView {
         didChangeText()
     }
 
-    isolated deinit { NotificationCenter.default.removeObserver(self) }
+    isolated deinit {
+        placeholderTimer?.invalidate()
+        NotificationCenter.default.removeObserver(self)
+    }
 
     override func keyDown(with event: NSEvent) {
         // 非激活面板下 app 不激活，主菜单 key equivalent 路由（Cmd+C/V/X/A/Z）不可用：

@@ -14,22 +14,23 @@ enum LauncherMetrics {
     /// 输入卡与悬浮层之间的透明间隙（吞点击、不穿透）。
     static let cardGap: CGFloat = 8
     /// 输入卡内边距。
-    static let cardPaddingH: CGFloat = 16
-    static let cardPaddingV: CGFloat = 14
-    /// 输入卡最小高（D2 固定双行：14 + 24 编辑区 + 8 卡内间距 + 28 动作行 + 14）。
-    static let inputCardMinHeight: CGFloat = 88
+    static let cardPaddingH: CGFloat = 20
+    static let cardPaddingTop: CGFloat = 18
+    static let cardPaddingBottom: CGFloat = 14
+    /// 输入卡最小高，与窗口初始尺寸共用：18 + 26 + 10 + 22 + 14 = 90。
+    static let inputCardMinHeight: CGFloat = cardPaddingTop + editorMinHeight + cardInnerGap + actionRowHeight + cardPaddingBottom
     /// 输入卡自动长高的上限，超出后编辑器内部滚动。
     static let inputCardMaxHeight: CGFloat = 360
     /// 输入卡内编辑区与动作行之间的间距（与 cardGap 区分：那是卡与选择器卡的间距）。
-    static let cardInnerGap: CGFloat = 8
-    /// 动作行固定高度（28pt，始终占位；空闲时留白但保留容器）。
-    static let actionRowHeight: CGFloat = 28
-    /// 编辑区最小高度（单行正文 17pt + 上下缓冲）。
-    static let editorMinHeight: CGFloat = 24
-    /// 多行正文额外行距；字号不变，只让连续内容更易扫读。
-    static let editorLineSpacing: CGFloat = 2
-    /// 编辑区自动长高的上限（= 卡上限 360 - 14*2 - 8 - 28），超出内部滚动，动作行始终可见。
-    static let editorMaxHeight: CGFloat = 296
+    static let cardInnerGap: CGFloat = 10
+    /// 动作行始终占位；空闲时只隐藏标签。
+    static let actionRowHeight: CGFloat = 22
+    static let editorFontSize: CGFloat = 16
+    /// 普通中英文基线间距；用额外行距实现，保留字形与光标的自然行框。
+    static let editorLineHeight: CGFloat = 26
+    static let editorMinHeight: CGFloat = editorLineHeight
+    /// 编辑区上限 296；超出后内部滚动，动作行始终可见。
+    static let editorMaxHeight: CGFloat = inputCardMaxHeight - cardPaddingTop - cardPaddingBottom - cardInnerGap - actionRowHeight
     /// 悬浮层结果行高。
     static let overlayRowHeight: CGFloat = 38
     /// 悬浮层列表最多直接展示的行数，超出转滚动。

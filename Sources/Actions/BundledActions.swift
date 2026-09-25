@@ -29,6 +29,7 @@ enum BundledActions {
             AppleRemindersModule(preferences: preferences, run: dependencies.remindersRun),
             AppleCalendarModule(preferences: preferences, run: dependencies.calendarRun),
             ChromeModule(locate: dependencies.chromeLocate, open: dependencies.chromeOpen),
+            ChatGPTModule(),
         ]
     }
 }

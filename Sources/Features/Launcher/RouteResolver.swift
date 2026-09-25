@@ -100,6 +100,10 @@ struct RouteResolver: Sendable {
     static func matchesLocalPrefix(_ prefix: String, in text: String) -> Bool {
         guard let range = text.range(of: prefix, options: [.anchored, .caseInsensitive]) else { return false }
         guard range.upperBound != text.endIndex else { return true }
+        // A delimiter included in the prefix already supplies the token boundary (e.g. "ChatGPT:").
+        if let last = prefix.last, last.isWhitespace || last.unicodeScalars.allSatisfy({
+            CharacterSet.punctuationCharacters.contains($0)
+        }) { return true }
         let isEnglish = !prefix.unicodeScalars.contains {
             CharacterSet.letters.contains($0) && !$0.isASCII
         } && prefix.unicodeScalars.contains(where: CharacterSet.letters.contains)

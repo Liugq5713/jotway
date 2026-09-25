@@ -16,13 +16,15 @@ Action cards are examples, not the total Action count. Product copy follows the 
 
 ## Interactive product demo
 
-The home page explains the product through semantic HTML and CSS, with predefined sample text. It is a simulated handoff, clearly labeled in the page; it never executes an Action, opens an application, sends a request, or persists a visitor’s choices. Screenshots are not the homepage’s primary explanation.
+The home page shows only the quick record panel: animated sample text and its Action confirmation button. It has no demo heading, surrounding frame, progress steps, Action tabs, playback toolbar, or success card. The simulation is described for assistive technology and in the privacy page; it never executes an Action, opens an application, sends a request, or persists a visitor's choices.
 
-The explicit state sequence is `idle → typing → suggesting → confirmed → completed`. The script types the selected example, pulses its Action suggestion, illustrates an Enter confirmation, then shows a readable destination and submitted text. Notes, Reminders, Calendar, and Chrome each have an example. The confirmation button and Enter in the draft region also advance a suggested Action.
+Seven predefined examples rotate automatically through Notes, Reminders, Google Search, and Calendar. Examples start with commands such as `notes:`, `remind me to`, and `search`. Each cycle opens an empty panel, types the sentence, shows the suggested Action, illustrates confirmation, dissolves the entire panel, and pauses briefly before the next example. The sample text is static content; the website performs no real intent recognition.
 
-Replay starts again; Pause preserves the current text and remaining delay; Play resumes, or restarts a completed example. Selecting an Action restarts its example while preserving a pause. A single timeout is canceled on replay, pause, page hiding/teardown, and motion preference changes. Hidden pages stay paused until the visitor resumes them.
+The 500 ms exit matches the app's Drift Away motion: the background, border, text, and Action button break apart from right to left into small pieces that drift upward and right while shrinking and fading. A canvas texture follows the panel's actual DOM layout and text wrapping. There is no replacement result card. Resizing during the effect clears the old texture and proceeds to the pause before the next example.
 
-The status region announces stages politely, without announcing each typed character. Action selectors expose their pressed state and all controls have visible keyboard focus. When a focused part of the panel becomes unavailable after confirmation, focus returns to Replay. Reduced-motion mode shows the selected result immediately and keeps every control available; Replay and Play show that result without animation. Without JavaScript, the initial panel, sequence, explanatory copy, and page navigation remain readable, while unavailable playback controls are hidden.
+Clicking the panel or pressing Space while it has keyboard focus pauses or resumes the current frame. Escape pauses, and Enter or the Action button confirms a suggested example. Keyboard focus remains on a usable element during the exit. Playback uses one animation-frame callback and stops while paused, offscreen, or on a hidden page. Returning resumes from that frame; no hidden time is replayed. Screen-reader status messages report explicit interaction without announcing each typed character or automatic cycle.
+
+Reduced-motion mode shows a complete, static example, with no typing, particles, or automatic rotation. Its Action button advances to the next static example. Without JavaScript, the empty panel and the rest of the page remain readable, and the unavailable confirmation button stays hidden.
 
 ## Build and preview
 

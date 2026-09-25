@@ -8,6 +8,8 @@
 "common.none" = "None";
 "actions.group.storage" = "Save";
 "actions.group.search" = "Search";
+"actions.group.conversation" = "Conversations";
+"actions.group.local" = "Local";
 "action.notes.title" = "Save to Notes";
 "action.notes.settings_name" = "Apple Notes";
 "action.notes.summary" = "Save notes and ideas; the fallback when no clearer intent is found.";
@@ -20,6 +22,13 @@
 "action.chrome.title" = "Google Search";
 "action.chrome.settings_name" = "Chrome Search";
 "action.chrome.summary" = "Open a Google search in Chrome.";
+"action.chatgpt.title" = "Open in ChatGPT";
+"action.chatgpt.settings_name" = "ChatGPT";
+"action.chatgpt.summary" = "Open a new chat with your text, then send it in ChatGPT.";
+"action.chatgpt.missing" = "Install a compatible ChatGPT desktop app to use this action.";
+"action.chatgpt.opened" = "ChatGPT is open. Review your text and send it there.";
+"action.chatgpt.open_failed" = "Could not open ChatGPT. Try again later.";
+"action.chatgpt.invalid_text" = "Could not create a link containing all your text. Check the text and try again.";
 "action.state.save_to" = "Save to: %@";
 "action.state.no_destination" = "No save location selected";
 "action.state.select_notes" = "Choose a Notes save location";

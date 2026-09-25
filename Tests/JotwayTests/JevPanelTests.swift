@@ -492,6 +492,9 @@ final class JevPanelTests: XCTestCase {
         XCTAssertNil(value.controller.session.state.intentStatus); XCTAssertEqual(value.controller.session.state.intentTitle, "Set Up Notes")
         XCTAssertEqual(value.controller.session.state.intentIssue, "The Jev response could not be understood. Try again later.")
         try await preview("request-error")
+        value.panel.setContentSize(NSSize(width: 360, height: 160))
+        try await preview("request-error-compact")
+        value.panel.setContentSize(NSSize(width: 560, height: 160))
 
         edit("TestL")
         XCTAssertNil(value.controller.session.state.intentIssue)

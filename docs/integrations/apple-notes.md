@@ -8,7 +8,7 @@ Apple Notes is the preferred storage fallback once a destination is configured a
 
 Explicit phrases such as “记一下”, “存备忘录”, “save to notes”, and “take a note” can match locally, including when Notes needs setup. A user can select Notes directly without a Jev key. Jev receives Notes as an option only while the action is ready to execute; setup is never a model execution candidate or a prewarmed action.
 
-Without a stronger route, ready storage actions retain their fallback order: Notes, Reminders, then Calendar. If none is ready, Set Up Notes opens configuration. Chrome does not become a storage fallback. An unavailable model suggestion cannot remove this fallback, while an unavailable explicit target keeps its error instead of silently switching to Notes.
+Without a stronger route, ready storage actions retain their fallback order: Notes, Reminders, then Calendar. If none is ready, Set Up Notes opens configuration. Chrome and ChatGPT do not become storage fallbacks. An unavailable model suggestion cannot remove this fallback, while an unavailable explicit target keeps its error instead of silently switching to Notes.
 
 ## Authorization and configuration
 

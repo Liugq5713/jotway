@@ -152,7 +152,7 @@ extension MainPathTests {
         let stored = try XCTUnwrap(preferences.data(forKey: "intentRules"))
         XCTAssertEqual(try JSONDecoder().decode([IntentRule].self, from: stored).map(\.actionID), ["chrome"])
         XCTAssertEqual(Set(state.actionRegistry.allDescriptors.map(\.id)),
-                       ["apple-notes", "apple-reminders", "apple-calendar", "chrome"])
+                       ["apple-notes", "apple-reminders", "apple-calendar", "chrome", "chatgpt"])
         XCTAssertFalse(state.actionRegistry.isEnabled("chrome"))
     }
 

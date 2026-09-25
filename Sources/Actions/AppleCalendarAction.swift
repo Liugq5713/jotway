@@ -9,7 +9,7 @@ final class AppleCalendarModule: ActionModule {
         summary: "Create events; events without an end time last one hour.",
         titleKey: "action.calendar.title", settingsNameKey: "action.calendar.settings_name",
         summaryKey: "action.calendar.summary", systemImageName: "calendar", tint: .red,
-        settingsGroup: .init(id: "storage", title: "Save", order: 0),
+        settingsGroup: .init(id: "storage", title: "Save", order: 0, titleKey: "actions.group.storage"),
         enablementPolicy: .alwaysEnabled, fallbackPriority: 200,
         intentHints: IntentHints(localKeywords: ["加到日历", "记到日历", "排个日程", "约个会", "日程：", "日程:",
                                                        "add to calendar", "schedule a meeting"],

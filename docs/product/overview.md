@@ -14,11 +14,24 @@ Jotway is a native macOS launcher for short, in-the-moment input. The user opens
 
 ## Quick record panel appearance
 
-The panel follows the system light or dark appearance. Dark appearance uses a graphite surface; light appearance uses a cool, pale surface. Both have a restrained blue edge, blue action controls, and monospaced key hints. A nearly opaque color layer over native material keeps text legible across desktop backgrounds. Reduce Transparency uses the same colors with a fully opaque surface; Increase Contrast strengthens the outline while semantic text colors preserve the hierarchy from body text to placeholder and chrome.
+The panel follows the system light or dark appearance. Both use an opaque neutral surface and a 1 pt inner outline, so desktop colors do not affect the card and Reduce Transparency needs no translucent fallback. Increase Contrast strengthens the outline and uses semantic text colors.
+
+| Element | Light | Dark |
+|---|---|---|
+| Card / outline | `#FAFBFC` / `#DCE0E5` | `#202226` / `#3F4248` |
+| Body / secondary text and placeholder | `#24262A` / `#777C85` | `#E7E9EE` / `#959BA7` |
+| Action button / label | `#EDF0F4` / `#5B6471` | `#2C2F35` / `#B9C1CD` |
+| Return keycap / cursor and Return symbol | `#DFE5ED` / `#285BAF` | `#3A4350` / `#72BDED` |
+
+The right-aligned action button uses 12 pt medium text, a 6 pt corner radius, and 7 pt horizontal / 3 pt vertical padding. It has no blue outline; the Return symbol and explicit-selection marker keep their blue accent. Action titles and status remain one line with truncation, full accessibility labels, and their existing tooltips. Candidate cards share the neutral surface without changing their layout or interaction.
 
 The area outside each card's rounded border stays transparent, without an outer shadow or gray backdrop.
 
-The default panel width is 560 pt and can narrow to 360 pt. The input card has a 14 pt corner radius and keeps a minimum height of 88 pt with 16 pt horizontal and 14 pt vertical padding. Editor text remains 15 pt, with a small amount of extra spacing between lines for multi-line drafts. Text uses the full editor width without a persistent Escape badge. The action row keeps its existing placement, and Escape still closes the panel while retaining the draft.
+The default panel width is 560 pt and can narrow to 360 pt. The input card has a 14 pt corner radius and starts at 90 pt: 18 pt top padding, a 26 pt minimum editor, 10 pt gap, a 22 pt action row, and 14 pt bottom padding. The action row keeps its space when the draft is empty. Actual left/right text padding is 20 pt, including native text-container insets and line-fragment padding, and aligns with the status text. Initial window sizing uses the same dimensions. The card grows downward from its top edge to 360 pt; the editor scrolls internally after reaching 296 pt, keeping the action row visible.
+
+Body and placeholder use the regular 16 pt system font. Ordinary Chinese and English baselines are 26 pt apart: extra line spacing preserves the native font-height cursor and selection instead of stretching them to the full spacing. Taller glyphs may expand their line rather than being clipped. Both use the same native TextKit layout geometry as the cursor and selection. The placeholder disappears immediately when text or marked text appears, canceling any earlier fade. Deleting all text allows a short fade-in; Reduce Motion shows it immediately. Text uses the full editor width without a persistent Escape badge. Escape still closes the panel while retaining the draft.
+
+Clicking unused space inside the input card returns keyboard focus to the editor while preserving its text and selection. Dragging that background moves the panel; text selection and action buttons keep their own mouse behavior.
 
 ## Bundled actions
 
@@ -26,8 +39,9 @@ The default panel width is 560 pt and can narrow to 360 pt. The input card has a
 - Apple Reminders: creates a reminder for task-like input.
 - Apple Calendar: creates an event for time-bound input.
 - Chrome: opens a Google search.
+- ChatGPT: opens a new desktop conversation with the draft prefilled for manual send.
 
-Apple Notes is the preferred default. When it cannot execute, Jotway tries another ready storage action. If none is ready, Set Up Notes is the fallback. Unconfigured Notes remains available for explicit selection and local Notes prefixes even when another storage action supplies the fallback. Chrome never becomes an implicit fallback. An unavailable recognition suggestion is ignored so it cannot remove the fallback; an unavailable explicit selection still reports its error rather than silently choosing another action.
+Apple Notes is the preferred default. When it cannot execute, Jotway tries another ready storage action. If none is ready, Set Up Notes is the fallback. Unconfigured Notes remains available for explicit selection and local Notes prefixes even when another storage action supplies the fallback. Chrome and ChatGPT never become implicit fallbacks. An unavailable recognition suggestion is ignored so it cannot remove the fallback; an unavailable explicit selection still reports its error rather than silently choosing another action.
 
 Notes setup preserves the draft and selection, pauses recognition, and uses a single configuration window. It is not a submission: completing or cancelling setup returns to the original draft without execution feedback or automatic saving. Successful setup selects Notes; the user confirms again to save. The explicitly requested connection test creates a disclosed test note, never the draft. Permission refusal retains the saved location and offers Automation settings guidance and another folder read.
 

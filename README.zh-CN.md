@@ -8,6 +8,10 @@
 
 Jotway 是一个原生 macOS 启动器。用快捷键唤起，写下一句话，把想法存进备忘录、把待办交给提醒事项、把安排放进日历。搜索信息、打开应用，也在同一个入口完成。
 
+![Jotway 快速记录面板：输入一句话，确认目标后按 Enter](Resources/Screenshots/README-flow.png)
+
+合成文字的分步示例：当前面板的隔离渲染，以及 Chrome 搜索页的真实裁图。这是使用流程，不是可浏览的历史记录。
+
 [English](README.md) · **简体中文**
 
 支持 macOS 15 及以上版本，发行包目前面向 Apple Silicon。

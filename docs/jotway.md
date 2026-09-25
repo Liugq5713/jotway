@@ -33,6 +33,7 @@ Terminology lives only in [CONTEXT.md](../CONTEXT.md). When a Current document a
 | [Apple Reminders](integrations/apple-reminders.md) | Reminder routing, due date, and destination |
 | [Apple Calendar](integrations/apple-calendar.md) | Calendar routing, time range, and destination |
 | [Chrome](integrations/chrome.md) | Google search in Chrome |
+| [ChatGPT](integrations/chatgpt.md) | Desktop conversation with prefilled text and manual send |
 | [Jev intent recognition](integrations/jev-intent-research.md) | Model suggestion, local priority, switching, and feedback |
 
 ## Work documents
@@ -42,7 +43,7 @@ These describe active or candidate changes. Their contents do not override Curre
 | Document | State |
 |---|---|
 | [Launcher UI](development/launcher-ui.md) | Active design brief |
-| [ChatGPT action](development/chatgpt-action.md) | Development brief; extends the current Action module boundary and opens a desktop conversation with prefilled text and manual send |
+| [Editor cursor alignment](development/editor-cursor-alignment.md) | Confirmed follow-up: integrate, verify, and deliver the existing caret alignment fix |
 
 Delete a Work document after its resulting behavior has been merged into the relevant Current document.
 

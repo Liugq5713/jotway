@@ -2,9 +2,9 @@
   "capture": "Production EditorView in an offscreen NSHostingView, 2x.",
   "data": "Synthetic text only. No AppState, API keys, database, application catalog or action execution.",
   "sourceSHA256": {
-    "Sources/Features/Editor/EditorView.swift": "b5ac5accdf59b7c9fd36733361c8e8e02ddf340dc2e207a309172f8969ae5c64",
+    "Sources/Features/Editor/EditorView.swift": "7671a239332257b87016c6a62802a607c32db47fb89718f237a90ced6aecd9b1",
     "Sources/Features/Launcher/LauncherViewState.swift": "60a68c5d845a6de0c2d3e9e0324849ed7d5baafe016d723336c22f6cfa7a3ef1",
-    "Sources/Window/LauncherMetrics.swift": "e970c1e3e96d2d2d83fb3157843f8d11abf8fd9113c60102b47615d0bbfab0e5",
-    "Sources/Resources/en.lproj/Localizable.strings": "a47d40a4bc4dcf2c205212741f7656ceed9a932a19885c6671858f0efe7df932"
+    "Sources/Window/LauncherMetrics.swift": "c3cd0cae282d25e4cd1c3991ed618aaac2eb43960797690f44ae15d9f88cd265",
+    "Sources/Resources/en.lproj/Localizable.strings": "9ab9328d1c1d98fd9a3d8bab15779e3d9ac17930647b3d24e06a428c5752d968"
   }
 }

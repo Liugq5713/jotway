@@ -8,6 +8,10 @@
 
 Jotway is a native macOS launcher. Press a shortcut, type a sentence, and turn a thought into a note, a task into a reminder, or a plan into a calendar event. Search the web and open apps from the same place.
 
+![Jotway quick record flow: type, confirm the Action, press Enter](Resources/Screenshots/README-flow.png)
+
+Example flow with synthetic text: the current panel rendered in isolation, followed by a cropped Chrome search page. These are separate steps, not a browsable history view.
+
 **English** · [简体中文](README.zh-CN.md)
 
 Requires macOS 15 or later. Release packages currently target Apple Silicon.

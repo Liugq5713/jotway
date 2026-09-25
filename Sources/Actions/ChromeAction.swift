@@ -8,7 +8,7 @@ final class ChromeModule: ActionModule {
         summary: "Open a Google search in Chrome.",
         titleKey: "action.chrome.title", settingsNameKey: "action.chrome.settings_name",
         summaryKey: "action.chrome.summary", systemImageName: "globe", tint: .green,
-        settingsGroup: .init(id: "search", title: "Search", order: 100),
+        settingsGroup: .init(id: "search", title: "Search", order: 100, titleKey: "actions.group.search"),
         enablementPolicy: .userToggle(defaultEnabled: true), fallbackPriority: nil,
         intentHints: IntentHints(localKeywords: ["google 搜", "谷歌搜", "chrome 搜",
                                                        "search google", "google search"], modelBinding: .webSearch),

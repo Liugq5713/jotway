@@ -17,8 +17,10 @@ NSRect(x: 0, y: 0, width: width, height: height).fill()
 func text(_ content: String, x: Double, y: Double, size: Double, color: NSColor, bold: Bool = false) {
     (content as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: [.font: NSFont.systemFont(ofSize: size, weight: bold ? .semibold : .regular), .foregroundColor: color])
 }
-func image(_ name: String, x: Double, y: Double, width: Double, height: Double) {
-    NSImage(contentsOf: directory.appendingPathComponent(name))!.draw(in: NSRect(x: x, y: y, width: width, height: height), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
+func image(_ name: String, x: Double, y: Double, width: Double) {
+    let source = NSImage(contentsOf: directory.appendingPathComponent(name))!
+    let height = width * source.size.height / source.size.width
+    source.draw(in: NSRect(x: x, y: y, width: width, height: height), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
 }
 text("Jotway", x: 32, y: 23, size: 21, color: ink, bold: true)
 text("Type. Check the Action. Press Enter.", x: 127, y: 28, size: 13, color: muted)
@@ -32,11 +34,11 @@ for index in 0..<3 {
     text(labels[index], x: 78, y: top - 1, size: 17, color: ink, bold: true)
     text(details[index], x: 78, y: top + 24, size: 12, color: muted)
     if index < 2 {
-        image(index == 0 ? "launcher-empty-light.png" : "launcher-dark.png", x: 78, y: top + 51, width: 560, height: 88)
+        image(index == 0 ? "launcher-empty-light.png" : "launcher-dark.png", x: 78, y: top + 51, width: 560)
     } else {
         NSColor(srgbRed: 0.13, green: 0.14, blue: 0.16, alpha: 1).setFill()
         NSBezierPath(roundedRect: NSRect(x: 78, y: top + 51, width: 560, height: 88), xRadius: 12, yRadius: 12).fill()
-        image("chrome-search.png", x: 87, y: top + 56, width: 542, height: 78)
+        image("chrome-search.png", x: 87, y: top + 56, width: 542)
     }
 }
 text("Current UI · Synthetic text · Separate steps, not a history view", x: 78, y: 588, size: 12, color: muted)

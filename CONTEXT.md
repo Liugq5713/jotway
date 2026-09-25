@@ -34,7 +34,7 @@ _Avoid_：自动执行、辅助建议
 
 ### Action / 内置 action
 
-Jotway 可以路由并执行的目标能力。当前内置 action 包括 Apple Notes、Apple Reminders、Apple Calendar 和 Chrome。
+Jotway 可以路由并执行的目标能力。当前内置 action 包括 Apple Notes、Apple Reminders、Apple Calendar、Chrome 和 ChatGPT。
 
 _Avoid_：插件、任务、Connector
 

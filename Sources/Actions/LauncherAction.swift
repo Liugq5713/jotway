@@ -70,14 +70,16 @@ struct ActionSettingsGroup: Sendable, Equatable, Hashable {
     let id: String
     let title: String
     let order: Int
+    let titleKey: String?
 
-    var localizedTitle: String {
-        switch id {
-        case "storage": L10n.text("actions.group.storage")
-        case "search": L10n.text("actions.group.search")
-        default: title
-        }
+    init(id: String, title: String, order: Int, titleKey: String? = nil) {
+        self.id = id
+        self.title = title
+        self.order = order
+        self.titleKey = titleKey
     }
+
+    var localizedTitle: String { titleKey.map { L10n.text($0) } ?? title }
 }
 
 enum ActionEnablementPolicy: Sendable, Equatable {

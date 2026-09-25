@@ -9,7 +9,7 @@ final class AppleRemindersModule: ActionModule {
         summary: "Create reminders and extract due dates from text.",
         titleKey: "action.reminders.title", settingsNameKey: "action.reminders.settings_name",
         summaryKey: "action.reminders.summary", systemImageName: "checklist", tint: .teal,
-        settingsGroup: .init(id: "storage", title: "Save", order: 0),
+        settingsGroup: .init(id: "storage", title: "Save", order: 0, titleKey: "actions.group.storage"),
         enablementPolicy: .alwaysEnabled, fallbackPriority: 100,
         intentHints: IntentHints(localKeywords: ["提醒我", "待办", "别忘了", "记得", "todo", "to-do", "to do",
                                                        "remind me", "add a reminder"],

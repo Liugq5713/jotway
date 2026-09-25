@@ -9,7 +9,7 @@ Settings are organized by the user's decision, not by implementation module.
 - **General**: appearance, panel placement, submission effect, global shortcut, launch at login, Dock visibility, and runtime logs.
 - **AI**: AI source, model, key, connection test, and provider-specific fields.
 - **Intent Recognition**: Jev key, connection test, explanation, and recent local corrections.
-- **Actions**: destination setup for Apple Notes, Reminders, and Calendar.
+- **Actions**: destination setup for Apple Notes, Reminders, and Calendar, plus Chrome and ChatGPT enablement.
 - **Instructions**: manual AI instructions and prompts when the AI capability is present.
 - **Getting Started**: a repeatable version of onboarding.
 - **About**: version, update controls, download link, and contact link.
@@ -24,7 +24,7 @@ Jotway currently ships an English-only interface and does not expose a language 
 
 Getting Started is a scrollable daily reference as well as a repeatable onboarding page. Its first section explains the complete input → target → confirmation flow and provides direct actions to open the quick record panel or configure Actions. The page shows the actual configured shortcut and conflict state, preserves shortcut editing and trial behavior, and links directly to Actions and Intent Recognition settings.
 
-The guide covers the four bundled actions plus local application opening, current keyboard behavior, plain-text input limits, optional intent recognition, per-action AI rewriting, in-memory draft lifetime, failure behavior, and the distinction between content in target applications and local intent feedback. It never treats panel dismissal as success or promises a browsable local inbox. Opening or leaving the guide does not replace, submit, or clear the current draft.
+The guide covers Apple Notes, Reminders, Calendar, Chrome, local application opening, current keyboard behavior, plain-text input limits, optional intent recognition, per-action AI rewriting, in-memory draft lifetime, failure behavior, and the distinction between content in target applications and local intent feedback. It never treats panel dismissal as success or promises a browsable local inbox. Opening or leaving the guide does not replace, submit, or clear the current draft.
 
 ## Action settings
 
@@ -34,8 +34,9 @@ The Actions page shows the bundled actions:
 - Apple Reminders requires a reminder list and has its own AI rewrite switch and style instruction. Disabling rewrite also disables natural-language due-date extraction, so the due date falls back to the current time.
 - Apple Calendar requires a calendar and has its own AI rewrite switch and style instruction. Disabling rewrite also disables natural-language time extraction, so the event falls back to a one-hour range starting at the current time.
 - Chrome exposes an enable switch. When disabled, it is removed from recognition, selection, and routing.
+- ChatGPT exposes an enable switch under Conversations. It opens a new desktop conversation with the draft prefilled for manual send. A compatible desktop application must be installed; missing installations keep their settings row and preferences but cannot execute. See [ChatGPT](../integrations/chatgpt.md).
 
-The Actions page is generated from the registry's settings entries, including disabled, unconfigured, and temporarily unavailable modules. Labels, icon and tint, grouping, dynamic summary, enablement policy, and fallback marker all come from module declarations and state. Storage actions appear as full-width, keyboard-accessible rows with their selected destinations. Selecting a row opens the module-provided detail page; navigation stores only the stable action ID, and the header's back button returns to the list. Chrome's enable switch is directly available in the search section. Long destination names wrap instead of being truncated.
+The Actions page is generated from the registry's settings entries, including disabled, unconfigured, and temporarily unavailable modules. Labels, icon and tint, grouping, dynamic summary, enablement policy, and fallback marker all come from module declarations and state. Group titles use an optional resource key, falling back to the declared title. Storage actions appear as full-width, keyboard-accessible rows with their selected destinations. Selecting a row opens the module-provided detail page; navigation stores only the stable action ID, and the header's back button returns to the list. Chrome and ChatGPT expose their switches directly in the Search and Conversations sections, without detail pages. Long destination names wrap instead of being truncated.
 
 Each storage module owns its typed destination picker, validation sheet, rewrite controls, and persistence adapter. The common settings host neither switches on concrete action IDs nor uses a generic configuration-field DSL. User-editable style text cannot replace the system-owned date and structured-output rules. A user-selectable default action is not implemented; the ready module with the lowest declared fallback priority wins, currently Notes, then Reminders, then Calendar. If no storage action is ready, the launcher offers Set Up Notes rather than executing another kind of action.
 

@@ -9,7 +9,7 @@ final class AppleNotesModule: ActionModule {
         summary: "Save notes and ideas; the fallback when no clearer intent is found.",
         titleKey: "action.notes.title", settingsNameKey: "action.notes.settings_name",
         summaryKey: "action.notes.summary", systemImageName: "note.text", tint: .orange,
-        settingsGroup: .init(id: "storage", title: "Save", order: 0),
+        settingsGroup: .init(id: "storage", title: "Save", order: 0, titleKey: "actions.group.storage"),
         enablementPolicy: .alwaysEnabled, fallbackPriority: 0,
         intentHints: IntentHints(localKeywords: ["记一下", "存备忘录", "留个备忘", "记个备忘", "存备忘", "先存",
                                                        "save to notes", "take a note"],
