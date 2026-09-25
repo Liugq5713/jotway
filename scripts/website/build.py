@@ -122,11 +122,14 @@ def main():
     for source, route, title, description in routes:
         content = (SITE / 'src' / f'{source}.html').read_text()
         content = re.sub(r'\{\{(\w+)\}\}', lambda match: common[match[1]], content)
+        site_prefix = '' if not route else '../'
         values = {'content': content, 'title': title, 'description': description,
+                  'site_prefix': site_prefix,
                   'asset_revision': hashlib.sha256((SITE / 'src/site.css').read_bytes() + (SITE / 'src/site.js').read_bytes()).hexdigest()[:12],
                   'privacy_current': 'aria-current="page"' if route == 'privacy' else '',
                   'download_current': 'aria-current="page"' if route == 'download' else ''}
         html = re.sub(r'\{\{(\w+)\}\}', lambda match: values[match[1]], layout)
+        html = html.replace('href="/', f'href="{site_prefix}').replace('src="/', f'src="{site_prefix}')
         destination = output / route / 'index.html'
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(html)

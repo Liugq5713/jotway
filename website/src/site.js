@@ -1,12 +1,13 @@
 'use strict';
 const panel = document.querySelector('.panel-scene');
 const panelImage = document.querySelector('#launcher-image');
+const assetBase = new URL('.', document.currentScript.src);
 const appearanceButtons = document.querySelectorAll('[data-theme]');
 for (const button of appearanceButtons) {
     button.addEventListener('click', () => {
         const theme = button.dataset.theme;
         panel.dataset.appearance = theme;
-        panelImage.src = `/assets/launcher-${theme}.png`;
+        panelImage.src = new URL(`launcher-${theme}.png`, assetBase).href;
         for (const option of appearanceButtons) {
             option.setAttribute('aria-pressed', String(option === button));
         }
