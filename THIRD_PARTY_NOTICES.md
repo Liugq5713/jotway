@@ -12,4 +12,4 @@ Jotway uses the following dependencies. Their original copyright notices and lic
 
 `Package.resolved` pins downloaded dependencies. `Vendor/KeyboardShortcuts` contains local build and recorder-layout changes; its upstream copyright and license are preserved.
 
-`build-app.sh` includes all three complete license files in `Jotway.app/Contents/Resources/Licenses/`. These dependency notices do not establish a license for Jotway's own source code.
+`build-app.sh` includes all three complete license files in `Jotway.app/Contents/Resources/Licenses/`. Jotway's own source code is licensed under the GNU General Public License v3.0; see [`LICENSE`](LICENSE).
