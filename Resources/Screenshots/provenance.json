@@ -1,0 +1,10 @@
+{
+  "capture": "Production EditorView in an offscreen NSHostingView, 2x.",
+  "data": "Synthetic text only. No AppState, API keys, database, application catalog or action execution.",
+  "sourceSHA256": {
+    "Sources/Features/Editor/EditorView.swift": "b5ac5accdf59b7c9fd36733361c8e8e02ddf340dc2e207a309172f8969ae5c64",
+    "Sources/Features/Launcher/LauncherViewState.swift": "60a68c5d845a6de0c2d3e9e0324849ed7d5baafe016d723336c22f6cfa7a3ef1",
+    "Sources/Window/LauncherMetrics.swift": "e970c1e3e96d2d2d83fb3157843f8d11abf8fd9113c60102b47615d0bbfab0e5",
+    "Sources/Resources/en.lproj/Localizable.strings": "a47d40a4bc4dcf2c205212741f7656ceed9a932a19885c6671858f0efe7df932"
+  }
+}

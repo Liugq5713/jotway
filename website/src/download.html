@@ -1,0 +1,8 @@
+<div class="document-page wrap">
+  <header class="page-intro"><p class="eyebrow">JOTWAY FOR MAC</p><h1>准备好，<br>接住下一个想法。</h1><p class="lede">发行版本、安装方式和安全状态，都在这里。</p></header>
+  {{release_content}}
+  <section class="document-section"><h2>拿到发行包后</h2><ol class="install-steps"><li><strong>下载并打开 DMG。</strong><span>下载地址与 SHA-256 校验值会随正式产物一同提供。</span></li><li><strong>拖入 Applications。</strong><span>把磁盘映像中的 Jotway.app 拖到“应用程序”，随后推出磁盘映像。</span></li><li><strong>完成首次设置。</strong><span>打开 Jotway，设置自己的全局快捷键。界面当前使用英文，输入支持中文。</span></li><li><strong>按需授予权限。</strong><span>在 Settings → Actions 选择备忘录文件夹、提醒事项列表或日历，只授予所用 Action 需要的权限。</span></li></ol><p>{{signing_guidance}}</p><div class="inline-links"><a href="https://github.com/Liugq5713/jotway/blob/main/docs/product/first-use.md">首次使用指南 ↗</a><a href="https://github.com/Liugq5713/jotway/blob/main/docs/product/settings.md">设置说明 ↗</a></div></section>
+  <section class="document-section"><h2>从源码开始</h2><p>现在也可以从公开仓库自行构建。需要 Swift 6.2 与 macOS 26 SDK；应用最低支持的系统由构建产物记录。</p><pre><code>git clone https://github.com/Liugq5713/jotway.git
+cd jotway
+./scripts/build-app.sh</code></pre><p>构建命令会生成本地 Jotway.app。<a href="https://github.com/Liugq5713/jotway/blob/main/docs/development/environment.md">查看构建说明 ↗</a></p></section>
+</div>
