@@ -68,3 +68,21 @@ jobs:
             "$RELEASE_DIR/SHA256SUMS.txt" \
             --title "Jotway ${{ github.ref_name }}" \
             --generate-notes
+
+      - name: Verify public download and build website artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/website/publish-metadata.py \
+            --release "$RELEASE_DIR/release.json" \
+            --repository "$GITHUB_REPOSITORY" \
+            --tag "$GITHUB_REF_NAME" \
+            --output "$RELEASE_DIR/website-release.json"
+          python3 scripts/website/build.py --metadata "$RELEASE_DIR/website-release.json"
+
+      - name: Upload website for separate deployment
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jotway-website-${{ steps.version.outputs.version }}
+          path: website/dist/
+          if-no-files-found: error

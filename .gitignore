@@ -49,3 +49,6 @@ Icon
 *.pem
 __pycache__/
 *.pyc
+
+# Static website build output
+/website/dist/

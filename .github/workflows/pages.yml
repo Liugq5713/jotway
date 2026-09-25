@@ -6,7 +6,6 @@ on:
     paths:
       - 'website/**'
       - 'scripts/website/**'
-      - 'Resources/Screenshots/**'
       - 'Resources/Icons/AppIcon.png'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
@@ -27,6 +26,9 @@ jobs:
 
       - name: Build static website
         run: python3 scripts/website/build.py
+
+      - name: Check demo JavaScript syntax
+        run: node --check website/src/site.js
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

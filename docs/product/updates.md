@@ -44,10 +44,11 @@ Pull requests and pushes to `main` run `swift build` and `swift test` on an arm6
 1. builds the release application;
 2. creates and verifies the arm64 DMG;
 3. records the SHA-256 checksum and release metadata;
-4. uploads the DMG and metadata as workflow artifacts; and
-5. creates a GitHub Release with the same files attached.
+4. uploads the DMG and metadata as workflow artifacts;
+5. creates a GitHub Release with the same files attached; and
+6. verifies the public download against the local artifact and builds a separate [website artifact](../development/website.md) containing its generated metadata. This does not deploy the website.
 
-The workflow uses the repository's `GITHUB_TOKEN` only for creating the GitHub Release. It does not require Apple credentials or Sparkle signing keys because the artifact is ad-hoc signed, not notarized, and has online updates disabled.
+The workflow uses the repository's `GITHUB_TOKEN` for creating the GitHub Release and reading its published asset metadata. It does not require Apple credentials or Sparkle signing keys because the artifact is ad-hoc signed, not notarized, and has online updates disabled.
 
 Users can install a downloaded DMG by replacing the application. For local development delivery, `./scripts/build-app.sh release --update` replaces and restarts the installed application.
 
@@ -57,7 +58,7 @@ Users can install a downloaded DMG by replacing the application. For local devel
 
 ## Outputs
 
-Each version directory under `release/` contains the DMG and `release.json`, including the version, build, filename, architecture, size, SHA-256, notes, and source commit. The metadata marks the artifact as unpublished. Keep these local records so successive builds advance the version; build directories and versioned binary products remain untracked.
+Each version directory under `release/` contains the DMG and `release.json`, including the version, build, filename, inspected architecture, minimum macOS, UTC creation time, size, SHA-256, notes, and source commit. The metadata marks the artifact as unpublished. Keep these local records so successive builds advance the version; build directories and versioned binary products remain untracked.
 
 ## Signing boundary
 

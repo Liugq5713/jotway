@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build a local DMG and release metadata without publishing or enabling online updates."""
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -115,13 +116,20 @@ def release(args):
             bundled_info.write_bytes(plistlib.dumps(info, sort_keys=False))
             run("codesign", "--force", "--sign", "-", "--entitlements", ROOT / "Resources/Jotway.entitlements", app)
             run("codesign", "--verify", "--deep", "--strict", app)
+            signature = subprocess.run(["codesign", "-dv", "--verbose=4", str(app)],
+                                       check=True, text=True, capture_output=True).stderr
+            if "Signature=adhoc" not in signature:
+                raise ValueError("本地发行流程预期 ad-hoc 签名，但产物签名不匹配。")
+            architecture = run("lipo", "-archs", app / "Contents/MacOS/Jotway", capture=True).strip()
             dmg = output / f"{APP_NAME}-{version}-{build}-arm64.dmg"
             create_dmg(stage, dmg)
         run("hdiutil", "verify", dmg)
         digest = sha256(dmg)
         metadata = {"version": version, "build": build, "file": dmg.name, "sha256": digest,
                     "sourceCommit": source_commit, "notes": notes,
-                    "bytes": dmg.stat().st_size, "architecture": "arm64",
+                    "bytes": dmg.stat().st_size, "architecture": architecture,
+                    "minimumMacOS": info["LSMinimumSystemVersion"],
+                    "createdAt": datetime.now(timezone.utc).isoformat(),
                     "codeSigning": "ad-hoc", "notarized": False, "published": False}
         (output / "release.json").write_text(json.dumps(metadata, indent=2, ensure_ascii=False) + "\n")
         print(f"\n本地 DMG：{dmg}\nSHA-256：{digest}\n发行记录：{output / 'release.json'}")

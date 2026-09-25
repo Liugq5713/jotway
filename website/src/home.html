@@ -1,45 +1,87 @@
 <section class="hero wrap">
-  <div class="hero-copy">
-    <p class="eyebrow"><span class="tiny-mark" aria-hidden="true">⌘</span> 一个原生 macOS 启动器</p>
-    <h1>打一句话，<br>Jotway 送到<br><em>该去的地方。</em></h1>
-    <p class="lede">用快捷键唤起，写下一句话，<strong>确认目标，再按 Enter。</strong>内容会进入你已经在用的工具。</p>
-    <div class="hero-links"><a class="button primary" href="/download/">{{home_cta}} <span aria-hidden="true">↗</span></a><a class="text-link" href="#workflow">看看怎么工作 <span aria-hidden="true">↓</span></a></div>
-    <p class="release-note">{{release_summary}}</p>
-  </div>
-  <figure class="product-stage" aria-label="Jotway 快速记录面板示例">
-    <div class="stage-top"><span>从一个念头开始</span><span class="stage-label">JOTWAY / QUICK RECORD</span></div>
-    <div class="panel-scene" data-appearance="light">
-      <p class="scene-note">写下你想做的事</p>
-      <img class="launcher-image" id="launcher-image" src="/assets/launcher-light.png" width="1120" height="176" alt="真实 Jotway 面板：Google search macOS keyboard shortcuts；右下角显示 Google Search 和回车提示">
-      <div class="confirm-note"><span class="annotation-line" aria-hidden="true"></span><span>看清目标，<br>再按 <kbd>Enter ↵</kbd></span></div>
+    <div class="hero-copy">
+        <p class="eyebrow"><span aria-hidden="true">⌘</span> A native macOS launcher</p>
+        <h1>One thought.<br><em>The right place.</em></h1>
+        <p class="lede">Open Jotway. Type a sentence.<br><strong>Check the Action, then press Enter.</strong><br>Your everyday apps take it from there.</p>
+        <div class="hero-links">
+            <a class="button primary" href="/download/">{{home_cta}} <span aria-hidden="true">↗</span></a>
+            <a class="text-link" href="#workflow">How it works <span aria-hidden="true">↓</span></a>
+        </div>
+        <p class="release-note">{{release_summary}}</p>
     </div>
-    <div class="stage-bottom"><figcaption>当前界面 · 合成示例文字</figcaption><div class="appearance-switch" role="group" aria-label="切换面板使用图外观"><button type="button" data-theme="light" aria-pressed="true">浅色</button><button type="button" data-theme="dark" aria-pressed="false">深色</button></div></div>
-  </figure>
+    <section class="demo" id="product-demo" aria-labelledby="demo-title" aria-describedby="demo-disclosure" data-state="idle" data-playback="paused">
+        <div class="demo-heading">
+            <h2 id="demo-title">A thought in motion</h2>
+            <span class="demo-badge">Interactive demo</span>
+        </div>
+        <div class="demo-stage">
+            <div class="demo-stage-heading"><span>QUICK RECORD</span><span id="demo-counter" aria-hidden="true">01 / 05</span></div>
+            <div class="demo-surface">
+            <div class="demo-panel" id="demo-panel">
+                <div class="demo-draft" role="textbox" aria-label="Example draft" aria-readonly="true" tabindex="0" id="demo-draft">
+                    <span id="demo-text"></span><span class="demo-placeholder" id="demo-placeholder">What would you like to do?</span><span class="demo-cursor" aria-hidden="true"></span>
+                </div>
+                <div class="demo-action-row">
+                    <span class="demo-confirmation" id="demo-confirmation" aria-hidden="true"></span>
+                    <button class="demo-confirm" id="demo-confirm" type="button" disabled aria-label="Confirm the Action in this demo">
+                        <span id="demo-action-title">Save to Notes</span><kbd aria-hidden="true">↵</kbd>
+                    </button>
+                </div>
+            </div>
+            <div class="demo-outcome" id="demo-outcome" hidden>
+                <span class="outcome-check" aria-hidden="true">✓</span>
+                <div><p class="outcome-label">Example outcome</p><h3 id="demo-outcome-title">Handed to Apple Notes</h3><p id="demo-outcome-text"></p></div>
+            </div>
+            </div>
+            <p class="demo-status" id="demo-status" role="status" aria-live="polite" aria-atomic="true">Open the quick record panel with your shortcut.</p>
+            <ol class="demo-progress" aria-label="Demo sequence">
+                <li data-step="idle" aria-current="step"><span>1</span>Open</li>
+                <li data-step="typing"><span>2</span>Type</li>
+                <li data-step="suggesting"><span>3</span>Check</li>
+                <li data-step="confirmed"><span>4</span>Confirm</li>
+                <li data-step="completed"><span>5</span>Done</li>
+            </ol>
+        </div>
+        <div class="demo-controls" id="demo-controls" hidden>
+            <div class="demo-examples" role="group" aria-label="Choose an example Action">
+                <button type="button" data-action="notes" aria-pressed="true">Notes</button>
+                <button type="button" data-action="reminders" aria-pressed="false">Reminders</button>
+                <button type="button" data-action="calendar" aria-pressed="false">Calendar</button>
+                <button type="button" data-action="chrome" aria-pressed="false">Chrome</button>
+            </div>
+            <div class="demo-playback">
+                <button id="demo-replay" type="button" aria-label="Replay demo"><span aria-hidden="true">↻</span> Replay</button>
+                <button id="demo-play" type="button" aria-label="Play demo"><span id="demo-play-icon" aria-hidden="true">▶</span> <span id="demo-play-label">Play</span></button>
+                <span class="motion-note" id="demo-motion-note" hidden>Reduced motion: the outcome appears immediately.</span>
+            </div>
+        </div>
+        <p class="demo-disclosure" id="demo-disclosure">Sample text, simulated handoff. This demo never opens apps or sends data.</p>
+        <noscript><p class="demo-disclosure">Enable JavaScript to play the demo. The steps below explain the same flow.</p></noscript>
+    </section>
 </section>
 <section class="workflow section wrap" id="workflow" aria-labelledby="workflow-title">
-  <div class="section-heading"><p class="eyebrow">少一点切换，多一点顺手</p><h2 id="workflow-title">从想到，到做到。</h2><p>不必先打开应用、再找输入位置。</p></div>
-  <ol class="steps">
-    <li><span class="step-number">01</span><h3>唤起</h3><p>按下你设置的全局快捷键。菜单栏、Dock 和应用入口也可以打开快速记录面板。</p></li>
-    <li><span class="step-number">02</span><h3>写下</h3><p>输入一句话，或多行纯文字。<kbd>Shift</kbd> + <kbd>Enter</kbd> 换行，不用先分类整理。</p></li>
-    <li><span class="step-number">03</span><h3>确认</h3><p>查看建议的 Action，必要时用 <kbd>⌥↑</kbd> / <kbd>⌥↓</kbd> 切换，再按 <kbd>Enter</kbd> 执行。</p></li>
-  </ol>
-  <figure class="flow-figure"><img src="/assets/README-flow.png" width="1440" height="1240" loading="lazy" alt="三步示例：唤起 Jotway，输入搜索正文并确认 Google Search，按 Enter 后在 Chrome 打开同一正文的 Google 搜索"><figcaption>当前面板视图与 Chrome 搜索页的分步使用图。示例文字为合成内容，不是历史记录。</figcaption></figure>
-  <aside class="recovery"><span aria-hidden="true">↶</span><div><h3>没成功，也能接着来。</h3><p>Action 未成功受理时，Jotway 会恢复原草稿，方便修正或改选目标。若已开始新草稿，失败的旧提交会单独保留，等你显式恢复。</p></div></aside>
+    <div class="section-heading"><p class="eyebrow">Fewer switches. More follow-through.</p><h2 id="workflow-title">From a thought to its next step.</h2><p>No need to open an app and find a place to type first.</p></div>
+    <ol class="steps">
+        <li><span class="step-number">01</span><h3>Open</h3><p>Use your global shortcut, the menu bar, the Dock, or the app itself to open the quick record panel.</p></li>
+        <li><span class="step-number">02</span><h3>Write</h3><p>Type a sentence or a few lines of plain text. <kbd>Shift</kbd> + <kbd>Enter</kbd> adds a new line. Organize it later.</p></li>
+        <li><span class="step-number">03</span><h3>Check, then confirm</h3><p>Review the suggested Action. Switch with <kbd>⌥↑</kbd> / <kbd>⌥↓</kbd> if needed, then press <kbd>Enter</kbd> to execute.</p></li>
+    </ol>
+    <aside class="recovery"><span aria-hidden="true">↶</span><div><h3>A failed Action doesn't take your words with it.</h3><p>Jotway restores the draft so you can retry or choose another Action. If you've already started a new draft, the failed submission waits separately for you to restore it.</p></div></aside>
 </section>
 <section class="destinations section" aria-labelledby="actions-title"><div class="wrap">
-  <div class="section-heading"><p class="eyebrow">接上你已经在用的工具</p><h2 id="actions-title">每句话，都有好去处。</h2><p>从这些内置 Action 开始。</p></div>
-  <div class="action-grid">
-    <article><span class="action-symbol notes" aria-hidden="true">≡</span><p class="action-name">Apple Notes</p><h3>留住一个想法</h3><p>「记一下：下次旅行想去京都」</p><a href="https://github.com/Liugq5713/jotway/blob/main/docs/integrations/apple-notes.md">创建备忘录 <span aria-hidden="true">↗</span></a></article>
-    <article><span class="action-symbol reminders" aria-hidden="true">☑</span><p class="action-name">Apple Reminders</p><h3>记住一件待办</h3><p>「提醒我给设计稿加上说明」</p><a href="https://github.com/Liugq5713/jotway/blob/main/docs/integrations/apple-reminders.md">创建提醒事项 <span aria-hidden="true">↗</span></a></article>
-    <article><span class="action-symbol calendar" aria-hidden="true">□</span><p class="action-name">Apple Calendar</p><h3>安排一段时间</h3><p>「加到日历：设计方案讨论」</p><a href="https://github.com/Liugq5713/jotway/blob/main/docs/integrations/apple-calendar.md">创建日历事件 <span aria-hidden="true">↗</span></a></article>
-    <article><span class="action-symbol chrome" aria-hidden="true">⌕</span><p class="action-name">Chrome</p><h3>打开 Google 搜索</h3><p>「Google search macOS keyboard shortcuts」</p><a href="https://github.com/Liugq5713/jotway/blob/main/docs/integrations/chrome.md">打开网页搜索 <span aria-hidden="true">↗</span></a></article>
-  </div>
-  <p class="section-note">存入类 Action 需要先配置目标位置与相关权限；Chrome 需要本机已安装。自然语言日期提取需要 DeepSeek 整理，关闭或失败时，提醒时间为当前时间，日程为从当前时间开始的一小时。</p>
-  <p class="section-note">也能通过本地匹配打开已安装的应用。完整能力以 <a href="https://github.com/Liugq5713/jotway/blob/main/docs/product/overview.md">当前产品说明</a> 与发行包为准。</p>
+    <div class="section-heading"><p class="eyebrow">Your tools, one starting point</p><h2 id="actions-title">A place for every kind of thought.</h2><p>Start with these built-in Actions.</p></div>
+    <div class="action-grid">
+        <article><span class="action-symbol notes" aria-hidden="true">≡</span><p class="action-name">Apple Notes</p><h3>Keep an idea</h3><p>“Save to notes: a quiet weekend in Kyoto”</p><a href="https://github.com/Liugq5713/jotway/blob/main/docs/integrations/apple-notes.md">Create a note <span aria-hidden="true">↗</span></a></article>
+        <article><span class="action-symbol reminders" aria-hidden="true">☑</span><p class="action-name">Apple Reminders</p><h3>Remember a task</h3><p>“Remind me to send the design draft”</p><a href="https://github.com/Liugq5713/jotway/blob/main/docs/integrations/apple-reminders.md">Create a reminder <span aria-hidden="true">↗</span></a></article>
+        <article><span class="action-symbol calendar" aria-hidden="true">□</span><p class="action-name">Apple Calendar</p><h3>Make some time</h3><p>“Add to calendar: design discussion”</p><a href="https://github.com/Liugq5713/jotway/blob/main/docs/integrations/apple-calendar.md">Create an event <span aria-hidden="true">↗</span></a></article>
+        <article><span class="action-symbol chrome" aria-hidden="true">⌕</span><p class="action-name">Chrome</p><h3>Find an answer</h3><p>“Google search macOS keyboard shortcuts”</p><a href="https://github.com/Liugq5713/jotway/blob/main/docs/integrations/chrome.md">Search Google <span aria-hidden="true">↗</span></a></article>
+    </div>
+    <p class="section-note">Storage Actions need a configured destination and the relevant permissions. Chrome needs to be installed. Natural-language date extraction requires DeepSeek processing. Without it, reminders are due now and calendar events last one hour, starting now.</p>
+    <p class="section-note">Jotway also matches installed apps locally. These are examples, not the full Action list. See the <a href="https://github.com/Liugq5713/jotway/blob/main/docs/product/overview.md">current product guide</a> for all capabilities.</p>
 </div></section>
 <section class="optional section wrap" aria-labelledby="optional-title">
-  <div><p class="eyebrow">AI，由你选择</p><h2 id="optional-title">可以更懂你。<br>决定权仍在你。</h2></div>
-  <div class="optional-copy"><p>基础存入、Google 搜索与应用启动都不依赖 AI。配置 Jev 后，意图识别可以推荐 Action；建议不会自行执行。</p><p>Notes、Reminders 和 Calendar 可分别开启 DeepSeek 文字整理与日期提取。提供方需要单独配置，可能产生账户费用；失败时回退到原文。</p><a class="text-link" href="/privacy/#providers">了解哪些文字会发送给提供方 <span aria-hidden="true">↗</span></a></div>
+    <div><p class="eyebrow">AI, when you want it</p><h2 id="optional-title">A little help.<br>Your decision.</h2></div>
+    <div class="optional-copy"><p>Saving, Google search, and app launching work without AI. Optional Jev intent recognition can suggest an Action. It never executes one for you.</p><p>Notes, Reminders, and Calendar can each use optional DeepSeek processing to tidy text or extract dates. Providers require separate configuration and may charge your account. If processing fails, Jotway uses your original text.</p><a class="text-link" href="/privacy/#providers">See what providers receive <span aria-hidden="true">↗</span></a></div>
 </section>
-<section class="privacy-summary wrap"><div><p class="eyebrow">隐私，说清楚</p><h2>内容去你选的应用。</h2><p>草稿只在本次应用进程的内存中保留。Jotway 没有可浏览的收件箱或内容历史，但确认目标可能留下本地完整正文反馈样本。</p></div><a class="button secondary" href="/privacy/">查看保留与清除边界 <span aria-hidden="true">↗</span></a></section>
-<section class="closing wrap"><h2>下一个念头，<br>从这里出发。</h2><a class="button primary" href="/download/">{{home_cta}} <span aria-hidden="true">↗</span></a><p>{{release_summary}}</p></section>
+<section class="privacy-summary wrap"><div><p class="eyebrow">Clear about privacy</p><h2>Your words go where you choose.</h2><p>Unsubmitted drafts live in memory during the app session. There's no browsable inbox or content history. Confirming an Action may still retain full-text feedback samples locally.</p></div><a class="button secondary" href="/privacy/">Read the data policy <span aria-hidden="true">↗</span></a></section>
+<section class="closing wrap"><h2>Give your next thought<br>a place to go.</h2><a class="button primary" href="/download/">{{home_cta}} <span aria-hidden="true">↗</span></a><p>{{release_summary}}</p></section>

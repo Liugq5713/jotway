@@ -1,30 +1,32 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="{{description}}">
-  <meta name="color-scheme" content="light">
-  <title>{{title}}</title>
-  <link rel="icon" href="/assets/AppIcon.png" type="image/png">
-  <link rel="stylesheet" href="/assets/site.css?v={{asset_revision}}">
-  <script src="/assets/site.js?v={{asset_revision}}" defer></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="{{description}}">
+    <meta name="color-scheme" content="light">
+    <title>{{title}}</title>
+    <link rel="icon" href="/assets/AppIcon.png" type="image/png">
+    <link rel="stylesheet" href="/assets/site.css?v={{asset_revision}}">
+    <script src="/assets/site.js?v={{asset_revision}}" defer></script>
 </head>
 <body>
-  <a class="skip-link" href="#main">跳到正文</a>
-  <header class="site-header wrap">
-    <a class="brand" href="/" aria-label="Jotway 首页"><img src="/assets/AppIcon.png" width="36" height="36" alt="">Jotway</a>
-    <nav aria-label="主导航">
-      <a href="/#workflow">使用方式</a>
-      <a href="/privacy/" {{privacy_current}}>隐私</a>
-      <a class="nav-download" href="/download/" {{download_current}}>下载 <span aria-hidden="true">↗</span></a>
-    </nav>
-  </header>
-  <main id="main">{{content}}</main>
-  <footer class="site-footer wrap">
-    <a class="brand" href="/"><img src="/assets/AppIcon.png" width="28" height="28" alt="">Jotway</a>
-    <p>把想法交给日常工具。</p>
-    <nav aria-label="页脚导航"><a href="/download/">下载</a><a href="/privacy/">隐私</a><a href="https://github.com/Liugq5713/jotway">GitHub</a><a href="https://github.com/Liugq5713/jotway/blob/main/docs/jotway.md">文档</a></nav>
-  </footer>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header wrap">
+        <a class="brand" href="/" aria-label="Jotway home"><img src="/assets/AppIcon.png" width="36" height="36" alt="">Jotway</a>
+        <nav aria-label="Main navigation">
+            <a href="/#workflow">How it works</a>
+            <a href="/privacy/" {{privacy_current}}>Privacy</a>
+            <a class="nav-download" href="/download/" {{download_current}}>Download <span aria-hidden="true">↗</span></a>
+        </nav>
+    </header>
+    <main id="main" tabindex="-1">{{content}}</main>
+    <footer class="site-footer wrap">
+        <a class="brand" href="/"><img src="/assets/AppIcon.png" width="28" height="28" alt="">Jotway</a>
+        <p>A small space for your next thought.</p>
+        <nav aria-label="Footer navigation">
+            <a href="/download/">Download</a><a href="/privacy/">Privacy</a><a href="https://github.com/Liugq5713/jotway">GitHub</a><a href="https://github.com/Liugq5713/jotway/blob/main/docs/jotway.md">Docs</a>
+        </nav>
+    </footer>
 </body>
 </html>

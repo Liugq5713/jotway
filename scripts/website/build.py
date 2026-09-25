@@ -19,26 +19,29 @@ SITE = ROOT / 'website'
 def release_content(record):
     if record['status'] == 'unpublished':
         return '''<section class="unpublished" aria-labelledby="release-title">
-<p class="status-label">发行状态 · 尚未发布</p><h2 id="release-title">公开下载，准备中。</h2>
-<p>目前没有可供公开下载的发行包，因此这里暂不提供下载按钮。版本、构建号、系统要求、架构、大小、SHA-256、签名、公证状态和发布日期，会在真实产物发布后同步显示。</p>
-<a class="text-link" href="https://github.com/Liugq5713/jotway/releases">查看 GitHub 发行记录 ↗</a></section>'''
+<p class="status-label">Release status · Not yet published</p><h2 id="release-title">A public download is on its way.</h2>
+<p>There is no public release to download yet. Once a verified artifact is published, this page will show its version, build, macOS requirement, architecture, size, SHA-256, signing, notarization, and release date.</p>
+<a class="text-link" href="https://github.com/Liugq5713/jotway/releases">View GitHub releases ↗</a></section>'''
     local = record['status'] == 'local'
-    sign = {'ad-hoc': 'ad-hoc 签名', 'developer-id': 'Developer ID 签名', 'unsigned': '未签名'}[record['codeSigning']]
-    fields = [('版本', record['version']), ('构建号', record['build']),
-              ('最低 macOS', record['minimumMacOS']), ('CPU 架构', record['architecture']),
-              ('文件', record['file']), ('文件大小', f"{record['bytes'] / 1024 / 1024:.2f} MiB · {record['bytes']:,} bytes"),
-              ('签名', sign), ('Apple 公证', '已公证' if record['notarized'] else '未公证'),
-              ('打包日期 (UTC)' if local else '发布日期 (UTC)', record['releaseDate'])]
+    sign = {'ad-hoc': 'Ad-hoc signing', 'developer-id': 'Developer ID signing', 'unsigned': 'Unsigned'}[record['codeSigning']]
+    fields = [('Version', record['version']), ('Build', record['build']),
+              ('Minimum macOS', record['minimumMacOS']), ('CPU architecture', record['architecture']),
+              ('File', record['file']), ('File size', f"{record['bytes'] / 1024 / 1024:.2f} MiB · {record['bytes']:,} bytes"),
+              ('Signing', sign), ('Apple notarization', 'Notarized' if record['notarized'] else 'Not notarized'),
+              ('Packaged at (UTC)' if local else 'Released at (UTC)', record['releaseDate'])]
     facts = ''.join(f'<div><dt>{escape(name)}</dt><dd>{escape(str(value))}</dd></div>' for name, value in fields)
     facts += f'''<div class="wide"><dt>SHA-256</dt><dd><code id="checksum">{record['sha256']}</code><br>
-<button class="checksum-copy" id="copy-checksum" type="button">复制校验值</button><span id="copy-status" role="status"></span></dd></div>
-<div class="wide"><dt>下载地址</dt><dd><a href="{escape(record['downloadURL'], quote=True)}">{escape(record['downloadURL'])}</a></dd></div>'''
-    safety = f"此发行包为{sign}，{'已' if record['notarized'] else '尚未'}经过 Apple notarization。"
-    release_link = '' if local else f'<a href="{escape(record["releaseURL"], quote=True)}">在 GitHub 查看此次发行 ↗</a>'
-    return f'''<section class="release-card" aria-labelledby="release-title"><p class="status-label">{'本地验证包 · 未公开发布' if local else '已发布'}</p>
+<button class="checksum-copy" id="copy-checksum" type="button">Copy checksum</button><span id="copy-status" role="status"></span></dd></div>
+<div class="wide"><dt>Download URL</dt><dd><a href="{escape(record['downloadURL'], quote=True)}">{escape(record['downloadURL'])}</a></dd></div>'''
+    safety = f"Signing: {sign}. {'Notarized by Apple.' if record['notarized'] else 'Not notarized by Apple.'}"
+    notes = escape(record['notes'])
+    if re.search(r'[\u3400-\u9fff]', record['notes']):
+        notes = 'Read the original release notes in the <a href="/release.json">release metadata</a>.'
+    release_link = '' if local else f'<a href="{escape(record["releaseURL"], quote=True)}">View this release on GitHub ↗</a>'
+    return f'''<section class="release-card" aria-labelledby="release-title"><p class="status-label">{'Local preview · Not publicly released' if local else 'Published'}</p>
 <h2 id="release-title">Jotway {escape(record['version'])}</h2><dl class="release-facts">{facts}</dl>
-<a class="button primary download-button" href="{escape(record['downloadURL'], quote=True)}">{'下载本地验证包' if local else '下载 Jotway'} · DMG ↗</a>
-<p class="signing-note">{safety}</p><div class="document-section"><h3>发行说明</h3><p class="release-notes">{escape(record['notes'])}</p>
+<a class="button primary download-button" href="{escape(record['downloadURL'], quote=True)}">{'Download local preview' if local else 'Download Jotway'} · DMG ↗</a>
+<p class="signing-note">{safety}</p><div class="document-section"><h3>Release notes</h3><p class="release-notes">{notes}</p>
 {release_link}</div></section>'''
 
 
@@ -104,31 +107,31 @@ def main():
         shutil.copyfile(artifact, output / 'downloads' / artifact.name)
     for name in ('site.css', 'site.js'):
         shutil.copyfile(SITE / 'src' / name, output / 'assets' / name)
-    for name in ('launcher-light.png', 'launcher-dark.png', 'README-flow.png'):
-        shutil.copyfile(ROOT / 'Resources/Screenshots' / name, output / 'assets' / name)
     shutil.copyfile(ROOT / 'Resources/Icons/AppIcon.png', output / 'assets/AppIcon.png')
     (output / 'release.json').write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + '\n')
     layout = (SITE / 'src/layout.html').read_text()
     published = metadata['status'] == 'published'
-    common = {'home_cta': '下载 Jotway' if published else '查看下载状态',
-              'release_summary': f"{metadata['version']} · macOS {metadata['minimumMacOS']}+ · {metadata['architecture']}" if published else ('本地验证包 · 未公开发布' if artifact else '公开发行包尚未发布 · 可从源码构建'),
+    common = {'home_cta': 'Download Jotway' if published else 'Check availability',
+              'release_summary': f"{metadata['version']} · macOS {metadata['minimumMacOS']}+ · {metadata['architecture']}" if published else ('Local preview · Not publicly released' if artifact else 'No public release yet · Source builds available'),
               'release_content': release_content(metadata),
-              'signing_guidance': ('当前打包流程使用 ad-hoc 签名，尚未经过 Apple notarization。' if metadata['status'] == 'unpublished'
-                                   else '此发行包的签名与公证结果见上方产物信息。')
-                                  + '首次打开时，macOS 可能要求你在“系统设置 → 隐私与安全性”中允许打开。请先确认文件来源与校验值。'}
-    routes = [('home', '', 'Jotway — 打一句话，送到该去的地方。', '用快捷键唤起，写下一句话，确认目标，再按 Enter。原生 macOS 启动器 Jotway，把内容交给日常工具。'),
-              ('download', 'download', '下载 Jotway — 发行与安装', '查看真实发行包、校验值、签名和公证状态，以及 Jotway 安装方式。'),
-              ('privacy', 'privacy', 'Jotway — 隐私与数据流', '了解 Jotway 草稿、可选 AI 请求、本地完整正文反馈样本，以及保留和清除边界。')]
+              'signing_guidance': ('The current packaging process uses ad-hoc signing without Apple notarization. ' if metadata['status'] == 'unpublished'
+                                   else 'See the artifact details above for signing and notarization status. ')
+                                  + 'On first launch, macOS may ask you to allow the app in System Settings → Privacy & Security. Verify the source and checksum first.'}
+    routes = [('home', '', 'Jotway — One thought. The right place.', 'Open Jotway, type a thought, check the Action, and press Enter. A native macOS launcher for your everyday tools.'),
+              ('download', 'download', 'Download Jotway — Releases and installation', 'Verified release details, checksums, signing and notarization status, and installation instructions for Jotway.'),
+              ('privacy', 'privacy', 'Jotway — Privacy and data flow', 'Understand Jotway drafts, optional AI requests, full-text local feedback, retention, and available clearing controls.')]
     for source, route, title, description in routes:
         content = (SITE / 'src' / f'{source}.html').read_text()
         content = re.sub(r'\{\{(\w+)\}\}', lambda match: common[match[1]], content)
-        site_prefix = '' if not route else '../'
+        site_prefix = './' if not route else '../'
         values = {'content': content, 'title': title, 'description': description,
                   'site_prefix': site_prefix,
                   'asset_revision': hashlib.sha256((SITE / 'src/site.css').read_bytes() + (SITE / 'src/site.js').read_bytes()).hexdigest()[:12],
                   'privacy_current': 'aria-current="page"' if route == 'privacy' else '',
                   'download_current': 'aria-current="page"' if route == 'download' else ''}
         html = re.sub(r'\{\{(\w+)\}\}', lambda match: values[match[1]], layout)
+        if re.search(r'[\u3400-\u9fff]', html):
+            raise ValueError(f'{route or "home"}: non-English website copy found.')
         html = html.replace('href="/', f'href="{site_prefix}').replace('src="/', f'src="{site_prefix}')
         destination = output / route / 'index.html'
         destination.parent.mkdir(parents=True, exist_ok=True)
