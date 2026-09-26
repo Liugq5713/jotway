@@ -1,4 +1,17 @@
 {
+  "version": "0.1.1",
+  "build": 2,
+  "minimumMacOS": "15.0",
+  "architecture": "arm64",
+  "file": "Jotway-0.1.1-2-arm64.dmg",
+  "bytes": 6343957,
+  "sha256": "593c13ea1494eec9a0bc0bc0aaf7a4d22f60a41ac406dff0be2ec73d2eccad2b",
+  "codeSigning": "ad-hoc",
+  "notarized": false,
+  "notes": "Jotway v0.1.1",
   "schemaVersion": 1,
-  "status": "unpublished"
+  "status": "published",
+  "releaseDate": "2026-09-25T14:29:02Z",
+  "downloadURL": "https://github.com/Liugq5713/jotway/releases/download/v0.1.1/Jotway-0.1.1-2-arm64.dmg",
+  "releaseURL": "https://github.com/Liugq5713/jotway/releases/tag/v0.1.1"
 }
