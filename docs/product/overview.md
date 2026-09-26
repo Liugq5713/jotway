@@ -47,10 +47,10 @@ Notes setup preserves the draft and selection, pauses recognition, and uses a si
 
 ## Product boundaries
 
-- Unconfirmed draft text is memory-only and disappears when the process exits.
-- Jotway does not provide an inbox, record history, cards, completion state, Summary, or export archive.
+- The editable draft disappears when the process exits. When local operation capture is enabled, stable unsubmitted text is also persisted for manual review; it is never restored as a draft.
+- Jotway does not provide an inbox, browsable content history, cards, completion state, or Summary.
 - The editor accepts only multi-line plain text. It does not render or structurally edit Markdown, and it does not accept images, files, or rich-text attachments.
-- Confirmed routing may persist the full draft text locally as intent feedback. Corrections are capped at 200; accepted samples currently have no retention limit or user-facing clear control.
+- Local operation records include full input versions, routing, choices, and execution observations. Capture, retention (default 90 days), manual JSONL/CSV export, and deletion are controlled in Intent Recognition settings. Records do not automatically change rules.
 - Intent recognition proposes a destination; it never performs an action without the user's Enter confirmation.
 - Action failure restores the input rather than silently dropping it.
 

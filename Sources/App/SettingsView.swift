@@ -655,6 +655,9 @@ struct SettingsView: View {
                 Text(L10n.text("guide.drafts.help"))
                 Text(L10n.text("guide.failures.help"))
                 Text(L10n.text("guide.no_inbox.help"))
+                Text(L10n.text("guide.records.help"))
+                    .font(.caption).foregroundStyle(.secondary)
+                Button(L10n.text("guide.records.manage")) { selectedPage = .intent }
             }
 
             Section {

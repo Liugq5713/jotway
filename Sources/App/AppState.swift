@@ -7,13 +7,15 @@ import SwiftUI
 @MainActor @Observable
 final class AppState: NSObject {
     private let repository: LauncherStore
-    let intentFeedback: IntentFeedbackStore
+    let operationRecorder: OperationRecorder
+    private(set) var operationRecordingEnabled: Bool
+    private(set) var operationRetentionDays: Int
     private let preferences: UserDefaults
     var recordPanelFollowsCursor: Bool {
         didSet { preferences.set(recordPanelFollowsCursor, forKey: "recordPanelFollowsCursor") }
     }
-    /// 本地持久存储是否可用（数据库打开失败时降级内存存储，并阻止意图反馈等落库）。
-    var storageAvailable = true
+    /// 数据库打开失败时降级内存运行，操作记录明确报告不可持久化。
+    let storageAvailable: Bool
     let actionConfiguration: ActionConfiguration
     let shortcutTrial = ShortcutTrial()
     let applicationUsageStore: ApplicationUsageStore
@@ -171,21 +173,35 @@ final class AppState: NSObject {
 
     var applicationUsage: [String: ApplicationUsage] { applicationUsageStore.usage }
     var hasPendingApplicationUsage: Bool { applicationUsageStore.hasPendingChanges }
-    /// 设置页只读列出用户对 Jev 的纠正记录（最新在前，仅本地）。读失败返回空。
-    func recentIntentCorrections(limit: Int = IntentCorrection.retentionLimit) -> [IntentCorrection] {
-        (try? repository.recentIntentCorrections(limit: limit)) ?? []
+    func setOperationRecordingEnabled(_ enabled: Bool) async throws {
+        // Stop remains a durable user preference even if deleting existing rows fails.
+        operationRecordingEnabled = enabled
+        preferences.set(enabled, forKey: "operationRecording.enabled")
+        try await operationRecorder.setEnabled(enabled)
     }
 
-    /// 用户在设置页清空全部纠正记录。
-    func clearIntentCorrections() {
-        try? repository.clearIntentCorrections()
+    func setOperationRetentionDays(_ days: Int) async throws {
+        let days = min(3650, max(1, days))
+        operationRetentionDays = days
+        preferences.set(days, forKey: "operationRecording.retentionDays")
+        try await operationRecorder.setRetention(days: days)
     }
 
     init(repository: LauncherStore, preferences: UserDefaults = .standard,
+         operationStateFileURL: URL? = nil, persistentStorageAvailable: Bool = true,
          aiSources: [AIProviderPlugin.Source] = bundledAISources(),
          actionModules: (@MainActor (UserDefaults) -> [any ActionModule])? = nil) {
         self.repository = repository
-        intentFeedback = IntentFeedbackStore(repository: repository)
+        storageAvailable = persistentStorageAvailable
+        let recordingEnabled = preferences.object(forKey: "operationRecording.enabled") == nil
+            || preferences.bool(forKey: "operationRecording.enabled")
+        operationRecordingEnabled = recordingEnabled
+        let savedRetention = preferences.integer(forKey: "operationRecording.retentionDays")
+        let retentionDays = savedRetention > 0 ? min(3650, savedRetention) : 90
+        operationRetentionDays = retentionDays
+        operationRecorder = OperationRecorder(repository: repository, stateFileURL: operationStateFileURL,
+            enabled: recordingEnabled, retentionDays: retentionDays,
+            storageAvailable: persistentStorageAvailable)
         self.preferences = preferences
         let modules = actionModules?(preferences) ?? BundledActions.modules(preferences: preferences)
         actionConfiguration = ActionConfiguration(preferences: preferences, modules: modules)
@@ -355,8 +371,8 @@ final class AppState: NSObject {
             try await Jev.recognize(text: text, apiKey: key, capture: capture)
         }
     ) -> LauncherSession {
-        LauncherSession(repository: repository, registry: actionRegistry, feedback: intentFeedback,
-            catalog: catalog, storageAvailable: { [weak self] in self?.storageAvailable ?? false },
+        LauncherSession(registry: actionRegistry, recorder: operationRecorder,
+            catalog: catalog,
             configuration: { .init(revision: settings.revision, hasAPIKey: settings.hasAPIKey) },
             readKey: { try settings.currentAPIKey() }, recognize: recognize,
             applicationUsage: { [weak self] in self?.applicationUsage ?? [:] },

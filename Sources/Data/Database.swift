@@ -27,6 +27,7 @@ enum Database {
     }
 
     static func migrate(_ queue: DatabaseQueue) throws {
+        try queue.writeWithoutTransaction { try $0.execute(sql: "PRAGMA foreign_keys = ON") }
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1_launcher") { db in
             try db.create(table: ApplicationUsage.databaseTableName) { t in
@@ -43,6 +44,9 @@ enum Database {
                 );
                 CREATE INDEX intent_corrections_recent ON intent_corrections(correctedAt DESC, id DESC);
                 """)
+        }
+        migrator.registerMigration("v2_local_operations") { db in
+            try OperationMigration.migrate(db)
         }
         try migrator.migrate(queue)
     }

@@ -150,12 +150,12 @@ struct AppleCalendarAction: LauncherAction {
                     let response = try await run(request)
                     guard response.status == "ok", response.eventID?.isEmpty == false else {
                         throw ActionFailure(localized: "error.calendar.create_failed", code: .processFailed,
-                                            osStatus: response.osStatus)
+                                            osStatus: response.osStatus, executionOutcome: .unknown)
                     }
-                    return ActionOutcome(messageKey: "result.calendar.saved")
+                    return ActionOutcome(messageKey: "result.calendar.saved", effect: .created)
                 } catch let failure as AppleCalendar.Failure {
                     throw ActionFailure(localized: "error.calendar.create_failed", code: .processFailed,
-                                        osStatus: failure.osStatus)
+                                        osStatus: failure.osStatus, executionOutcome: failure.notStarted ? .failed : .unknown)
                 } catch let failure as ActionFailure {
                     throw failure
                 } catch {

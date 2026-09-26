@@ -1,6 +1,15 @@
 import Foundation
 import os
 
+/// Recognition metadata is independent of any persistence or confirmation model.
+struct RecognitionSummary: Codable, Equatable, Sendable {
+    let source: JevDiagnostics.Source
+    let requestID: UUID?
+    let ruleVersion: String?
+    let actualModel: String?
+    var applicationMatch: JevDiagnostics.ApplicationMatch? = nil
+}
+
 /// Only bounded diagnostics cross into RuntimeLog. No text, credentials, paths or raw responses.
 struct JevDiagnostics: Codable, Sendable, Equatable {
     enum Source: String, Codable, Sendable { case model, localAppName = "local_app_name" }
@@ -155,6 +164,7 @@ final class JevTrace: @unchecked Sendable {
     private struct State {
         var finished = false
         var fields: RuntimeLog.Fields
+        var observedFields: RuntimeLog.Fields
     }
     let context: RuntimeLog.Context
     private let state: OSAllocatedUnfairLock<State>
@@ -171,12 +181,17 @@ final class JevTrace: @unchecked Sendable {
         let fields = RuntimeLog.Fields(requestedModel: source == .model ? Jev.model : nil,
             actualModel: source == .model ? "unknown" : nil, queueDurationMs: RuntimeLog.milliseconds(since: started),
             bytes: purpose == .connectionTest ? Jev.connectionTestText.utf8.count : bytes, intent: diagnostic)
-        state = OSAllocatedUnfairLock(initialState: State(fields: fields))
+        state = OSAllocatedUnfairLock(initialState: State(fields: fields, observedFields: fields))
         context.emit(.requestStarted, fields)
     }
 
     func update(_ body: @Sendable (inout RuntimeLog.Fields) -> Void) {
-        state.withLock { if !$0.finished { body(&$0.fields) } }
+        state.withLock {
+            // A cancelled transport may still return validated observations. Keep those for the
+            // frozen operation request while its already-finished RuntimeLog remains immutable.
+            body(&$0.observedFields)
+            if !$0.finished { body(&$0.fields) }
+        }
     }
 
     func httpStarted() {
@@ -219,13 +234,28 @@ final class JevTrace: @unchecked Sendable {
         state.withLock { $0.fields.intent?.reason ?? .outsideScope }
     }
 
-    var feedbackRecognition: IntentFeedback.Recognition {
+    var recognitionSummary: RecognitionSummary {
         state.withLock {
             let source = $0.fields.intent?.decisionSource ?? .model
             let model = $0.fields.actualModel
             return .init(source: source, requestID: context.requestID, ruleVersion: $0.fields.intent?.ruleVersion,
                 actualModel: source == .model ? model.flatMap { JevDiagnostics.validModel($0) ? $0 : nil } : nil,
                 applicationMatch: source == .localAppName ? $0.fields.intent?.applicationMatch : nil)
+        }
+    }
+
+    var operationDetails: OperationRecognitionDetails {
+        state.withLock {
+            let diagnostic = $0.observedFields.intent?.bounded
+            let options = (diagnostic?.answers ?? []).flatMap { answer -> [OperationScoredOption] in
+                if let score = answer.noul {
+                    return [.init(id: answer.question.rawValue, score: score, question: answer.question.rawValue)]
+                }
+                return (answer.probabilities ?? [:]).sorted { $0.key < $1.key }.map {
+                    .init(id: $0.key, score: $0.value, question: answer.question.rawValue, confidence: answer.confidence)
+                }
+            }
+            return .init(actualModel: $0.observedFields.actualModel.flatMap { JevDiagnostics.validModel($0) ? $0 : nil }, options: options)
         }
     }
 

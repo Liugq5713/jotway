@@ -105,12 +105,16 @@ struct PreparedAction: Sendable {
 
 /// 执行结果，结构化返回，由输入层决定如何反馈。
 struct ActionOutcome: Sendable {
+    /// 目标系统实际确认的效果；未提供凭据的扩展 action 保持 unknown。
+    let effect: OperationExecutionOutcome
     /// 面板反馈文案，例如「已存入备忘录」。
     var message: String?
     var messageKey: String?
     var messageArguments: [String]
 
-    init(message: String? = nil, messageKey: String? = nil, messageArguments: [String] = []) {
+    init(message: String? = nil, messageKey: String? = nil, messageArguments: [String] = [],
+         effect: OperationExecutionOutcome = .unknown) {
+        self.effect = effect
         self.message = message
         self.messageKey = messageKey
         self.messageArguments = messageArguments

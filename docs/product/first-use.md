@@ -41,4 +41,4 @@ The usage guide demonstrates Apple Notes, Reminders, Calendar, Chrome search, an
 - Action failure: restore the submitted text; if a new draft already exists, retain the failed submission separately without overwriting the new draft. The current UI does not expose a recovery button for that retained submission.
 - Missing Jev key: continue through local matching and the default action; recognition is optional.
 
-Closing the panel is not proof of success. Completed content is viewed in its target application. Jotway has no browsable inbox or content history; confirmed routing may still retain the full draft locally as intent feedback.
+Closing the panel is not proof of success. Completed content is viewed in its target application. Jotway has no browsable inbox or content history; local operation capture retains full stable text, including unsubmitted input. Getting Started explains this scope and links to Intent Recognition settings for capture, retention, export, and deletion; records never restore drafts after restart.

@@ -62,8 +62,9 @@ final class RuntimeLog: @unchecked Sendable {
         var intent: JevDiagnostics? = nil
         var feedbackID: UUID? = nil
         var feedbackSource: JevDiagnostics.Source? = nil
-        var feedbackConfirmation: IntentFeedback.ConfirmationSource? = nil
-        var feedbackExecution: IntentFeedback.Execution.Outcome? = nil
+        var feedbackConfirmation: String? = nil
+        var feedbackExecution: String? = nil
+        var attemptID: String? = nil
     }
 
     struct Context: Sendable {

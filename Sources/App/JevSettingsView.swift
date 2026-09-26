@@ -4,7 +4,6 @@ struct JevSettingsView: View {
     let appState: AppState
     @State private var settings: JevSettings
     @State private var apiKey = ""
-    @State private var corrections: [IntentCorrection] = []
     @State private var rules: [IntentRule] = []
     @State private var newPhrase = ""
     @State private var newActionID = ""
@@ -19,10 +18,9 @@ struct JevSettingsView: View {
         Group {
             keySection
             rulesSection
-            correctionsSection
+            OperationRecordSettings(appState: appState)
         }
         .onAppear {
-            corrections = appState.recentIntentCorrections()
             rules = appState.intentRules
             if newActionID.isEmpty { newActionID = enabledActions.first?.id ?? "" }
         }
@@ -149,40 +147,8 @@ struct JevSettingsView: View {
         }
     }
 
-    @ViewBuilder private var correctionsSection: some View {
-        Section {
-            if corrections.isEmpty {
-                Text(L10n.text("jev.corrections.empty", IntentCorrection.retentionLimit))
-                    .font(.caption).foregroundStyle(.secondary)
-            } else {
-                ForEach(corrections, id: \.id) { correction in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(correction.text).font(.callout).lineLimit(1)
-                        Text(L10n.text("jev.corrections.changed",
-                                       correctionTitle(correction.jevTargetID, legacy: correction.jevLabel),
-                                       correctionTitle(correction.chosenTargetID, legacy: correction.chosenLabel)))
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 1)
-                }
-                Button(L10n.text("jev.corrections.clear"), role: .destructive) {
-                    appState.clearIntentCorrections()
-                    corrections = []
-                }
-            }
-        } header: {
-            Text(L10n.text("jev.corrections.section"))
-        } footer: {
-            Text(L10n.text("jev.corrections.help"))
-        }
-    }
-
     private func saveKey() {
         if settings.saveAPIKey(apiKey) { apiKey = "" }
     }
 
-    private func correctionTitle(_ id: String?, legacy: String) -> String {
-        guard let id else { return legacy }
-        return appState.actionRegistry.descriptor(for: id)?.localizedTitle ?? (legacy == id ? id : legacy)
-    }
 }

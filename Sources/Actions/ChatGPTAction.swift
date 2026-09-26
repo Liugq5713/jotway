@@ -90,7 +90,7 @@ struct ChatGPTAction: LauncherAction {
             configuration.promptsUserIfNeeded = false
             do {
                 try await open(url, application, configuration)
-                return ActionOutcome(messageKey: "action.chatgpt.opened")
+                return ActionOutcome(messageKey: "action.chatgpt.opened", effect: .prefilled)
             } catch {
                 throw ActionFailure(localized: "action.chatgpt.open_failed", code: RuntimeLog.code(error))
             }

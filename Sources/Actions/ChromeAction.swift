@@ -84,7 +84,7 @@ struct ChromeAction: LauncherAction {
             }
             do {
                 try await ChromeConnector.openSearch(url, application: application, using: open)
-                return ActionOutcome(messageKey: "result.chrome.opened")
+                return ActionOutcome(messageKey: "result.chrome.opened", effect: .opened)
             } catch let failure as ActionFailure {
                 throw failure
             } catch {

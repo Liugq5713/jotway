@@ -99,10 +99,9 @@ final class JevPanelTests: XCTestCase {
         let moduleDependencies: ModuleDependencies
         let notesModule: AppleNotesModule
 
-        func feedback() async throws -> [IntentFeedback.Entry] {
-            await app.intentFeedback.flush()
-            let ids = try await repository.dbQueue.read { try String.fetchAll($0, sql: "SELECT id FROM intent_feedback") }
-            return try ids.compactMap { try repository.intentFeedback(id: XCTUnwrap(UUID(uuidString: $0))) }
+        func operations() async throws -> OperationSnapshot {
+            await app.operationRecorder.flush()
+            return try OperationStore(repository: repository).snapshot()
         }
 
         func close() {
@@ -135,7 +134,7 @@ final class JevPanelTests: XCTestCase {
 
     private func fixture(draft: String,
                          applications: [InstalledApplication] = [],
-                         failFeedbackWrite: Bool = false) throws -> Fixture {
+                         failOperationWrite: Bool = false) throws -> Fixture {
         _ = NSApplication.shared
         let suite = "Jotway.JevPanelTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -144,8 +143,8 @@ final class JevPanelTests: XCTestCase {
             writeKey: { secret.value = $0 }, deleteKey: { secret.value = nil },
             checkConnection: { _ in XCTFail("Must not access the network"); throw TestFailure.unexpectedNetwork })
         let repo = LauncherStore.inMemory()
-        if failFeedbackWrite {
-            try repo.dbQueue.write { try $0.execute(sql: "CREATE TRIGGER fail_feedback BEFORE INSERT ON intent_feedback BEGIN SELECT RAISE(FAIL, 'synthetic feedback failure'); END") }
+        if failOperationWrite {
+            try repo.dbQueue.write { try $0.execute(sql: "CREATE TRIGGER fail_operation BEFORE INSERT ON operation_events BEGIN SELECT RAISE(FAIL, 'synthetic operation failure'); END") }
         }
         let actions = ActionProbe()
         let moduleDependencies = ModuleDependencies()
@@ -189,7 +188,7 @@ final class JevPanelTests: XCTestCase {
     }
 
     func testReturnAndCommandReturnUseExistingConnectorOnceWithoutPendingConfirmation() async throws {
-        // 没有 Jev Key / 建议时，非默认 action 仍可先显式选中，再确认执行；不写模型反馈。
+        // 没有 Jev Key / 建议时，非默认 action 仍可先显式选中，再确认执行；所有确认入口都写本地操作事实。
         do {
             let manual = try fixture(draft: "手动选择搜索")
             defer { manual.close() }
@@ -203,6 +202,7 @@ final class JevPanelTests: XCTestCase {
             XCTAssertTrue(manual.controller.session.state.intentCandidates.contains {
                 $0.id == "chrome" && $0.isSelected
             })
+            manual.controller.session.send(.selectTarget("chrome"))
             manual.controller.session.send(.confirm(.button))
             let unavailableQueries = await manual.actions.chromeQueries
             XCTAssertTrue(unavailableQueries.isEmpty)
@@ -210,8 +210,13 @@ final class JevPanelTests: XCTestCase {
             manual.app.setActionEnabled(true, for: ChromeModule.moduleDescriptor.id)
             manual.controller.session.send(.confirm(.button))
             try await until { await manual.actions.chromeQueries.count == 1 }
-            let manualFeedback = try await manual.feedback()
-            XCTAssertTrue(manualFeedback.isEmpty)
+            let manualFeedback = try await manual.operations()
+            XCTAssertEqual(manualFeedback.attempts.count, 1)
+            XCTAssertEqual(manualFeedback.attempts.first?.confirmationSource, .button)
+            XCTAssertEqual(manualFeedback.attempts.first?.selectionOrigin, .userChoice)
+            XCTAssertTrue(manualFeedback.events.contains { $0.kind == .confirmationBlocked })
+            XCTAssertEqual(manualFeedback.events.last { $0.kind == .targetSelected }?.targetKind, .action,
+                           "已禁用的 action 仍是 action，不能误记成 application")
         }
 
         // Jev 的 .google 经语义映射走 ChromeAction，fire-and-forget，一次到达。
@@ -224,8 +229,8 @@ final class JevPanelTests: XCTestCase {
         XCTAssertEqual(value.controller.session.state.displayedActionTitle, "Set Up Notes")
         value.controller.session.send(.cycleTarget(forward: true))
         XCTAssertTrue(value.controller.session.state.intentDeviated)
-        let pendingFeedback = try await value.feedback()
-        XCTAssertTrue(pendingFeedback.isEmpty)
+        let pendingFeedback = try await value.operations()
+        XCTAssertTrue(pendingFeedback.attempts.isEmpty)
         let beforeReply = await value.actions.chromeQueries
         XCTAssertTrue(beforeReply.isEmpty)
         XCTAssertEqual(value.classifier.calls[0].text, body)
@@ -248,17 +253,21 @@ final class JevPanelTests: XCTestCase {
         XCTAssertEqual(editor.string, "")
         XCTAssertTrue(value.opener.urls.isEmpty)
         XCTAssertFalse(value.panel.isVisible)
-        let entries = try await value.feedback()
-        XCTAssertEqual(entries.count, 1)
-        let entry = try XCTUnwrap(entries.first)
-        XCTAssertEqual(entry.sample.text, body)
-        XCTAssertEqual(entry.sample.action, .google)
-        XCTAssertEqual(entry.sample.targetID, "chrome")
-        XCTAssertEqual(entry.sample.recognition.source, .model)
-        XCTAssertEqual(entry.sample.recognition.actualModel, "jev-1.13.0")
-        XCTAssertEqual(entry.sample.recognition.ruleVersion, Jev.ruleVersion)
-        XCTAssertEqual(entry.sample.confirmationSource, .enter)
-        XCTAssertNotNil(entry.sample.recognition.requestID)
+        let entries = try await value.operations()
+        XCTAssertEqual(entries.attempts.count, 1)
+        let attempt = try XCTUnwrap(entries.attempts.first)
+        XCTAssertEqual(entries.inputs.first { $0.id == attempt.inputID }?.text, body)
+        XCTAssertEqual(attempt.targetID, "chrome")
+        XCTAssertEqual(attempt.routeSource, .explicit)
+        XCTAssertEqual(attempt.confirmationSource, .enter)
+        XCTAssertNotNil(attempt.firstChoiceEventID)
+        XCTAssertNil(attempt.decisionEventID, "离屏准备不能制造实际展示")
+        XCTAssertFalse(entries.events.contains { $0.kind == .routePresented || $0.kind == .panelOpened })
+        let recognition = try XCTUnwrap(entries.events.first { $0.kind == .recognitionFinished && $0.outcome == .suggested })
+        guard case .recognition(let detail) = recognition.details else { return XCTFail("Missing recognition detail") }
+        XCTAssertEqual(detail.actualModel, "jev-1.13.0")
+        XCTAssertEqual(entries.contexts.first { $0.id == attempt.contextID }?.ruleVersion, Jev.ruleVersion)
+        XCTAssertNotNil(recognition.requestID)
     }
 
 
@@ -275,9 +284,9 @@ final class JevPanelTests: XCTestCase {
         XCTAssertTrue(editor.string.contains("\n"))
         XCTAssertEqual(value.controller.session.state.intentTitle, "Set Up Notes")
         let searchesAfterNewline = await value.actions.chromeQueries
-        let feedbackAfterNewline = try await value.feedback()
+        let feedbackAfterNewline = try await value.operations()
         XCTAssertTrue(searchesAfterNewline.isEmpty)
-        XCTAssertTrue(feedbackAfterNewline.isEmpty)
+        XCTAssertTrue(feedbackAfterNewline.attempts.isEmpty)
 
         // ⏎ 永远执行：识别在路上的几百毫秒与落地后行为一致，兜底存到默认 action（备忘录）。
         let notes = NotesRunProbe()
@@ -291,7 +300,7 @@ final class JevPanelTests: XCTestCase {
         XCTAssertTrue(finalSearches.isEmpty, "已移除目标的普通正文不能变成 Chrome 搜索")
     }
 
-    func testEscapeCancelsDirectlyEvenWithSuggestionDisplayed() async throws {
+    func testEscapePreservesDraftAndTerminationCapturesFinalTextAfterRetention() async throws {
         let body = "这是一条待识别的合成正文"
         let value = try fixture(draft: body)
         defer { value.close() }
@@ -306,10 +315,36 @@ final class JevPanelTests: XCTestCase {
         let stored = value.controller.session.draft
         XCTAssertEqual(stored.content, editor.string)
         XCTAssertEqual(stored.content, body)
-        let feedback = try await value.feedback()
+        let feedback = try await value.operations()
         let searches = await value.actions.chromeQueries
         XCTAssertTrue(searches.isEmpty)
-        XCTAssertTrue(feedback.isEmpty)
+        XCTAssertTrue(feedback.attempts.isEmpty)
+
+        let finalText = "退出前最后不到三百毫秒的完整正文\n包括换行  "
+        editor.insertText(finalText, replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
+        XCTAssertNil(value.controller.prepareForTermination())
+        let final = try await value.operations()
+        let finalInput = try XCTUnwrap(final.inputs.first { $0.text == finalText })
+        XCTAssertTrue(final.events.contains { $0.kind == .inputCaptured && $0.inputID == finalInput.id })
+        XCTAssertEqual(final.events.filter { $0.kind == .panelHidden }.count,
+                       feedback.events.filter { $0.kind == .panelHidden }.count,
+                       "退出强制采样不能伪造隐藏事件")
+
+        let expired = Int64((Date().timeIntervalSince1970 - 2 * 86_400) * 1_000)
+        try await value.repository.dbQueue.write { db in
+            try db.execute(sql: "UPDATE operation_inputs SET captured_at = ?", arguments: [expired])
+            try db.execute(sql: "UPDATE operation_events SET occurred_at = ?", arguments: [expired])
+        }
+        try await value.app.operationRecorder.setRetention(days: 1)
+        await value.app.operationRecorder.flush()
+        XCTAssertTrue(value.app.operationRecorder.isRetired(lineageID: finalInput.lineageID))
+        let nextText = "过期后再次编辑仍需采集"
+        editor.insertText(nextText, replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
+        XCTAssertNil(value.controller.prepareForTermination())
+        let renewed = try await value.operations()
+        let nextInput = try XCTUnwrap(renewed.inputs.first { $0.text == nextText })
+        XCTAssertNotEqual(nextInput.lineageID, finalInput.lineageID)
+        XCTAssertFalse(renewed.inputs.contains { $0.lineageID == finalInput.lineageID })
     }
 
     func testNaturalLanguageApplicationFailureKeepsDraftAndSuccessClearsOnlyItsSnapshot() async throws {
@@ -348,20 +383,22 @@ final class JevPanelTests: XCTestCase {
                 XCTAssertEqual(value.opener.urls.count, 1)
             }
             XCTAssertFalse(value.panel.isVisible)
-            let entries = try await value.feedback()
-            XCTAssertEqual(entries.count, 1)
-            let entry = try XCTUnwrap(entries.first)
-            XCTAssertEqual(entry.sample.text, body)
-            XCTAssertEqual(entry.sample.action, .openApplication)
-            XCTAssertEqual(entry.sample.recognition.source, .localAppName)
-            XCTAssertNil(entry.sample.recognition.actualModel)
-            XCTAssertEqual(entry.sample.recognition.applicationMatch,
-                           body.hasPrefix("打开") || body.trimmingCharacters(in: .whitespaces) == "TestLaunch" ? .exact : .prefix)
-            XCTAssertEqual(entry.sample.applicationName, "TestLaunch")
-            XCTAssertEqual(entry.sample.confirmationSource, .enter)
-            XCTAssertEqual(entry.execution.outcome, test.succeeds ? .opened : .failed)
-            XCTAssertEqual(entry.sample.label, .userAccepted)
-            XCTAssertNotNil(entry.execution.requestID)
+            let entries = try await value.operations()
+            XCTAssertEqual(entries.attempts.count, 1)
+            let attempt = try XCTUnwrap(entries.attempts.first)
+            XCTAssertEqual(entries.inputs.first { $0.id == attempt.inputID }?.text, body)
+            XCTAssertEqual(attempt.targetKind, .application)
+            XCTAssertEqual(attempt.routeSource, .localApplication)
+            XCTAssertEqual(attempt.confirmationSource, .enter)
+            let recognition = try XCTUnwrap(entries.events.first { $0.kind == .recognitionFinished && $0.outcome == .suggested })
+            guard case .recognition(let detail) = recognition.details else { return XCTFail("Missing recognition detail") }
+            XCTAssertNil(detail.actualModel)
+            XCTAssertEqual(detail.candidates.first?.name, "TestLaunch")
+            XCTAssertEqual(detail.candidates.first?.match,
+                           body.hasPrefix("打开") || body.trimmingCharacters(in: .whitespaces) == "TestLaunch" ? "exact" : "prefix")
+            let terminal = try XCTUnwrap(entries.events.first { $0.kind == .executionFinished && $0.attemptID == attempt.id })
+            XCTAssertEqual(terminal.outcome, test.succeeds ? .opened : .unknown)
+            XCTAssertTrue(entries.events.contains { $0.kind == .submissionAccepted && $0.attemptID == attempt.id })
         }
 
         for invalidation in ["conflict", "missing"] {
@@ -393,8 +430,8 @@ final class JevPanelTests: XCTestCase {
             XCTAssertTrue(value.opener.urls.isEmpty, "执行时重验目标与唯一性")
             XCTAssertEqual(value.editor.string, "TestL")
             XCTAssertEqual(value.controller.session.draft.content, "TestL")
-            let invalidatedFeedback = try await value.feedback()
-            XCTAssertTrue(invalidatedFeedback.isEmpty, "确认前校验失败不能记录用户采纳")
+            let invalidatedFeedback = try await value.operations()
+            XCTAssertTrue(invalidatedFeedback.attempts.isEmpty, "确认前校验失败不能制造执行尝试")
         }
     }
 
@@ -421,9 +458,10 @@ final class JevPanelTests: XCTestCase {
         XCTAssertEqual(value.opener.urls.count, 1)
         XCTAssertEqual(value.app.applicationUsage[local.installed.url.path]?.openCount, 1)
         XCTAssertFalse(value.panel.isVisible)
-        let entries = try await value.feedback()
-        XCTAssertEqual(entries.first?.sample.text, "TestL")
-        XCTAssertEqual(entries.first?.execution.outcome, .opened)
+        let entries = try await value.operations()
+        let attempt = try XCTUnwrap(entries.attempts.first)
+        XCTAssertEqual(entries.inputs.first { $0.id == attempt.inputID }?.text, "TestL")
+        XCTAssertEqual(entries.events.first { $0.kind == .executionFinished && $0.attemptID == attempt.id }?.outcome, .opened)
     }
 
     func testFailedSubmissionDoesNotOverwriteNewDraftAndCanBeRestored() async throws {
@@ -452,6 +490,55 @@ final class JevPanelTests: XCTestCase {
         XCTAssertEqual(value.controller.session.draft.content, "随后输入的新草稿\n\n\(original)")
         XCTAssertNil(value.controller.session.failedSubmission)
         XCTAssertFalse(value.controller.session.state.hasFailedSubmission)
+        let merged = try await value.operations()
+        let originalAttempt = try XCTUnwrap(merged.attempts.first)
+        let originalInput = try XCTUnwrap(merged.inputs.first { $0.id == originalAttempt.inputID })
+        let restored = try XCTUnwrap(merged.events.first { $0.kind == .draftRestored })
+        let mergedInput = try XCTUnwrap(merged.inputs.first { $0.id == restored.inputID })
+        XCTAssertEqual(mergedInput.text, "随后输入的新草稿\n\n\(original)")
+        XCTAssertNotEqual(mergedInput.lineageID, originalInput.lineageID)
+        guard case .restoration(let detail) = restored.details else { return XCTFail("Missing restoration detail") }
+        XCTAssertEqual(detail.mode, .merge)
+        XCTAssertEqual(detail.sourceLineageID, originalInput.lineageID)
+        XCTAssertEqual(detail.sourceAttemptID, originalAttempt.id)
+
+        // Failure into an empty editor reuses the exact input. A later clear invalidates its callback.
+        let retry = try fixture(draft: original)
+        defer { retry.close() }
+        let retryFailure = FailingNotesRunProbe()
+        retry.moduleDependencies.notesRun = { try await retryFailure.run($0) }
+        try retry.notesModule.setDestination(.init(id: "folder-1", name: "测试 / Jotway"))
+        let nativeEffect = retry.controller.session.handleEffect
+        retry.controller.session.handleEffect = { effect in
+            if case .showPanel = effect { return true } // Keep this existing test entirely offscreen.
+            return nativeEffect(effect)
+        }
+        retry.controller.session.send(.refreshConfiguration)
+        retry.controller.session.send(.selectTarget("apple-notes"))
+        retry.controller.session.send(.confirm(.enter))
+        try await until { await retryFailure.count == 1 }
+        await retryFailure.releaseFailure()
+        try await until { retry.controller.session.activeSubmissionCount == 0 }
+        XCTAssertEqual(retry.controller.session.draft.content, original)
+        retry.controller.session.send(.panelPresented)
+        retry.controller.session.send(.selectTarget("apple-notes"))
+        retry.controller.session.send(.confirm(.button))
+        try await until { await retryFailure.count == 2 }
+        let retried = try await retry.operations()
+        XCTAssertEqual(retried.attempts.count, 2)
+        let first = try XCTUnwrap(retried.attempts.first { $0.retryOfAttemptID == nil })
+        let second = try XCTUnwrap(retried.attempts.first { $0.retryOfAttemptID == first.id })
+        XCTAssertEqual(first.inputID, second.inputID)
+        XCTAssertNotNil(first.firstChoiceEventID)
+        XCTAssertEqual(first.firstChoiceEventID, second.firstChoiceEventID)
+        let retryStatus = await retry.app.operationRecorder.status()
+        XCTAssertEqual(retryStatus.integrity, .complete)
+        try await retry.app.operationRecorder.clear()
+        await retryFailure.releaseFailure()
+        try await until { retry.controller.session.activeSubmissionCount == 0 }
+        let afterClear = try await retry.operations()
+        XCTAssertTrue(afterClear.inputs.isEmpty)
+        XCTAssertTrue(afterClear.events.isEmpty, "旧执行的回调与失败恢复不能使已清空的数据复活")
     }
 
     func testQuietStatusAndLocalPrefixConfirmationRenderOffscreenWithoutBlockingSubmission() async throws {
@@ -522,8 +609,10 @@ final class JevPanelTests: XCTestCase {
         value.controller.session.send(.confirm(.button))
         XCTAssertEqual(value.opener.urls.count, 1)
         value.opener.reply(0, succeeds: false)
-        let entries = try await value.feedback()
-        XCTAssertTrue(entries.isEmpty, "鼠标确认执行不记录键盘采纳")
+        let entries = try await value.operations()
+        XCTAssertEqual(entries.attempts.count, 1)
+        XCTAssertEqual(entries.attempts.first?.confirmationSource, .button)
+        XCTAssertTrue(entries.events.contains { $0.kind == .confirmationBlocked && $0.reasonCode == "composition_active" })
 
         XCTAssertNotNil(value.controller.prepareRecordPanel())
         edit("可以继续提交的合成记录")
@@ -542,16 +631,16 @@ final class JevPanelTests: XCTestCase {
         XCTAssertEqual(value.opener.urls.count, 1)
     }
 
-    func testKeyboardFeedbackSeparatesClickFromKeyboardAdoptionForSearchAction() async throws {
+    func testEveryConfirmationSourceRecordsAttemptAndStorageFailureDoesNotBlockSearchAction() async throws {
         // Chrome fire-and-forget，一次到达即结束。
-        // 键盘确认（⏎ / ⌘⏎）记录用户采纳并带正确来源；鼠标点击不记录键盘采纳。失败反馈写入不阻塞执行。
+        // 三种确认均冻结入口；操作记录写入失败不能阻塞执行。
         let cases: [(IntentRecognition.ConfirmationSource, Bool)] = [
             (.enter, false), (.commandEnter, false),
             (.button, false), (.commandEnter, true),
         ]
         for (trigger, failWrite) in cases {
             let body = "  合成完整正文\n保留空白和第二行  "
-            let value = try fixture(draft: body, failFeedbackWrite: failWrite)
+            let value = try fixture(draft: body, failOperationWrite: failWrite)
             defer { value.close() }
             _ = try XCTUnwrap(value.editor.focusTarget)
             try await until { value.classifier.calls.count == 1 }
@@ -565,15 +654,25 @@ final class JevPanelTests: XCTestCase {
             try await until { await value.actions.chromeQueries.count == 1 }
             let executed = await value.actions.chromeQueries
             XCTAssertEqual(executed.count, 1)
-            let entries = try await value.feedback()
-            if trigger == .button || failWrite { XCTAssertTrue(entries.isEmpty) }
-            else {
-                XCTAssertEqual(entries.count, 1)
-                let entry = try XCTUnwrap(entries.first)
-                XCTAssertEqual(entry.sample.text, body)
-                XCTAssertEqual(entry.sample.action, .google)
-                XCTAssertEqual(entry.sample.label, .userAccepted)
-                XCTAssertEqual(entry.sample.confirmationSource, trigger == .enter ? .enter : .commandEnter)
+            let entries = try await value.operations()
+            if failWrite {
+                XCTAssertTrue(entries.attempts.isEmpty)
+                let status = await value.app.operationRecorder.status()
+                XCTAssertEqual(status.integrity, .incomplete)
+            } else {
+                XCTAssertEqual(entries.attempts.count, 1)
+                let attempt = try XCTUnwrap(entries.attempts.first)
+                XCTAssertEqual(entries.inputs.first { $0.id == attempt.inputID }?.text, body)
+                XCTAssertEqual(attempt.targetID, "chrome")
+                XCTAssertEqual(attempt.routeSource, .model)
+                let expected: OperationConfirmationSource = switch trigger {
+                case .enter: .enter
+                case .commandEnter: .commandEnter
+                case .button: .button
+                }
+                XCTAssertEqual(attempt.confirmationSource, expected)
+                let status = await value.app.operationRecorder.status()
+                XCTAssertEqual(status.integrity, .complete)
             }
             XCTAssertTrue(value.opener.urls.isEmpty)
             XCTAssertFalse(value.panel.isVisible)

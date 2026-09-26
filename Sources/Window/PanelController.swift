@@ -88,6 +88,9 @@ final class PanelController: NSObject, NSWindowDelegate {
             break
         }
         session.send(event)
+        if case .panelPresented = event, recordPanel?.isVisible == true {
+            session.send(.panelVisibilityChanged(true))
+        }
         if case .compositionChanged(false) = event {
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.editorFocusTarget.textView?.hasMarkedText() != true else { return }
@@ -119,12 +122,13 @@ final class PanelController: NSObject, NSWindowDelegate {
         case .showActionSetup(let request): showActionSetup(request)
         case .closeActionSetup(let id): closeActionSetup(id)
         case .restoreEditorAfterSetup: restoreEditorAfterActionSetup()
-        case .openApplication(let url, let completion):
+        case .openApplication(let url, let dispatched, let completion):
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.activates = true
             configuration.createsNewApplicationInstance = false
             configuration.allowsRunningApplicationSubstitution = false
             configuration.promptsUserIfNeeded = false
+            dispatched()
             openApplication(url, configuration) { completion($0.map { _ in () }) }
         }
         return true
@@ -183,6 +187,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         // 从未准备编辑器时，没有需要提交的会话草稿。
         guard session.state.hasPreparedDraft else { return nil }
         guard preserveDraft() else { return L10n.text("update.blocked.draft_save") }
+        session.send(.captureBeforeTermination)
         return nil
     }
 
@@ -359,6 +364,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         appState.cancelRecordShortcutTrial()
         actionSetupRequest = request
         recordPanel?.hideForGettingStarted()
+        session.send(.panelVisibilityChanged(false))
         isHidingPanel = false
 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -439,6 +445,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.orderFrontRegardless()
         panel.makeKey()
         panel.makeFirstResponder(editorFocusTarget.textView)
+        session.send(.panelVisibilityChanged(panel.isVisible))
         preservesEditorAfterGettingStarted = false
     }
 
@@ -637,6 +644,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         preservesEditorAfterGettingStarted = session.state.hasPreparedDraft
         if let panel = recordPanel {
             panel.hideForGettingStarted()
+            session.send(.panelVisibilityChanged(false))
             isHidingPanel = false
         }
     }
@@ -652,6 +660,7 @@ final class PanelController: NSObject, NSWindowDelegate {
             panel.orderFrontRegardless()
             panel.makeKey()
             panel.makeFirstResponder(editorFocusTarget.textView)
+            session.send(.panelVisibilityChanged(panel.isVisible))
             preservesEditorAfterGettingStarted = false
         } else {
             showRecordPanel()

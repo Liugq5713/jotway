@@ -8,7 +8,7 @@ struct ApplicationUsage: Codable, FetchableRecord, TableRecord, Sendable {
     var lastOpenedAt: Date
 }
 
-/// 启动器数据层：应用使用统计、意图反馈和纠正。
+/// 启动器数据库入口；应用使用累计值与本地操作事实共用数据库。
 struct LauncherStore: Sendable {
     let dbQueue: DatabaseQueue
 

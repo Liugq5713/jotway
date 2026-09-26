@@ -91,7 +91,8 @@ enum AppleNotes {
             let key = operation == "folders" ? "error.notes.folders_failed"
                 : mayHaveWritten ? "error.notes.save_uncertain" : "error.notes.save_failed"
             return ActionFailure(localized: key, code: osStatus == -1712 ? .timeout : .processFailed,
-                                 osStatus: osStatus)
+                                 osStatus: osStatus,
+                                 executionOutcome: mayHaveWritten || (operation == "create" && osStatus == nil) ? .unknown : nil)
         }
     }
 

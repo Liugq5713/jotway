@@ -223,9 +223,9 @@ struct AppleNotesAction: LauncherAction {
                     }
                     guard response.noteID?.isEmpty == false else {
                         throw ActionFailure(localized: "error.notes.save_failed",
-                                            code: .processFailed, osStatus: response.osStatus)
+                                            code: .processFailed, osStatus: response.osStatus, executionOutcome: .unknown)
                     }
-                    return ActionOutcome(messageKey: "result.notes.saved")
+                    return ActionOutcome(messageKey: "result.notes.saved", effect: .created)
                 } catch {
                     if error is CancellationError { throw error }
                     throw AppleNotes.actionFailure(for: error, operation: request.operation)

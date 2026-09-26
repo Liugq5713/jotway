@@ -101,17 +101,16 @@ final class MainPathTests: XCTestCase {
         let tables = try queue.read { db in
             try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type = 'table'")
         }
-        XCTAssertEqual(Set(tables), ["grdb_migrations", "application_usage", "intent_feedback", "intent_corrections"])
+        XCTAssertEqual(Set(tables), ["grdb_migrations", "application_usage", "operation_inputs",
+                                    "operation_contexts", "operation_attempts", "operation_events", "sqlite_sequence"])
         let store = LauncherStore(dbQueue: queue)
-        let feedback = IntentFeedback(id: UUID(), acceptedAt: Date(timeIntervalSince1970: 1_800_000_001),
-            draftID: UUID(), draftRevision: 2, text: "保留的反馈", action: .google, targetID: "chrome",
-            applicationBundleID: nil, applicationName: nil,
-            recognition: .init(source: .model, requestID: UUID(), ruleVersion: Jev.ruleVersion, actualModel: "jev-1.13.0"),
-            confirmationSource: .enter, label: .userAccepted)
-        let correction = IntentCorrection(text: "保留的纠正", jevTargetID: "chrome", jevLabel: "Google 搜索",
-            chosenTargetID: "apple-notes", chosenLabel: "存到备忘录")
-        XCTAssertTrue(try store.saveIntentFeedback(feedback))
-        XCTAssertTrue(try store.saveIntentCorrection(correction))
+        let operations = OperationStore(repository: store)
+        let input = OperationInput(id: "saved-input", lineageID: "saved-lineage", inputVersion: 0,
+                                   capturedAt: 1_800_000_001_000, text: "保留的本地正文")
+        let context = try OperationContext(capturedAt: input.capturedAt)
+        let event = OperationEvent(id: "saved-event", inputID: input.id, contextID: context.id, runID: "saved-run",
+            occurredAt: input.capturedAt, kind: .inputCaptured, details: .capture(.init(trigger: .hide)))
+        XCTAssertTrue(try operations.capture(input: input, context: context, event: event))
         _ = try store.recordApplicationOpens([ApplicationUsage(path: "/Applications/ExampleApp.app",
             openCount: 3, lastOpenedAt: Date(timeIntervalSince1970: 1_800_000_000))])
         try queue.close()
@@ -122,8 +121,9 @@ final class MainPathTests: XCTestCase {
         try Database.migrate(reopened)
         let reopenedStore = LauncherStore(dbQueue: reopened)
         XCTAssertEqual(try reopenedStore.applicationUsage()["/Applications/ExampleApp.app"]?.openCount, 3)
-        XCTAssertEqual(try reopenedStore.intentFeedback(id: feedback.id)?.sample, feedback)
-        XCTAssertEqual(try reopenedStore.recentIntentCorrections(), [correction])
+        let snapshot = try OperationStore(repository: reopenedStore).snapshot()
+        XCTAssertEqual(snapshot.inputs, [input])
+        XCTAssertEqual(snapshot.events.map(\.id), [event.id])
     }
 
 }

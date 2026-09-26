@@ -7,22 +7,27 @@ struct ActionFailure: Error, LocalizedError, RuntimeLogError, Sendable {
     private let messageArguments: [String]
     let code: RuntimeLog.Code
     let osStatus: Int?
+    let executionOutcome: OperationExecutionOutcome
 
-    init(_ message: String, code: RuntimeLog.Code = .unknown, osStatus: Int? = nil) {
+    init(_ message: String, code: RuntimeLog.Code = .unknown, osStatus: Int? = nil,
+         executionOutcome: OperationExecutionOutcome? = nil) {
         literalMessage = message
         messageKey = nil
         messageArguments = []
         self.code = code
         self.osStatus = osStatus
+        self.executionOutcome = executionOutcome ?? ([.unknown, .timeout, .disconnected, .cancelled].contains(code) ? .unknown : .failed)
     }
 
     init(localized key: String, arguments: [String] = [],
-         code: RuntimeLog.Code = .unknown, osStatus: Int? = nil) {
+         code: RuntimeLog.Code = .unknown, osStatus: Int? = nil,
+         executionOutcome: OperationExecutionOutcome? = nil) {
         literalMessage = nil
         messageKey = key
         messageArguments = arguments
         self.code = code
         self.osStatus = osStatus
+        self.executionOutcome = executionOutcome ?? ([.unknown, .timeout, .disconnected, .cancelled].contains(code) ? .unknown : .failed)
     }
 
     var message: String {

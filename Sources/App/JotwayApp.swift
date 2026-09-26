@@ -35,13 +35,16 @@ struct JotwayApp: App {
         do {
             repository = try JotwayAppDelegate.measureStartup("storage") { try LauncherStore.makeDefault() }
         } catch {
-            fputs("[Jotway] Database initialization failed; using in-memory storage: \(error)\n", stderr)
+            fputs("[Jotway] Database initialization failed; using in-memory storage. Local operation recording is unavailable.\n", stderr)
             repository = LauncherStore.inMemory()
             persistentStorageAvailable = false
         }
 
-        let appState = JotwayAppDelegate.measureStartup("state") { AppState(repository: repository) }
-        appState.storageAvailable = persistentStorageAvailable
+        let appState = JotwayAppDelegate.measureStartup("state") {
+            AppState(repository: repository,
+                operationStateFileURL: StorageLocation.appSupport.appendingPathComponent("operation-integrity.json"),
+                persistentStorageAvailable: persistentStorageAvailable)
+        }
         JotwayAppDelegate.measureStartup("submission_hooks") {
             installPlugins(into: appState)
         }
@@ -183,7 +186,7 @@ final class JotwayAppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationWillTerminate(_ notification: Notification) {
-        appState?.intentFeedback.flushBeforeExit()
+        _ = appState?.operationRecorder.flushBeforeExit()
         RuntimeLog.Context(module: .app).emit(.shutdown)
         RuntimeLog.shared.flush()
     }

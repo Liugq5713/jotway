@@ -57,7 +57,7 @@ final class IntentRecognition {
         var id = UUID()
         let snapshot: Snapshot
         let action: Action
-        let recognition: IntentFeedback.Recognition
+        let recognition: RecognitionSummary
 
         var title: String {
             switch action {
@@ -81,6 +81,8 @@ final class IntentRecognition {
     private let readKey: @MainActor () throws -> String?
     private let isCurrent: @MainActor (Snapshot) -> Bool
     private let changed: @MainActor () -> Void
+    private let requestStarted: @MainActor (Snapshot, JevTrace) -> Void
+    private let requestFinished: @MainActor (Snapshot, JevTrace, OperationEventOutcome, Action?, String?) -> Void
     private let debounce: Duration
     private let log: RuntimeLog
     private var activeTrace: JevTrace?
@@ -101,13 +103,17 @@ final class IntentRecognition {
              try await Jev.recognize(text: text, apiKey: key, capture: capture)
          },
          isCurrent: @escaping @MainActor (Snapshot) -> Bool,
-         changed: @escaping @MainActor () -> Void = {}) {
+         changed: @escaping @MainActor () -> Void = {},
+         requestStarted: @escaping @MainActor (Snapshot, JevTrace) -> Void = { _, _ in },
+         requestFinished: @escaping @MainActor (Snapshot, JevTrace, OperationEventOutcome, Action?, String?) -> Void = { _, _, _, _, _ in }) {
         self.debounce = debounce
         self.log = log
         self.readKey = readKey
         self.recognize = recognize
         self.isCurrent = isCurrent
         self.changed = changed
+        self.requestStarted = requestStarted
+        self.requestFinished = requestFinished
     }
 
     isolated deinit {
@@ -133,26 +139,25 @@ final class IntentRecognition {
         if let dismissed, next.draftID == dismissed.draftID,
            next.revision == dismissed.revision, next.panelSession == dismissed.panelSession { return }
         // 本地应用匹配是纯内存计算，排在防抖之前同步出结果；只有本地返回 nil 才建 task 走模型。
-        let local = Self.localApplicationMatch(in: next.text, applications: next.applications, ranks: next.applicationRanks)
+        let local = next.text.utf8.count <= Jev.maximumTextBytes
+            ? Self.localApplicationMatch(in: next.text, applications: next.applications, ranks: next.applicationRanks) : nil
         let attempt = JevTrace(log: self.log, draftID: next.draftID, revision: next.revision,
             candidateIDs: next.applications.map(\.id), bytes: next.text.utf8.count, started: RuntimeLog.ticks(),
             source: local == nil ? .model : .localAppName, applicationMatch: local?.kind)
         self.activeTrace = attempt
-        guard next.text.utf8.count <= Jev.maximumTextBytes else {
-            attempt.finish(.inputTooLarge, outcome: .discarded)
-            self.activeTrace = nil
-            return
-        }
         if let local {
+            requestStarted(next, attempt)
             if let reason = local.rejection {
                 attempt.finish(reason, outcome: .discarded)
+                requestFinished(next, attempt, .noSuggestion, nil, nil)
                 self.activeTrace = nil
                 return
             }
             guard let application = local.applications.first else { return }
             let action = Action.openApplication(application.id)
-            self.suggestion = Suggestion(snapshot: next, action: action, recognition: attempt.feedbackRecognition)
+            self.suggestion = Suggestion(snapshot: next, action: action, recognition: attempt.recognitionSummary)
             attempt.finish(.presented, action: .openApplication)
+            requestFinished(next, attempt, .suggested, action, nil)
             self.presentationTrace = attempt
             self.activeTrace = nil
             self.changed()
@@ -162,7 +167,16 @@ final class IntentRecognition {
         task = Task { [weak self] in
             guard let self else { return }
             var trace: JevTrace?
+            var observedOutcome: OperationEventOutcome = .failed
+            var observedAction: Action?
+            var actualModel: String?
             defer {
+                if trace != nil {
+                    let outcome: OperationEventOutcome = observedOutcome == .cancelled ? .cancelled
+                        : self.generation == token ? observedOutcome : .stale
+                    self.requestFinished(next, attempt, outcome,
+                                         observedAction, actualModel)
+                }
                 if self.generation == token {
                     self.activeTrace = nil
                     self.isRecognizing = false
@@ -174,6 +188,11 @@ final class IntentRecognition {
                 try await Task.sleep(for: self.debounce)
                 guard !Task.isCancelled, self.generation == token, self.isCurrent(next) else { return }
                 trace = attempt
+                self.requestStarted(next, attempt)
+                guard next.text.utf8.count <= Jev.maximumTextBytes else {
+                    attempt.finish(.inputTooLarge, outcome: .discarded)
+                    return
+                }
                 guard next.configuration != self.blockedConfiguration else {
                     self.issue = JevDiagnostics.Reason.configurationBlocked.userMessage
                     attempt.finish(.configurationBlocked, outcome: .discarded)
@@ -195,6 +214,16 @@ final class IntentRecognition {
                 let answer = try await JevTrace.$current.withValue(attempt) {
                     try await self.recognize(next.text, key, next.captureOptions)
                 }
+                actualModel = answer?.model
+                if let answer {
+                    // Freeze the validated response target against the request's own available
+                    // targets, even when its transport returned after cancellation.
+                    let actionID: String? = switch answer.action {
+                    case .capture(let id): next.captureOptions.contains(where: { $0.id == id }) ? id : nil
+                    case .google: next.webSearchActionID
+                    }
+                    observedAction = actionID.map { .action($0, diagnostic: answer.action.diagnosticAction) }
+                }
                 guard !Task.isCancelled, self.generation == token, self.isCurrent(next) else {
                     attempt.finish(.stale, outcome: .discarded)
                     return
@@ -205,22 +234,20 @@ final class IntentRecognition {
                         $0.intent?.modelAction = answer.action.diagnosticAction
                         $0.actualModel = JevDiagnostics.validModel(answer.model) ? answer.model : "unknown"
                     }
-                    let actionID: String? = switch answer.action {
-                    case .capture(let id): next.captureOptions.contains(where: { $0.id == id }) ? id : nil
-                    case .google: next.webSearchActionID
-                    }
-                    guard let actionID else {
+                    guard let action = observedAction else {
                         attempt.finish(.targetUnavailable, outcome: .discarded)
                         return
                     }
-                    let action = Action.action(actionID, diagnostic: answer.action.diagnosticAction)
-                    self.suggestion = Suggestion(snapshot: next, action: action, recognition: attempt.feedbackRecognition)
+                    observedOutcome = .suggested
+                    self.suggestion = Suggestion(snapshot: next, action: action, recognition: attempt.recognitionSummary)
                     attempt.finish(.presented, action: answer.action.diagnosticAction)
                     self.presentationTrace = attempt
                 } else {
+                    observedOutcome = .noSuggestion
                     attempt.finish(attempt.decisionReason, outcome: .discarded)
                 }
             } catch {
+                observedOutcome = Task.isCancelled ? .cancelled : .failed
                 trace?.failed(error)
                 guard !Task.isCancelled, self.generation == token, self.isCurrent(next) else { return }
                 if let failure = error as? Jev.Failure {

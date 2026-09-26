@@ -8,7 +8,7 @@ Settings are organized by the user's decision, not by implementation module.
 
 - **General**: appearance, panel placement, submission effect, global shortcut, launch at login, Dock visibility, and runtime logs.
 - **AI**: AI source, model, key, connection test, and provider-specific fields.
-- **Intent Recognition**: Jev key, connection test, explanation, and recent local corrections.
+- **Intent Recognition**: Jev key, connection test, local phrase rules, and local operation records.
 - **Actions**: destination setup for Apple Notes, Reminders, and Calendar, plus Chrome and ChatGPT enablement.
 - **Instructions**: manual AI instructions and prompts when the AI capability is present.
 - **Getting Started**: a repeatable version of onboarding.
@@ -24,7 +24,7 @@ Jotway currently ships an English-only interface and does not expose a language 
 
 Getting Started is a scrollable daily reference as well as a repeatable onboarding page. Its first section explains the complete input → target → confirmation flow and provides direct actions to open the quick record panel or configure Actions. The page shows the actual configured shortcut and conflict state, preserves shortcut editing and trial behavior, and links directly to Actions and Intent Recognition settings.
 
-The guide covers Apple Notes, Reminders, Calendar, Chrome, local application opening, current keyboard behavior, plain-text input limits, optional intent recognition, per-action AI rewriting, in-memory draft lifetime, failure behavior, and the distinction between content in target applications and local intent feedback. It never treats panel dismissal as success or promises a browsable local inbox. Opening or leaving the guide does not replace, submit, or clear the current draft.
+The guide covers Apple Notes, Reminders, Calendar, Chrome, local application opening, current keyboard behavior, plain-text input limits, optional intent recognition, per-action AI rewriting, in-memory draft lifetime, failure behavior, and the distinction between content in target applications and local operation records, including unsubmitted text. It never treats panel dismissal as success or promises a browsable local inbox. Opening or leaving the guide does not replace, submit, or clear the current draft.
 
 ## Action settings
 
@@ -50,8 +50,8 @@ After all bundled modules are registered, Jotway removes saved rules and `action
 
 - Ordinary preferences, action enablement, rewrite instructions, Notes tag options, and selected destinations use `UserDefaults`.
 - AI and Jev keys are stored in local per-user files with restricted permissions and are not echoed back in the UI.
-- Intent corrections include the draft text, remain local, retain the most recent 200, and can be cleared from Intent Recognition settings.
-- Accepted intent-feedback samples also include the full draft text. They remain local but currently have no retention limit or user-facing clear control.
+- Local operation records include stable unsubmitted text and key routing/execution observations. Intent Recognition settings controls capture, retention (90 days by default), manual JSONL/CSV export, storage and completeness status, and clear. Turning capture off also deletes existing records. Rules, application usage, and technical logs are unaffected.
+- Operation records never automatically update Local Rules or restore editable drafts after restart.
 - Changing a source, model, or prompt invalidates stale connection-test conclusions.
 
 ## Connection tests

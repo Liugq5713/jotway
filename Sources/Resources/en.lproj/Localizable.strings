@@ -175,8 +175,8 @@
 "guide.failures.help" = "A failed action shows a reason and restores the original text when no new draft exists. If you already started new text, the failed submission does not overwrite it.";
 "guide.no_inbox.help" = "Jotway has no browsable inbox or content history. Find saved content in the destination app.";
 "guide.privacy" = "Data and Privacy";
-"guide.privacy.remote" = "When using intent recognition or AI rewriting, relevant text is sent to the selected service. After routing is confirmed, the body may also remain locally as an intent-feedback sample.";
-"guide.privacy.local" = "Up to 200 corrections are retained and can be cleared in Intent Recognition settings. Accepted suggestion samples currently have no limit or clear control. Runtime logs do not contain draft text.";
+"guide.privacy.remote" = "When using intent recognition or AI rewriting, relevant text is sent to the selected service. Local operation records are not automatically uploaded.";
+"guide.privacy.local" = "Local operation recording is on by default and retains complete stable input, including unsubmitted text, routing, choices, and outcomes for 90 days by default. Manage capture, retention, export, and deletion in Intent Recognition. Turning it off deletes these records. Runtime logs do not contain draft text.";
 "guide.example.input_format" = "“%@”";
 "shortcut.change" = "Change:";
 "shortcut.accessibility" = "Quick Record keyboard shortcut";
@@ -278,11 +278,6 @@
 "jev.service" = "Jev Service";
 "jev.key.storage_help" = "The key is stored in a local plain-text file readable only by this account and is not shown here.";
 "jev.service.help" = "After configuration, drafts are sent to TypeSafe to suggest an action; charges are billed to your account. You still confirm every action.";
-"jev.corrections.empty" = "No corrections yet. After you change a Jev suggestion and confirm it, the latest %d corrections remain here.";
-"jev.corrections.changed" = "Jev %@ → you chose %@";
-"jev.corrections.clear" = "Clear Corrections";
-"jev.corrections.section" = "Recent Corrections";
-"jev.corrections.help" = "Includes the draft text from that moment. Stored only on this Mac and can be cleared anytime.";
 "logs.title" = "Runtime Logs";
 "logs.retention_help" = "Keeps today and the previous 6 days, up to 50 MB total and 10 MB per file. Older logs are removed first at the limit.";
 "logs.space_used" = "Space Used";
@@ -451,3 +446,32 @@
 "error.chrome.url_failed" = "The search URL could not be created.";
 "error.cancelled" = "The operation was cancelled.";
 "error.generic" = "The operation could not be completed. Your text was preserved; try again.";
+
+/* Local operation records */
+"guide.records.help" = "With local operation recording enabled, stable unsubmitted text is also saved on this Mac for manual review. Records never restore drafts or automatically change Local Rules.";
+"guide.records.manage" = "Manage Local Records…";
+"operations.title" = "Local Operation Records";
+"operations.enabled" = "Record Input and Operations";
+"operations.scope" = "Keep complete stable input—including unsubmitted text—plus routing, choices, and results on this Mac. Typing is sampled together; marked text from input methods is excluded. Records never train a model, change Local Rules, or restore drafts.";
+"operations.retention" = "Keep for %d days";
+"operations.retention_help" = "Whole draft histories expire after their last activity. Active executions wait until they finish.";
+"operations.size" = "Stored data";
+"operations.counts" = "%d inputs · %d attempts · %d events";
+"operations.size_help" = "Approximate size of operation data, excluding database overhead and other data.";
+"operations.integrity.complete" = "No known gaps in the recorded scope.";
+"operations.integrity.incomplete" = "Some observations are missing. Exports include this warning; a successful result does not prove every preceding step was recorded.";
+"operations.integrity.unknown" = "Completeness is unknown, for example after an interrupted run or a storage-state error. Exports include this warning.";
+"operations.unavailable" = "Stored counts are unavailable. Recording may be incomplete.";
+"operations.pending" = "%d observations waiting to be stored";
+"operations.export" = "Export JSONL and CSV…";
+"operations.clear" = "Clear Records…";
+"operations.clear_title" = "Delete all local operation records?";
+"operations.disable_title" = "Turn off recording and delete its records?";
+"operations.delete_help" = "This deletes recorded input and operation history. Local Rules, application usage, drafts, and runtime logs are kept.";
+"operations.delete" = "Delete Records";
+"operations.disable" = "Turn Off and Delete";
+"operations.cleared" = "Local operation records cleared.";
+"operations.exported" = "Exported records.jsonl, attempts.csv, unsubmitted.csv, and legacy.csv to a new folder.";
+"operations.failed" = "The operation could not finish. Check storage access and try again.";
+"operations.export_title" = "Choose a folder for your local record export";
+"operations.show_export" = "Show Export in Finder";
