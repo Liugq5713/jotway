@@ -23,7 +23,7 @@ The panel follows the system light or dark appearance. Both use an opaque neutra
 | Action button / label | `#EDF0F4` / `#5B6471` | `#2C2F35` / `#B9C1CD` |
 | Return keycap / cursor and Return symbol | `#DFE5ED` / `#285BAF` | `#3A4350` / `#72BDED` |
 
-The right-aligned action button uses 12 pt medium text, a 6 pt corner radius, and 7 pt horizontal / 3 pt vertical padding. It has no blue outline; the Return symbol and explicit-selection marker keep their blue accent. Action titles and status remain one line with truncation, full accessibility labels, and their existing tooltips. Candidate cards share the neutral surface without changing their layout or interaction.
+The right-aligned action button uses 12 pt medium text, a 6 pt corner radius, and 7 pt horizontal / 3 pt vertical padding. It has no blue outline; the Return symbol and explicit-selection marker keep their blue accent. Action titles and status remain one line with truncation, full accessibility labels, and their existing tooltips. Reminder and Calendar plans use a separate result row above the action button: destination and absolute time on one line, or two lines in narrow layouts. Full destination and frozen time zone remain available through hover and VoiceOver. The editor gives up this row’s height before scrolling, keeping the action row visible. Candidate cards share the neutral surface without changing their layout or interaction.
 
 The area outside each card's rounded border stays transparent, without an outer shadow or gray backdrop.
 

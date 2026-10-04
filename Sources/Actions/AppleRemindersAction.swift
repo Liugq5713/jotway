@@ -78,7 +78,7 @@ final class AppleRemindersModule: ActionModule {
     }
     func verifyAndSetDestination(_ value: AppleReminders.Destination) async throws {
         let response = try await run(.init(requestID: UUID().uuidString, operation: "create",
-            listID: value.id, name: "Jotway Connection Test", body: "This item can be deleted after verification.", due: nil))
+            listID: value.id, name: "Jotway Connection Test", body: "This item can be deleted after verification.", due: .none))
         guard response.status == "ok", response.reminderID?.isEmpty == false, response.listID == value.id else {
             throw ActionFailure(localized: "error.reminders.verification_failed",
                                 code: .validation, osStatus: response.osStatus)
@@ -98,65 +98,69 @@ final class AppleRemindersModule: ActionModule {
     private func changed() { configurationRevision &+= 1; onChange?() }
 }
 
-/// 存到提醒事项（待办版的默认写入）。
-///
-/// 与 `AppleNotesAction` 同构：可自然语言点名（「提醒我 XXX」「待办：XXX」），
-/// 命中即建一条 reminder。到期时间默认取当前时刻，过境即走、本地不留记录。
-/// 写入走 EventKit（复用 `AppleReminders.run`），系统自带、无需 Apple Event。
+/// The destination and locally resolved time are frozen before body preparation.
 struct AppleRemindersAction: LauncherAction {
     let descriptor: ActionDescriptor
-
-    /// 保存位置（账号 / 列表）。为空时不可用，提示用户先在设置中选择。
     let destination: AppleReminders.Destination?
-    /// AI 处理环节；第一版 pass-through。
     let processor: ActionTextProcessor
-    /// 注入点：默认走真实 EventKit，测试时替换。
     let run: @MainActor @Sendable (AppleReminders.Request) async throws -> AppleReminders.Response
-    /// 到期时间提供者：默认取当前时刻（可注入以稳定测试 / 未来接时间解析）。
-    let dueDate: @Sendable () -> Date?
 
     init(descriptor: ActionDescriptor = AppleRemindersModule.moduleDescriptor,
          destination: AppleReminders.Destination?,
          processor: ActionTextProcessor = PassthroughTextProcessor(),
-         dueDate: @escaping @Sendable () -> Date? = { Date() },
          run: @escaping @MainActor @Sendable (AppleReminders.Request) async throws -> AppleReminders.Response
              = { try await AppleReminders.run($0) }) {
         self.descriptor = descriptor
         self.destination = destination
         self.processor = processor
-        self.dueDate = dueDate
         self.run = run
     }
 
-    func prepare(_ input: ActionInput) async throws -> PreparedAction {
+    func preparation(for input: ActionInput, context: ScheduleContext) throws -> ActionPreparation {
         guard let destination else {
             throw ActionFailure(localized: "error.reminders.choose_destination", code: .configuration)
         }
-        let processed = try await processor.process(input.text)
-        let content = AppleReminders.content(fromPlainText: processed.text)
-        guard !content.name.isEmpty else {
+        guard !input.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ActionFailure(localized: "error.reminders.empty", code: .validation)
         }
-        let request = AppleReminders.Request(
-            requestID: UUID().uuidString, operation: "create",
-            listID: destination.id, name: content.name, body: content.body,
-            due: processed.due ?? dueDate())
-        return PreparedAction(actionID: descriptor.id, inputIdentity: input.identity) {
-            do {
-                let response = try await run(request)
-                guard response.status == "ok", response.reminderID?.isEmpty == false else {
-                    throw ActionFailure(localized: "error.reminders.create_failed", code: .processFailed,
-                                        osStatus: response.osStatus, executionOutcome: .unknown)
-                }
-                return ActionOutcome(messageKey: "result.reminders.saved", effect: .created)
-            } catch let failure as AppleReminders.Failure {
-                throw ActionFailure(localized: "error.reminders.create_failed", code: .processFailed,
-                                    osStatus: failure.osStatus, executionOutcome: failure.notStarted ? .failed : .unknown)
-            } catch let failure as ActionFailure {
-                throw failure
-            } catch {
-                throw ActionFailure(localized: "error.reminders.create_failed_retry", code: RuntimeLog.code(error))
-            }
+        let resolution = ScheduleResolver.resolve(input.text, context: context)
+        let due: ReminderDue
+        switch resolution.reminderDue {
+        case .failure(let issue): return .needsInput(issue.inContext(context))
+        case .success(let value): due = value
         }
+        let source: ScheduleSource?
+        if case .resolved(let parsed) = resolution { source = parsed.source } else { source = nil }
+        let planID = UUID()
+        return .ready(ActionPlan(id: planID, actionID: descriptor.id, inputIdentity: input.identity,
+            summary: .reminder(targetID: destination.id, targetName: destination.name, due: due, source: source),
+            context: context, timeResolution: resolution) {
+                try Task.checkCancellation()
+                let processed = try await processor.process(input.text)
+                try Task.checkCancellation()
+                guard !processed.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw ActionFailure(localized: "error.reminders.empty", code: .validation)
+                }
+                let content = AppleReminders.content(fromPlainText: processed.text)
+                let request = AppleReminders.Request(requestID: UUID().uuidString, operation: "create",
+                    listID: destination.id, name: content.name, body: content.body, due: due)
+                return PreparedAction(actionID: descriptor.id, inputIdentity: input.identity, planID: planID) {
+                    do {
+                        let response = try await run(request)
+                        guard response.status == "ok", response.reminderID?.isEmpty == false else {
+                            throw ActionFailure(localized: "error.reminders.create_failed", code: .processFailed,
+                                                osStatus: response.osStatus, executionOutcome: .unknown)
+                        }
+                        return ActionOutcome(messageKey: "result.reminders.saved", effect: .created)
+                    } catch let failure as AppleReminders.Failure {
+                        throw AppleReminders.actionFailure(for: failure, operation: "create")
+                    } catch let failure as ActionFailure {
+                        throw failure
+                    } catch {
+                        if error is CancellationError { throw error }
+                        throw ActionFailure(localized: "error.reminders.create_failed_retry", code: RuntimeLog.code(error))
+                    }
+                }
+            })
     }
 }

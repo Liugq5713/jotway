@@ -21,8 +21,8 @@ enum AppleReminders {
         var name: String?
         /// 提醒备注（reminder notes）；为空则不写。
         var body: String?
-        /// 到期时间；非空时写入到期日+时分（默认当前时刻）。
-        var due: Date?
+        /// No date, a floating Gregorian date, or a frozen zoned instant.
+        var due: ReminderDue = .none
     }
 
     struct Response: Sendable {
@@ -38,12 +38,60 @@ enum AppleReminders {
     }
 
     struct Failure: LocalizedError {
+        enum Kind: Sendable { case operation, validation }
         let message: String
         /// 仅能证明写入根本未开始的错误可直接重试。
         var notStarted = false
         /// 失败时的底层错误码，用于诊断日志。
         var osStatus: Int? = nil
+        var kind: Kind = .operation
         var errorDescription: String? { message }
+    }
+
+    static func actionFailure(for error: Error, operation: String) -> ActionFailure {
+        if let failure = error as? ActionFailure { return failure }
+        let failure = error as? Failure
+        if failure?.kind == .validation {
+            return ActionFailure(localized: "error.reminders.invalid_due", code: .validation,
+                                 osStatus: failure?.osStatus, executionOutcome: .failed)
+        }
+        return ActionFailure(localized: operation == "lists" ? "error.reminders.no_lists" : "error.reminders.create_failed",
+            code: .processFailed, osStatus: failure?.osStatus,
+            executionOutcome: operation == "create" && failure?.notStarted != true ? .unknown : .failed)
+    }
+
+    /// Pure request validation and component conversion, with no EventKit access.
+    static func validateCreateRequest(_ request: Request) throws -> DateComponents? {
+        guard request.operation == "create", !request.requestID.isEmpty,
+              request.listID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+              request.name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            throw Failure(message: L10n.text("error.reminders.invalid_due"), notStarted: true, kind: .validation)
+        }
+        return try dueDateComponents(for: request.due)
+    }
+
+    static func dueDateComponents(for due: ReminderDue) throws -> DateComponents? {
+        guard due.isValid else {
+            throw Failure(message: L10n.text("error.reminders.invalid_due"), notStarted: true, kind: .validation)
+        }
+        var calendar = Calendar(identifier: .gregorian)
+        switch due {
+        case .none:
+            return nil
+        case .dateOnly(let year, let month, let day):
+            // A floating date has no time-zone, hour, minute, or second components.
+            calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+            return DateComponents(calendar: calendar, year: year, month: month, day: day)
+        case .dateTime(let instant, let timeZoneID):
+            guard let timeZone = TimeZone(identifier: timeZoneID) else {
+                throw Failure(message: L10n.text("error.reminders.invalid_due"), notStarted: true, kind: .validation)
+            }
+            calendar.timeZone = timeZone
+            var components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: instant)
+            components.calendar = calendar
+            components.timeZone = timeZone
+            return components
+        }
     }
 
     /// 纯文本 → 提醒（标题 + 备注）：首个非空行作标题，其余行作备注。
@@ -77,6 +125,8 @@ enum AppleReminders {
 
     @MainActor
     static func run(_ request: Request) async throws -> Response {
+        try Task.checkCancellation()
+        let dueComponents = request.operation == "create" ? try validateCreateRequest(request) : nil
         guard try await ensureAccess() else {
             throw Failure(message: L10n.text("reminders.permission_denied"))
         }
@@ -104,10 +154,7 @@ enum AppleReminders {
                 reminder.calendar = calendar
                 reminder.title = name
                 if let body = request.body, !body.isEmpty { reminder.notes = body }
-                if let due = request.due {
-                    reminder.dueDateComponents = Calendar.current.dateComponents(
-                        [.year, .month, .day, .hour, .minute], from: due)
-                }
+                reminder.dueDateComponents = dueComponents
                 try store.save(reminder, commit: true)
                 return Response(version: 1, requestID: request.requestID, status: "ok",
                                 reminderID: reminder.calendarItemIdentifier,

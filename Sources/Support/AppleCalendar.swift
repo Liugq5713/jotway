@@ -21,10 +21,8 @@ enum AppleCalendar {
         var title: String?
         /// 日程备注（event notes）；为空则不写。
         var body: String?
-        /// 开始时间；缺省回退当前时刻。
-        var start: Date?
-        /// 结束时间；缺省或早于开始时回退开始 + 1 小时。
-        var end: Date?
+        /// Required for create; frozen by the action plan.
+        var schedule: CalendarSchedule?
     }
 
     struct Response: Sendable {
@@ -40,16 +38,38 @@ enum AppleCalendar {
     }
 
     struct Failure: LocalizedError {
+        enum Kind: Sendable { case operation, validation }
         let message: String
         /// 仅能证明写入根本未开始的错误可直接重试。
         var notStarted = false
         /// 失败时的底层错误码，用于诊断日志。
         var osStatus: Int? = nil
+        var kind: Kind = .operation
         var errorDescription: String? { message }
     }
 
-    /// 默认日程时长：原文没提结束时间时给 1 小时。
-    static let defaultDuration: TimeInterval = 3600
+    static func actionFailure(for error: Error, operation: String) -> ActionFailure {
+        if let failure = error as? ActionFailure { return failure }
+        let failure = error as? Failure
+        if failure?.kind == .validation {
+            return ActionFailure(localized: "error.calendar.invalid_schedule", code: .validation,
+                                 osStatus: failure?.osStatus, executionOutcome: .failed)
+        }
+        return ActionFailure(localized: operation == "calendars" ? "error.calendar.no_calendars" : "error.calendar.create_failed",
+            code: .processFailed, osStatus: failure?.osStatus,
+            executionOutcome: operation == "create" && failure?.notStarted != true ? .unknown : .failed)
+    }
+
+    /// Pure validation, before touching EventKit or requesting access. No missing value is repaired.
+    static func validateCreateRequest(_ request: Request) throws -> CalendarSchedule {
+        guard request.operation == "create", !request.requestID.isEmpty,
+              request.calendarID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+              request.title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+              let schedule = request.schedule, schedule.isValid else {
+            throw Failure(message: L10n.text("error.calendar.invalid_schedule"), notStarted: true, kind: .validation)
+        }
+        return schedule
+    }
 
     /// 单例事件库：避免每次调用重复申请权限。EventKit 建议复用一个 store（与提醒事项各自独立）。
     @MainActor private static let store = EKEventStore()
@@ -69,6 +89,8 @@ enum AppleCalendar {
 
     @MainActor
     static func run(_ request: Request) async throws -> Response {
+        try Task.checkCancellation()
+        let schedule = request.operation == "create" ? try validateCreateRequest(request) : nil
         guard try await ensureAccess() else {
             throw Failure(message: L10n.text("calendar.permission_denied"))
         }
@@ -89,18 +111,16 @@ enum AppleCalendar {
                       calendar.allowsContentModifications else {
                     throw Failure(message: L10n.text("destination.changed"))
                 }
-                guard let title = request.title, !title.isEmpty else {
-                    throw Failure(message: L10n.text("error.empty_content"))
+                guard let title = request.title, let schedule else {
+                    throw Failure(message: L10n.text("error.calendar.invalid_schedule"), notStarted: true, kind: .validation)
                 }
-                let start = request.start ?? Date()
-                let end = request.end.map { $0 > start ? $0 : start.addingTimeInterval(defaultDuration) }
-                    ?? start.addingTimeInterval(defaultDuration)
                 let event = EKEvent(eventStore: store)
                 event.calendar = calendar
                 event.title = title
                 if let body = request.body, !body.isEmpty { event.notes = body }
-                event.startDate = start
-                event.endDate = end
+                event.startDate = schedule.start
+                event.endDate = schedule.end
+                event.timeZone = TimeZone(identifier: schedule.timeZoneID)
                 try store.save(event, span: .thisEvent, commit: true)
                 return Response(version: 1, requestID: request.requestID, status: "ok",
                                 eventID: event.eventIdentifier,

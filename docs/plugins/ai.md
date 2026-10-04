@@ -5,19 +5,19 @@
 Jotway has two AI-related paths with different responsibilities:
 
 1. Jev suggests the destination action. It is documented separately.
-2. An action text processor may clean text or extract dates before a storage action writes.
+2. An action text processor may clean the body before a storage action writes. Reminder and Calendar time interpretation is local and separate.
 
 ## Action text processing
 
 Apple Notes, Reminders, and Calendar can each enable an `AITextProcessor` fixed to the DeepSeek source:
 
 - Notes: clean the wording and put a concise title on the first line.
-- Reminders: clean the wording and optionally extract a due date.
-- Calendar: clean the wording and optionally extract start/end times.
+- Reminders: clean the reminder wording.
+- Calendar: clean the event wording.
 
-Each action has an independent enable switch and user-editable style instruction. System-owned date context and structured-output rules remain appended after that instruction. Disabling the processor uses the original text; for Reminders and Calendar it also means their documented default dates are used. Notes can append a fixed `#标签` text line and, while AI rewrite is enabled, ask the processor for related tags.
+Each action has an independent enable switch and user-editable body style instruction. Disabling the processor uses the original text. Reminder and Calendar schedules always come from the original draft through the local deterministic resolver; model output and style instructions cannot change those frozen times. Notes can append a fixed `#标签` text line and, while AI rewrite is enabled, ask the processor for related tags.
 
-This processor is independent of the general source selected on the AI settings page. Missing key, network error, timeout, empty response, or invalid structured output falls back to the original text. Date defaults are then applied by the action.
+This processor is independent of the general source selected on the AI settings page. Missing key, network error, timeout, empty response, or invalid body output falls back to the original text. Cancellation propagates. Body fallback never alters time interpretation or turns a blocked time into a writable request.
 
 ## General provider configuration
 

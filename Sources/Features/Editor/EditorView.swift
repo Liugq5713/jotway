@@ -145,7 +145,13 @@ struct EditorView: View {
     }
 
     private var editorHeight: CGFloat {
-        min(max(editorTextHeight, LauncherMetrics.editorMinHeight), LauncherMetrics.editorMaxHeight)
+        min(max(editorTextHeight, LauncherMetrics.editorMinHeight),
+            LauncherMetrics.editorMaxHeight - (hasPlanResult ? LauncherMetrics.planResultMaxHeight + LauncherMetrics.cardInnerGap : 0))
+    }
+
+    private var hasPlanResult: Bool {
+        !state.isReadingGettingStarted && (state.planSummary != nil || state.timeIssue != nil
+            || state.preparationFailure != nil || state.isCheckingActionPlan)
     }
 
     private var inputCard: some View {
@@ -160,6 +166,9 @@ struct EditorView: View {
                     onContentHeightChange: { editorTextHeight = $0 }
                 )
                 .frame(height: editorHeight)
+                if hasPlanResult {
+                    ActionPlanResultRow(state: state, send: send)
+                }
                 actionRow
             }
             .padding(.horizontal, LauncherMetrics.cardPaddingH)
@@ -183,6 +192,7 @@ struct EditorView: View {
     /// 状态行文字的优先级：阻断性失败 > 明确用户操作反馈 > 识别中提示。
     /// 动作摘要已下线——目标由右侧动作标签单一承载，不再与「存到备忘录」重复叙述。
     private var actionRowStatusText: String? {
+        if state.isPreparingAction { return L10n.text("schedule.preparing") }
         if let message = state.message { return message }
         if let trial = appState?.shortcutTrialMessage { return trial }
         if let status = state.intentStatus { return status }

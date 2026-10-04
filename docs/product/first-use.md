@@ -24,14 +24,16 @@ The shortest successful path is:
 
 1. Open the panel.
 2. Type a short sentence.
-3. Check the target shown at the bottom of the panel.
+3. Check the target shown at the bottom of the panel; for Reminders and Calendar, also check the destination and exact time result.
 4. Press Enter or click the target. A ready action executes; Set Up Notes opens configuration. Shift+Enter inserts a newline.
 
 Without a usable Jev configuration or a local match, a ready default action handles the input. Apple Notes is preferred when configured and available, followed by Reminders and Calendar. If none is ready, the panel shows Set Up Notes, including while recognition is pending or fails. Notes also remains selectable directly or through a local Notes prefix.
 
 Opening Set Up Notes preserves the text and selection while it opens the authorization and folder picker. The user grants access, selects a folder, and explicitly chooses Verify and Finish; the UI explains that verification creates a fixed test note, not the draft. Completing or cancelling returns to the original draft. After completion, check Save to Notes and press Enter again to save. Configuration alone never submits or clears the draft.
 
-The usage guide demonstrates Apple Notes, Reminders, Calendar, Chrome search, and local application opening without executing examples automatically. It states that target switching with Option+Up/Down is available only when the current recognition state offers multiple targets. It also explains the plain-text input boundary, in-memory draft lifetime, default reminder/calendar times, and the distinction between intent recognition and per-action AI rewriting.
+The usage guide demonstrates Apple Notes, Reminders, Calendar, Chrome search, and local application opening without executing examples automatically. It states that target switching with Option+Up/Down is available only when the current recognition state offers multiple targets. It also explains the plain-text input boundary, in-memory draft lifetime, local time interpretation, undated and date-only reminders, the explicit Calendar start requirement and displayed one-hour default duration, and the distinction between intent recognition and per-action AI rewriting.
+
+For Reminders and Calendar, correct unclear time directly in the draft before saving. Calendar requires a date and time; a reminder can have no due date or only a date. A valid result must appear before Enter can submit. If body preparation is still running, one Enter waits; editing, changing the target, or hiding the panel cancels that pending confirmation.
 
 ## Failure guidance
 

@@ -341,8 +341,8 @@ extension MainPathTests {
 
             editor.keyDown(with: returnEvent())
             XCTAssertTrue(attempts.isEmpty, "前导斜杠必须走普通 action，不能打开同名应用")
-            XCTAssertEqual(editor.string, "")
             try await until { await notes.count == 1 }
+            XCTAssertEqual(editor.string, "")
             let firstNoteHTML = await notes.firstHTML()
             XCTAssertTrue(firstNoteHTML?.contains("/TestLaunch") == true)
             try await until { controller.session.activeSubmissionCount == 0 }

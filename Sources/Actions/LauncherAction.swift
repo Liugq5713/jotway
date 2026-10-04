@@ -10,6 +10,82 @@ protocol LauncherAction: Sendable {
     var descriptor: ActionDescriptor { get }
     /// 一次性完成加工与执行闭包冻结；预览和 Enter 复用同一个 PreparedAction。
     func prepare(_ input: ActionInput) async throws -> PreparedAction
+    func preparation(for input: ActionInput, context: ScheduleContext) throws -> ActionPreparation
+}
+
+extension LauncherAction {
+    func preparation(for input: ActionInput, context: ScheduleContext) throws -> ActionPreparation {
+        let planID = UUID()
+        return .ready(ActionPlan(id: planID, actionID: descriptor.id, inputIdentity: input.identity,
+                                 context: context) {
+            let value = try await prepare(input)
+            return PreparedAction(actionID: value.actionID, inputIdentity: value.inputIdentity,
+                                  planID: planID, execute: value.execute)
+        })
+    }
+
+    /// Compatibility for direct action callers. LauncherSession always supplies a frozen context.
+    func prepare(_ input: ActionInput) async throws -> PreparedAction {
+        switch try preparation(for: input, context: ScheduleContext(referenceDate: Date(), timeZone: .current)) {
+        case .needsInput(let issue):
+            throw ActionFailure(localized: issue.localizationKey, code: .validation)
+        case .ready(let plan): return try await plan.build()
+        }
+    }
+}
+
+enum ActionPreparation: Sendable {
+    case needsInput(TimeInputIssue)
+    case ready(ActionPlan)
+}
+
+enum ActionPlanSummary: Sendable, Equatable {
+    case reminder(targetID: String, targetName: String, due: ReminderDue, source: ScheduleSource?)
+    case calendar(targetID: String, targetName: String, schedule: CalendarSchedule, source: ScheduleSource)
+}
+
+struct ActionPlan: Sendable {
+    let id: UUID
+    let actionID: String
+    let inputIdentity: ActionInput.Identity
+    let summary: ActionPlanSummary?
+    let context: ScheduleContext
+    let timeResolution: TimeResolution?
+    let build: @Sendable () async throws -> PreparedAction
+
+    init(id: UUID = UUID(), actionID: String, inputIdentity: ActionInput.Identity,
+         summary: ActionPlanSummary? = nil, context: ScheduleContext, timeResolution: TimeResolution? = nil,
+         build: @escaping @Sendable () async throws -> PreparedAction) {
+        self.id = id
+        self.actionID = actionID
+        self.inputIdentity = inputIdentity
+        self.summary = summary
+        self.context = context
+        self.timeResolution = timeResolution
+        self.build = build
+    }
+
+    func isCurrent(at date: Date, timeZone: TimeZone) -> Bool {
+        guard context.isCurrent(at: date, timeZone: timeZone) else { return false }
+        if summary != nil, timeResolution == nil { return false }
+        return timeResolution?.isCurrent(context: context, at: date, timeZone: timeZone) ?? true
+    }
+
+    var hasConsistentSummary: Bool {
+        guard let summary else { return timeResolution == nil }
+        guard let timeResolution else { return false }
+        let source: ScheduleSource? = if case .resolved(let parsed) = timeResolution { parsed.source } else { nil }
+        switch summary {
+        case .reminder(let targetID, _, let due, let summarySource):
+            guard !targetID.isEmpty, source == summarySource,
+                  (try? timeResolution.reminderDue.get()) == due else { return false }
+            if case .dateTime(_, let zone) = due { return zone == context.timeZoneID }
+            return true
+        case .calendar(let targetID, _, let schedule, let summarySource):
+            return !targetID.isEmpty && source == summarySource && schedule.timeZoneID == context.timeZoneID
+                && (try? timeResolution.calendarSchedule.get()) == schedule
+        }
+    }
 }
 
 /// action 执行前即可确定的窗口策略。
@@ -100,7 +176,16 @@ struct ActionInput: Sendable {
 struct PreparedAction: Sendable {
     let actionID: String
     let inputIdentity: ActionInput.Identity
+    let planID: UUID?
     let execute: @MainActor @Sendable () async throws -> ActionOutcome
+
+    init(actionID: String, inputIdentity: ActionInput.Identity, planID: UUID? = nil,
+         execute: @escaping @MainActor @Sendable () async throws -> ActionOutcome) {
+        self.actionID = actionID
+        self.inputIdentity = inputIdentity
+        self.planID = planID
+        self.execute = execute
+    }
 }
 
 /// 执行结果，结构化返回，由输入层决定如何反馈。

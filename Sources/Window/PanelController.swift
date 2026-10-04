@@ -50,6 +50,11 @@ final class PanelController: NSObject, NSWindowDelegate {
                 MainActor.assumeIsolated { session?.send(.refreshConfiguration) }
             })
         }
+        for name in [Notification.Name.NSSystemTimeZoneDidChange, Notification.Name.NSSystemClockDidChange] {
+            intentObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak session] _ in
+                MainActor.assumeIsolated { session?.send(.timeContextChanged) }
+            })
+        }
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { [weak appState] notification in
@@ -69,6 +74,9 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     private func sendLauncherEvent(_ event: LauncherEvent) {
         switch event {
+        case .planPresented:
+            guard !isHidingPanel, let panel = recordPanel, panel.isVisible,
+                  panel.occlusionState.contains(.visible) else { return }
         case .inputChanged:
             appState.cancelRecordShortcutTrial()
         case .confirm, .preserveDraft:

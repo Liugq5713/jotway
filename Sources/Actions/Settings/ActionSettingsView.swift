@@ -153,6 +153,11 @@ struct AppleRemindersSettingsView: View {
     var body: some View {
         Form {
             destinationSection(name: module.destination?.name, label: L10n.text("action.reminders.destination_label")) { showsSetup = true }
+            Section(L10n.text("action.settings.time_rules")) {
+                Text(L10n.text("action.reminders.time_help"))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
             Section(L10n.text("action.settings.ai_rewrite")) {
                 settingRow(L10n.text("action.reminders.rewrite_help")) {
                     Toggle(L10n.text("action.settings.rewrite_toggle"), isOn: Binding(
@@ -178,6 +183,11 @@ struct AppleCalendarSettingsView: View {
     var body: some View {
         Form {
             destinationSection(name: module.destination?.name, label: L10n.text("action.calendar.destination_label")) { showsSetup = true }
+            Section(L10n.text("action.settings.time_rules")) {
+                Text(L10n.text("action.calendar.time_help"))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
             Section(L10n.text("action.settings.ai_rewrite")) {
                 settingRow(L10n.text("action.calendar.rewrite_help")) {
                     Toggle(L10n.text("action.settings.rewrite_toggle"), isOn: Binding(

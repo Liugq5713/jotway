@@ -21,6 +21,8 @@ enum LauncherEvent {
     case cancelApplicationPreload
     case restoreFailedSubmission
     case actionSetupFinished(UUID, ActionSetupResult)
+    case planPresented(planID: UUID, panelSessionID: UUID)
+    case timeContextChanged
 }
 
 enum LauncherEffect {
@@ -81,6 +83,21 @@ final class LauncherSession {
     private var submissions: [UUID: Task<Void, Never>] = [:]
     private var explicitTargetID: String?
     private var explicitTargetIdentity: ActionInput.Identity?
+    private var correctionTargetID: String?
+    private let now: @MainActor () -> Date
+    private let timeZone: @MainActor () -> TimeZone
+    private var preparationClockTask: Task<Void, Never>?
+    private struct PendingActionConfirmation {
+        let snapshot: ActionExecutionSnapshot
+        let input: ActionInput
+        let planID: UUID
+        let generation: UUID
+        let panelSessionID: UUID
+        let configuration: UUID
+        let source: IntentRecognition.ConfirmationSource
+        let decision: RouteDecision
+    }
+    private var pendingActionConfirmation: PendingActionConfirmation?
     private struct PendingSetup {
         let request: ActionSetupRequest
         let identity: ActionInput.Identity
@@ -116,7 +133,11 @@ final class LauncherSession {
     private var clearedVisibleToken: OperationToken?
     private var recognitionTokens: [UUID: (token: OperationToken, started: UInt64)] = [:]
 
-    private let actionExecutor = ActionExecutor()
+    private lazy var actionExecutor: ActionExecutor = {
+        let executor = ActionExecutor()
+        executor.changed = { [weak self] in self?.preparationChanged($0) }
+        return executor
+    }()
     private lazy var recognition = IntentRecognition(
         readKey: readKey, recognize: recognize,
         isCurrent: { [weak self] in self?.currentIntentSnapshot == $0 },
@@ -130,7 +151,9 @@ final class LauncherSession {
          readKey: @escaping @MainActor @Sendable () throws -> String?,
          recognize: @escaping IntentRecognition.Recognize,
          applicationUsage: @escaping () -> [String: ApplicationUsage],
-         recordApplicationOpen: @escaping (URL) -> Bool) {
+         recordApplicationOpen: @escaping (URL) -> Bool,
+         now: @escaping @MainActor () -> Date = { Date() },
+         timeZone: @escaping @MainActor () -> TimeZone = { .current }) {
         self.registry = registry
         self.recorder = recorder
         self.operationGeneration = recorder.currentGeneration
@@ -141,6 +164,8 @@ final class LauncherSession {
         self.recognize = recognize
         self.applicationUsage = applicationUsage
         self.recordApplicationOpen = recordApplicationOpen
+        self.now = now
+        self.timeZone = timeZone
         catalog.changed = { [weak self] in
             guard let self else { return }
             self.refresh()
@@ -150,6 +175,7 @@ final class LauncherSession {
     isolated deinit {
         recognizingHintTask?.cancel()
         stableInputTask?.cancel()
+        preparationClockTask?.cancel()
         // 已提交的外部写入不随窗口隐藏或会话释放而取消。
     }
 
@@ -165,12 +191,13 @@ final class LauncherSession {
         case .panelVisibilityChanged(let visible): recordPanelVisibility(visible)
         case .compositionChanged(let composing):
             state.isComposingText = composing
-            if composing { stableInputTask?.cancel() }
+            if composing { stableInputTask?.cancel(); invalidatePreparation() }
             else { trackOperationText(draft.content); refresh() }
         case .confirm(let source): confirm(source)
         case .cycleTarget(let forward): cycleTarget(forward: forward)
         case .selectTarget(let id): selectTarget(id: id, trigger: .button)
         case .candidateMenuChanged(let visible):
+            if visible { cancelPendingConfirmation() }
             state.isIntentCandidateMenuVisible = visible
             refresh()
         case .readingGettingStartedChanged(let reading):
@@ -178,7 +205,9 @@ final class LauncherSession {
             if reading { suspend() } else { refresh() }
         case .externalFocusChanged: suspend()
         case .refreshConfiguration: refresh()
-        case .preserveDraft: state.lastEventSucceeded = preserveDraft()
+        case .preserveDraft:
+            cancelPendingConfirmation()
+            state.lastEventSucceeded = preserveDraft()
         case .captureBeforeTermination:
             guard !state.isComposingText else { return }
             _ = captureOperation(.stableInput, userInitiated: true, allowEmpty: true)
@@ -187,16 +216,23 @@ final class LauncherSession {
         case .cancelApplicationPreload: cancelApplicationPreload()
         case .restoreFailedSubmission: state.lastEventSucceeded = restoreFailedSubmission()
         case .actionSetupFinished(let id, let result): finishSetup(id: id, result: result)
+        case .planPresented(let planID, let sessionID):
+            acknowledgePresentedPlan(planID, panelSessionID: sessionID)
+        case .timeContextChanged:
+            invalidatePreparation()
+            refresh()
         }
     }
 
     func updateInput(_ text: String) {
         guard !isReplacingEditor else { return }
         if draft.content != text {
+            invalidatePreparation()
             invalidateSetup()
             draft.content = text
             revision += 1
             clearExplicitTarget()
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { correctionTargetID = nil }
         }
         if !state.isComposingText { trackOperationText(text) }
         synchronizeDraftState()
@@ -207,6 +243,8 @@ final class LauncherSession {
     @discardableResult
     func prepare(quote: String? = nil) -> Bool {
         guard !state.isComposingText else { return false }
+        invalidatePreparation()
+        state.panelSessionID = UUID()
         invalidateSetup()
         var content = draft.content
         if let quote {
@@ -227,6 +265,8 @@ final class LauncherSession {
     }
 
     func resumePresentation() {
+        invalidatePreparation()
+        state.panelSessionID = UUID()
         invalidateSetup()
         panelSession += 1
         activate()
@@ -240,6 +280,7 @@ final class LauncherSession {
 
     func suspend() {
         acceptsIntentSuggestions = false
+        invalidatePreparation()
         recognition.update(nil)
         cancelRecognizingHint()
     }
@@ -288,6 +329,12 @@ final class LauncherSession {
     func refresh() {
         guard !isReplacingEditor else { return }
         registry.refreshAvailability()
+        if let pending = pendingActionConfirmation,
+           pending.configuration != configuration().revision
+            || registry.executionSnapshot(for: pending.snapshot.id)?.configurationIdentity != pending.snapshot.configurationIdentity {
+            invalidatePreparation()
+        }
+        _ = checkPreparationContext()
         if let pendingSetup, !registry.containsModule(id: pendingSetup.request.snapshot.id,
                                                       instance: pendingSetup.request.snapshot.moduleInstance) {
             invalidateSetup()
@@ -298,6 +345,7 @@ final class LauncherSession {
             catalog.preload()
         }
         recognition.update(currentIntentSnapshot)
+        renderIntentSuggestion()
         updateRecognizingHint()
     }
 
@@ -334,9 +382,10 @@ final class LauncherSession {
 
     /// 展示、预览和提交每次都消费同一个值类型决策。
     private var routeDecision: RouteDecision {
+        if let pendingActionConfirmation { return pendingActionConfirmation.decision }
         let snapshot = currentIntentSnapshot
         let identity = ActionInput.Identity(draftID: draft.id, revision: revision)
-        let selectedID = explicitTargetIdentity == identity ? explicitTargetID : nil
+        let selectedID = explicitTargetIdentity == identity ? explicitTargetID : correctionTargetID
         let recognizedID = recognition.suggestion?.targetID
         return routeResolver.resolve(RouteInput(
             draft: draft,
@@ -390,7 +439,9 @@ final class LauncherSession {
                 return
             }
             state.displayedActionTitle = snapshot.descriptor.localizedTitle
-            actionExecutor.schedule(snapshot: snapshot, input: actionInput())
+            guard acceptsIntentSuggestions, !isSubmitting else { actionExecutor.reset(); return }
+            actionExecutor.schedule(snapshot: snapshot, input: actionInput(),
+                context: ScheduleContext(referenceDate: now(), timeZone: timeZone()), panelSessionID: state.panelSessionID)
         case .application(let id, _):
             let application = currentIntentSnapshot?.applications.first { $0.id == id }
             state.displayedActionTitle = application.map { L10n.text("launcher.open_application", $0.name) }
@@ -479,6 +530,8 @@ final class LauncherSession {
 
     func selectTarget(id: String, trigger: OperationSelectionTrigger = .button) {
         guard makeIntentCandidates().contains(where: { $0.id == id }) else { return }
+        invalidatePreparation()
+        correctionTargetID = nil
         let token = captureOperation(.selection, userInitiated: true)
         recordPresentedRoute(token: token)
         recordSelection(id: id, origin: .userChoice, trigger: trigger, token: token)
@@ -488,6 +541,13 @@ final class LauncherSession {
     }
 
     func confirm(_ source: IntentRecognition.ConfirmationSource) {
+        if state.isIntentCandidateMenuVisible {
+            state.isIntentCandidateMenuVisible = false
+            return
+        }
+        if pendingActionConfirmation != nil { return }
+        let enteredPlanID = state.currentPlanID
+        let enteredSessionID = state.panelSessionID
         guard hasPreparedDraft, acceptsIntentSuggestions, !isSubmitting,
               pendingSetup == nil,
               !state.isOpeningApplication, !state.isComposingText,
@@ -503,6 +563,7 @@ final class LauncherSession {
             return
         }
         registry.refreshAvailability()
+        let contextChanged = checkPreparationContext()
         guard let intentSnapshot = currentIntentSnapshot else { return }
         let resolved = routeDecision
         switch resolved {
@@ -515,9 +576,8 @@ final class LauncherSession {
                 recordBlockedConfirmation("target_unavailable")
                 return
             }
-            let attempt = recordAttempt(targetKind: .action, targetID: id, decision: resolved, source: source)
-            _ = recognition.finishSuggestion(confirmed: recognition.suggestion?.targetID == id)
-            submit(snapshot, operation: attempt)
+            confirmAction(snapshot, decision: resolved, source: source,
+                          enteredPlanID: contextChanged ? nil : enteredPlanID, enteredSessionID: enteredSessionID)
         case .application(let id, _):
             guard let application = intentSnapshot.applications.first(where: { $0.id == id }) else {
                 state.message = L10n.text("launcher.application_unavailable")
@@ -594,12 +654,14 @@ final class LauncherSession {
         _ = handleEffect(.closeActionSetup(pending.request.id))
     }
 
-    private func submit(_ snapshot: ActionExecutionSnapshot, operation: RecordedAttempt?) {
+    private func submit(_ snapshot: ActionExecutionSnapshot, prepared: PreparedAction, planID: UUID,
+                        operation: RecordedAttempt?) {
         guard !isSubmitting else { return }
         isSubmitting = true
         defer { isSubmitting = false }
         let submitted = draft
         let input = actionInput()
+        correctionTargetID = nil
         clearExplicitTarget()
         suspend()
         _ = handleEffect(.prepareSubmission)
@@ -609,7 +671,7 @@ final class LauncherSession {
             activate()
             return
         }
-        let execution = actionExecutor.executionTask(snapshot: snapshot, input: input)
+        let execution = actionExecutor.executionTask(prepared: prepared, planID: planID, snapshot: snapshot, input: input)
         recordSubmission(operation, accepted: true)
         let emptyDraftID = draft.id
         let emptyRevision = revision
@@ -753,6 +815,7 @@ final class LauncherSession {
         if let token { recordEvent(.draftCleared, token: token, details: .clear(.init())) }
         if panelIsVisible { clearedVisibleToken = token ?? lastVisibleToken }
         resetOperationLineage(text: "")
+        correctionTargetID = nil
         draft = RecordDraft()
         revision += 1
         savedRevision = revision
@@ -771,6 +834,7 @@ final class LauncherSession {
         defer { isReplacingEditor = false }
         guard handleEffect(.replaceEditor(text, reason)) else { return false }
         if draft.content != text {
+            invalidatePreparation()
             draft.content = text
             revision += 1
             clearExplicitTarget()
@@ -784,6 +848,170 @@ final class LauncherSession {
         state.draftContent = draft.content
         state.hasPreparedDraft = hasPreparedDraft
         state.hasUnsavedChanges = hasUnsavedChanges
+    }
+
+    // MARK: - Identified preparation and the single confirmation gate
+
+    private func cancelPendingConfirmation() {
+        pendingActionConfirmation = nil
+        state.isPreparingAction = false
+    }
+
+    private func invalidatePreparation() {
+        cancelPendingConfirmation()
+        preparationClockTask?.cancel()
+        preparationClockTask = nil
+        state.presentedPlanID = nil
+        actionExecutor.reset()
+    }
+
+    private func preparationChanged(_ preparation: ActionExecutor.Preparation?) {
+        if let preparation {
+            let date = now(), zone = timeZone()
+            let valid = preparation.status.plan?.isCurrent(at: date, timeZone: zone)
+                ?? preparation.context.isCurrent(at: date, timeZone: zone)
+            if !valid {
+                invalidatePreparation()
+                renderIntentSuggestion()
+                return
+            }
+        }
+        let plan = preparation?.status.plan
+        if state.currentPlanID != plan?.id { state.presentedPlanID = nil }
+        state.currentPlanID = plan?.id
+        state.planSummary = plan?.summary
+        state.planContext = plan?.context
+        state.timeIssue = nil
+        state.preparationFailure = nil
+        state.isCheckingActionPlan = false
+        guard let preparation else {
+            cancelPendingConfirmation()
+            preparationClockTask?.cancel()
+            preparationClockTask = nil
+            return
+        }
+        if let pending = pendingActionConfirmation, pending.generation != preparation.generation {
+            cancelPendingConfirmation()
+        }
+        switch preparation.status {
+        case .needsInput(let issue):
+            state.timeIssue = issue
+            cancelPendingConfirmation()
+        case .failed(let failure):
+            state.preparationFailure = failure.message
+            cancelPendingConfirmation()
+        case .preparing: break
+        case .ready: finishPendingConfirmation()
+        }
+        startPreparationClock()
+    }
+
+    private func startPreparationClock() {
+        guard preparationClockTask == nil, actionExecutor.current != nil else { return }
+        preparationClockTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                guard let self, !Task.isCancelled else { return }
+                if self.checkPreparationContext() { self.refresh() }
+            }
+        }
+    }
+
+    @discardableResult
+    private func checkPreparationContext() -> Bool {
+        guard let preparation = actionExecutor.current else { return false }
+        let date = now(), zone = timeZone()
+        let valid = preparation.status.plan?.isCurrent(at: date, timeZone: zone)
+            ?? preparation.context.isCurrent(at: date, timeZone: zone)
+        guard !valid else { return false }
+        invalidatePreparation()
+        return true
+    }
+
+    private func acknowledgePresentedPlan(_ planID: UUID, panelSessionID: UUID) {
+        guard panelIsVisible, acceptsIntentSuggestions, pendingSetup == nil,
+              !state.isComposingText, !state.isReadingGettingStarted,
+              state.panelSessionID == panelSessionID, state.currentPlanID == planID,
+              let preparation = actionExecutor.current, let plan = preparation.status.plan,
+              preparation.identity.inputIdentity == actionInput().identity,
+              preparation.identity.panelSessionID == panelSessionID, plan.id == planID, plan.summary != nil else { return }
+        if checkPreparationContext() { refresh(); return }
+        state.presentedPlanID = planID
+    }
+
+    private func confirmAction(_ snapshot: ActionExecutionSnapshot, decision: RouteDecision,
+                               source: IntentRecognition.ConfirmationSource,
+                               enteredPlanID: UUID?, enteredSessionID: UUID) {
+        let input = actionInput()
+        actionExecutor.schedule(snapshot: snapshot, input: input,
+            context: ScheduleContext(referenceDate: now(), timeZone: timeZone()), panelSessionID: state.panelSessionID)
+        guard let preparation = actionExecutor.current else {
+            recordBlockedConfirmation("preparation_unavailable")
+            return
+        }
+        switch preparation.status {
+        case .needsInput(let issue):
+            correctionTargetID = snapshot.id
+            recordBlockedConfirmation(issue.reasonCode)
+            return
+        case .failed:
+            correctionTargetID = snapshot.id
+            recordBlockedConfirmation("preparation_failed")
+            return
+        case .preparing, .ready: break
+        }
+        guard let plan = preparation.status.plan, plan.isCurrent(at: now(), timeZone: timeZone()) else {
+            correctionTargetID = snapshot.id
+            recordBlockedConfirmation("time_expired")
+            invalidatePreparation()
+            renderIntentSuggestion()
+            return
+        }
+        if plan.summary != nil {
+            guard panelIsVisible, enteredPlanID == plan.id, state.presentedPlanID == plan.id,
+                  enteredSessionID == state.panelSessionID else {
+                correctionTargetID = snapshot.id
+                recordBlockedConfirmation("time_not_presented")
+                return
+            }
+        }
+        pendingActionConfirmation = PendingActionConfirmation(snapshot: snapshot, input: input, planID: plan.id,
+            generation: preparation.generation, panelSessionID: state.panelSessionID,
+            configuration: configuration().revision, source: source, decision: decision)
+        state.isPreparingAction = true
+        finishPendingConfirmation()
+    }
+
+    private func finishPendingConfirmation() {
+        guard let pending = pendingActionConfirmation else { return }
+        guard acceptsIntentSuggestions, !state.isComposingText, !state.isReadingGettingStarted,
+              pending.input.identity == actionInput().identity, pending.input.text == actionInput().text,
+              pending.panelSessionID == state.panelSessionID, pending.configuration == configuration().revision,
+              let freshSnapshot = registry.executionSnapshot(for: pending.snapshot.id),
+              freshSnapshot.configurationIdentity == pending.snapshot.configurationIdentity,
+              let preparation = actionExecutor.current, preparation.generation == pending.generation,
+              let plan = preparation.status.plan, plan.id == pending.planID else {
+            invalidatePreparation()
+            renderIntentSuggestion()
+            return
+        }
+        guard plan.isCurrent(at: now(), timeZone: timeZone()) else {
+            recordBlockedConfirmation("time_expired")
+            invalidatePreparation()
+            renderIntentSuggestion()
+            return
+        }
+        guard plan.summary == nil || (panelIsVisible && state.presentedPlanID == plan.id) else {
+            cancelPendingConfirmation()
+            return
+        }
+        guard let prepared = actionExecutor.prepared(planID: pending.planID, snapshot: freshSnapshot,
+                input: pending.input, panelSessionID: pending.panelSessionID) else { return }
+        let operation = recordAttempt(targetKind: .action, targetID: pending.snapshot.id,
+                                      decision: pending.decision, source: pending.source)
+        cancelPendingConfirmation()
+        _ = recognition.finishSuggestion(confirmed: recognition.suggestion?.targetID == pending.snapshot.id)
+        submit(freshSnapshot, prepared: prepared, planID: pending.planID, operation: operation)
     }
 
     // MARK: - Local operation facts
@@ -943,6 +1171,8 @@ final class LauncherSession {
             }
             recordPresentedRoute(token: token)
         } else {
+            invalidatePreparation()
+            state.panelSessionID = UUID()
             let token = clearedVisibleToken ?? captureOperation(.hide) ?? lastVisibleToken
             if let token {
                 recordEvent(.panelHidden, token: token, details: .panel(.init(presentationID: presentationID)))
@@ -1144,6 +1374,7 @@ final class LauncherSession {
         self.failedSubmission = nil
         state.hasFailedSubmission = false
         state.message = failedSubmission.message
+        refresh()
         return true
     }
 }

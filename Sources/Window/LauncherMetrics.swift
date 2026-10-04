@@ -25,6 +25,8 @@ enum LauncherMetrics {
     static let cardInnerGap: CGFloat = 10
     /// 动作行始终占位；空闲时只隐藏标签。
     static let actionRowHeight: CGFloat = 22
+    /// Time results get at most two lines; the editor gives up this budget before scrolling.
+    static let planResultMaxHeight: CGFloat = 36
     static let editorFontSize: CGFloat = 16
     /// 普通中英文基线间距；用额外行距实现，保留字形与光标的自然行框。
     static let editorLineHeight: CGFloat = 26

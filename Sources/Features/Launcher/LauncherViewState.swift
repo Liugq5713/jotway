@@ -29,6 +29,15 @@ final class LauncherViewState {
     var intentCandidates: [IntentCandidate] = []
     /// 动作行显示的执行或配置标题；与按 Enter 的行为共用同一解析结果。
     var displayedActionTitle: String?
+    var planSummary: ActionPlanSummary?
+    var planContext: ScheduleContext?
+    var currentPlanID: UUID?
+    var panelSessionID = UUID()
+    var presentedPlanID: UUID?
+    var timeIssue: TimeInputIssue?
+    var preparationFailure: String?
+    var isPreparingAction = false
+    var isCheckingActionPlan = false
     var isIntentCandidateMenuVisible = false
     var isIntentRecognitionEnabled = false
     var isOpeningApplication = false

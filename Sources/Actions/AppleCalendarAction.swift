@@ -80,7 +80,8 @@ final class AppleCalendarModule: ActionModule {
         let now = Date()
         let response = try await run(.init(requestID: UUID().uuidString, operation: "create",
             calendarID: value.id, title: "Jotway Connection Test", body: "This event can be deleted after verification.",
-            start: now, end: now.addingTimeInterval(300)))
+            schedule: try CalendarSchedule(start: now, end: now.addingTimeInterval(300),
+                timeZoneID: TimeZone.current.identifier, endSource: .explicitDuration)))
         guard response.status == "ok", response.eventID?.isEmpty == false, response.calendarID == value.id else {
             throw ActionFailure(localized: "error.calendar.verification_failed",
                                 code: .validation, osStatus: response.osStatus)
@@ -100,75 +101,71 @@ final class AppleCalendarModule: ActionModule {
     private func changed() { configurationRevision &+= 1; onChange?() }
 }
 
-/// 存到日历（有明确时间锚点的日程写入）。
-///
-/// 与 `AppleRemindersAction` 同构：可自然语言点名（「加到日历 XXX」「日程：XXX」），
-/// 命中即建一条 event。开始时间缺省回退当前时刻、结束缺省回退开始 + 1 小时，
-/// 过境即走、本地不留记录。写入走 EventKit（复用 `AppleCalendar.run`），系统自带、无需 Apple Event。
+/// The destination and locally resolved time are frozen before body preparation.
 struct AppleCalendarAction: LauncherAction {
     let descriptor: ActionDescriptor
-
-    /// 保存位置（账号 / 日历）。为空时不可用，提示用户先在设置中选择。
     let destination: AppleCalendar.Destination?
-    /// AI 处理环节：整理正文并解析 start / end。
     let processor: ActionTextProcessor
-    /// 注入点：默认走真实 EventKit，测试时替换。
     let run: @MainActor @Sendable (AppleCalendar.Request) async throws -> AppleCalendar.Response
-    /// 当前时间提供者：开始时间缺省时的回退基准（可注入以稳定测试）。
-    let now: @Sendable () -> Date
 
     init(descriptor: ActionDescriptor = AppleCalendarModule.moduleDescriptor,
          destination: AppleCalendar.Destination?,
          processor: ActionTextProcessor = PassthroughTextProcessor(),
-         now: @escaping @Sendable () -> Date = { Date() },
          run: @escaping @MainActor @Sendable (AppleCalendar.Request) async throws -> AppleCalendar.Response
              = { try await AppleCalendar.run($0) }) {
         self.descriptor = descriptor
         self.destination = destination
         self.processor = processor
-        self.now = now
         self.run = run
     }
 
-    func prepare(_ input: ActionInput) async throws -> PreparedAction {
+    func preparation(for input: ActionInput, context: ScheduleContext) throws -> ActionPreparation {
         guard let destination else {
             throw ActionFailure(localized: "error.calendar.choose_destination", code: .configuration)
         }
-        let processed = try await processor.process(input.text)
-        let content = AppleReminders.content(fromPlainText: processed.text)
-        guard !content.name.isEmpty else {
+        guard !input.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ActionFailure(localized: "error.calendar.empty", code: .validation)
         }
-        // AI 解析出 start/end 就用它；缺省回退当前时刻起 1 小时（end 不晚于 start 时同样回退）。
-        let schedule = Self.schedule(start: processed.start, end: processed.end, now: now())
-        let request = AppleCalendar.Request(
-            requestID: UUID().uuidString, operation: "create",
-            calendarID: destination.id, title: content.name, body: content.body,
-            start: schedule.start, end: schedule.end)
-        return PreparedAction(actionID: descriptor.id, inputIdentity: input.identity) {
-                do {
-                    let response = try await run(request)
-                    guard response.status == "ok", response.eventID?.isEmpty == false else {
-                        throw ActionFailure(localized: "error.calendar.create_failed", code: .processFailed,
-                                            osStatus: response.osStatus, executionOutcome: .unknown)
-                    }
-                    return ActionOutcome(messageKey: "result.calendar.saved", effect: .created)
-                } catch let failure as AppleCalendar.Failure {
-                    throw ActionFailure(localized: "error.calendar.create_failed", code: .processFailed,
-                                        osStatus: failure.osStatus, executionOutcome: failure.notStarted ? .failed : .unknown)
-                } catch let failure as ActionFailure {
-                    throw failure
-                } catch {
-                    throw ActionFailure(localized: "error.calendar.create_failed_retry", code: RuntimeLog.code(error))
+        let resolution = ScheduleResolver.resolve(input.text, context: context)
+        let schedule: CalendarSchedule
+        switch resolution.calendarSchedule {
+        case .failure(let issue): return .needsInput(issue.inContext(context))
+        case .success(let value): schedule = value
+        }
+        guard case .resolved(let parsed) = resolution else {
+            throw ActionFailure(localized: "error.calendar.invalid_schedule", code: .validation)
+        }
+        let planID = UUID()
+        return .ready(ActionPlan(id: planID, actionID: descriptor.id, inputIdentity: input.identity,
+            summary: .calendar(targetID: destination.id, targetName: destination.name,
+                               schedule: schedule, source: parsed.source),
+            context: context, timeResolution: resolution) {
+                try Task.checkCancellation()
+                let processed = try await processor.process(input.text)
+                try Task.checkCancellation()
+                guard !processed.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw ActionFailure(localized: "error.calendar.empty", code: .validation)
                 }
-            }
-    }
-
-    /// 开始 / 结束时间的最终取值：start 缺省回退 now，end 缺省或不晚于 start 回退 start + 1 小时。
-    static func schedule(start: Date?, end: Date?, now: Date) -> (start: Date, end: Date) {
-        let resolvedStart = start ?? now
-        let resolvedEnd = end.flatMap { $0 > resolvedStart ? $0 : nil }
-            ?? resolvedStart.addingTimeInterval(AppleCalendar.defaultDuration)
-        return (resolvedStart, resolvedEnd)
+                let content = AppleReminders.content(fromPlainText: processed.text)
+                let request = AppleCalendar.Request(requestID: UUID().uuidString, operation: "create",
+                    calendarID: destination.id, title: content.name, body: content.body, schedule: schedule)
+                return PreparedAction(actionID: descriptor.id, inputIdentity: input.identity, planID: planID) {
+                    do {
+                        let response = try await run(request)
+                        guard response.status == "ok", response.eventID?.isEmpty == false else {
+                            throw ActionFailure(localized: "error.calendar.create_failed", code: .processFailed,
+                                                osStatus: response.osStatus, executionOutcome: .unknown)
+                        }
+                        return ActionOutcome(messageKey: "result.calendar.saved", effect: .created)
+                    } catch let failure as AppleCalendar.Failure {
+                        throw AppleCalendar.actionFailure(for: failure, operation: "create")
+                    } catch let failure as ActionFailure {
+                        throw failure
+                    } catch {
+                        if error is CancellationError { throw error }
+                        throw ActionFailure(localized: "error.calendar.create_failed_retry", code: RuntimeLog.code(error))
+                    }
+                }
+            })
     }
 }
