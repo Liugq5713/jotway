@@ -79,7 +79,7 @@ final class PanelController: NSObject, NSWindowDelegate {
                   panel.occlusionState.contains(.visible) else { return }
         case .inputChanged:
             appState.cancelRecordShortcutTrial()
-        case .confirm, .preserveDraft:
+        case .confirm, .preserveDraft, .toggleTargetMenu, .selectTarget, .useAutomatic, .cycleTarget:
             synchronizeEditorInput()
         case .cancel:
             guard !isHidingPanel else { return }

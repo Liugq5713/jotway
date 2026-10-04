@@ -9,7 +9,9 @@ enum LauncherEvent {
     case compositionChanged(Bool)
     case confirm(IntentRecognition.ConfirmationSource)
     case cycleTarget(forward: Bool)
-    case selectTarget(String)
+    case selectTarget(String, trigger: OperationSelectionTrigger = .button)
+    case toggleTargetMenu
+    case useAutomatic(trigger: OperationSelectionTrigger = .button)
     case candidateMenuChanged(Bool)
     case readingGettingStartedChanged(Bool)
     case externalFocusChanged
@@ -81,8 +83,12 @@ final class LauncherSession {
     private var applicationNotice: String?
     private var recognizingHintTask: Task<Void, Never>?
     private var submissions: [UUID: Task<Void, Never>] = [:]
-    private var explicitTargetID: String?
-    private var explicitTargetIdentity: ActionInput.Identity?
+    private var explicitTarget: DraftTargetSelection?
+    private var explicitTargetDraftID: UUID?
+    private var routingInteractionRevision = 0
+    private var draftRoutingStartRevision = 0
+    private var draftEditingStartRevision = 0
+    private var committedDraftHasContent = false
     private var correctionTargetID: String?
     private let now: @MainActor () -> Date
     private let timeZone: @MainActor () -> TimeZone
@@ -118,7 +124,7 @@ final class LauncherSession {
     private var isRestoringPanel = false
     private var lastAttemptID: String?
     private var firstChoiceEventID: String?
-    private var selectionOrigin: OperationSelectionOrigin = .automatic
+    private var selectionIsInherited = false
     private var panelIsVisible = false
     private var presentationID = UUID().uuidString
     private var renderedDecision: RouteDecision?
@@ -191,14 +197,25 @@ final class LauncherSession {
         case .panelVisibilityChanged(let visible): recordPanelVisibility(visible)
         case .compositionChanged(let composing):
             state.isComposingText = composing
-            if composing { stableInputTask?.cancel(); invalidatePreparation() }
-            else { trackOperationText(draft.content); refresh() }
+            if composing {
+                stableInputTask?.cancel()
+                invalidatePreparation()
+                state.canChooseTarget = false
+                state.canConfirm = false
+                state.intentCanCycle = false
+            }
+            else { finishCommittedEdit(); trackOperationText(draft.content); refresh() }
         case .confirm(let source): confirm(source)
         case .cycleTarget(let forward): cycleTarget(forward: forward)
-        case .selectTarget(let id): selectTarget(id: id, trigger: .button)
+        case .selectTarget(let id, let trigger): selectTarget(id: id, trigger: trigger)
+        case .toggleTargetMenu:
+            guard state.canChooseTarget, !state.isComposingText else { return }
+            cancelPendingConfirmation()
+            state.isIntentCandidateMenuVisible.toggle()
+        case .useAutomatic(let trigger): useAutomatic(trigger: trigger)
         case .candidateMenuChanged(let visible):
             if visible { cancelPendingConfirmation() }
-            state.isIntentCandidateMenuVisible = visible
+            state.isIntentCandidateMenuVisible = visible && state.canChooseTarget
             refresh()
         case .readingGettingStartedChanged(let reading):
             state.isReadingGettingStarted = reading
@@ -231,10 +248,8 @@ final class LauncherSession {
             invalidateSetup()
             draft.content = text
             revision += 1
-            clearExplicitTarget()
-            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { correctionTargetID = nil }
         }
-        if !state.isComposingText { trackOperationText(text) }
+        if !state.isComposingText { finishCommittedEdit(); trackOperationText(text) }
         synchronizeDraftState()
         refresh()
     }
@@ -280,6 +295,9 @@ final class LauncherSession {
 
     func suspend() {
         acceptsIntentSuggestions = false
+        state.canChooseTarget = false
+        state.canConfirm = false
+        state.intentCanCycle = false
         invalidatePreparation()
         recognition.update(nil)
         cancelRecognizingHint()
@@ -289,7 +307,6 @@ final class LauncherSession {
         recordPanelVisibility(false)
         invalidateSetup()
         suspend()
-        clearExplicitTarget()
         actionExecutor.reset()
         state.intentCandidates = []
         state.isIntentCandidateMenuVisible = false
@@ -312,6 +329,11 @@ final class LauncherSession {
     }
 
     private func cancel() {
+        guard !state.isComposingText else { state.lastEventSucceeded = false; return }
+        if state.isIntentCandidateMenuVisible {
+            state.isIntentCandidateMenuVisible = false
+            return
+        }
         if let pendingSetup {
             _ = handleEffect(.closeActionSetup(pendingSetup.request.id))
             finishSetup(id: pendingSetup.request.id, result: .cancelled)
@@ -321,7 +343,6 @@ final class LauncherSession {
             state.lastEventSucceeded = false
             return
         }
-        clearExplicitTarget()
         suspend()
         _ = handleEffect(.hidePanel(submitted: false, presentationPolicy: .returnToPreviousApplication))
     }
@@ -384,8 +405,7 @@ final class LauncherSession {
     private var routeDecision: RouteDecision {
         if let pendingActionConfirmation { return pendingActionConfirmation.decision }
         let snapshot = currentIntentSnapshot
-        let identity = ActionInput.Identity(draftID: draft.id, revision: revision)
-        let selectedID = explicitTargetIdentity == identity ? explicitTargetID : correctionTargetID
+        let selectedID = currentExplicitTarget?.targetID ?? correctionTargetID
         let recognizedID = recognition.suggestion?.targetID
         return routeResolver.resolve(RouteInput(
             draft: draft,
@@ -406,17 +426,23 @@ final class LauncherSession {
         let decision = routeDecision
         let candidates = makeIntentCandidates()
         let routeTargetID = decision.targetID
-        let explicitID = explicitTargetIdentity == actionInput().identity ? explicitTargetID : nil
+        let explicitID = currentExplicitTarget?.targetID
         let selectedID = explicitID ?? routeTargetID
         state.intentTitle = selectedID.flatMap(targetTitle) ?? recognition.suggestion?.title
-        state.intentCanCycle = candidates.contains { $0.id != routeTargetID }
-        state.intentDeviated = explicitID != nil
+        let interactive = hasPreparedDraft && acceptsIntentSuggestions && !isSubmitting
+            && !state.isReadingGettingStarted
+        state.canChooseTarget = interactive && (!candidates.isEmpty || explicitID != nil)
+        state.intentCanCycle = interactive && candidates.contains { $0.id != selectedID }
+        state.hasExplicitTarget = explicitID != nil
+        state.intentDeviated = state.hasExplicitTarget
+        state.canConfirm = interactive && !state.isOpeningApplication
+            && !draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let issue = recognition.issue
         state.intentIssue = issue == JevDiagnostics.Reason.missingKey.userMessage ? nil : issue
         state.intentCandidates = candidates.map {
             IntentCandidate(id: $0.id, title: $0.title, isSelected: $0.id == selectedID)
         }
-        if !state.intentCanCycle { state.isIntentCandidateMenuVisible = false }
+        if !state.canChooseTarget { state.isIntentCandidateMenuVisible = false }
         guard case .empty = decision else {
             render(decision)
             renderedDecision = decision
@@ -424,7 +450,7 @@ final class LauncherSession {
             recordPresentedRoute()
             return
         }
-        state.displayedActionTitle = nil
+        state.displayedActionTitle = explicitID.flatMap(targetTitle)
         renderedDecision = decision
         renderedInputIdentity = actionInput().identity
         actionExecutor.reset()
@@ -449,7 +475,16 @@ final class LauncherSession {
         case .setup(let id, _):
             state.displayedActionTitle = registry.setupSnapshot(for: id)?.setup.title
             actionExecutor.reset()
-        case .unavailable, .empty:
+        case .unavailable(let failure, _):
+            state.displayedActionTitle = decision.targetID.flatMap(targetTitle)
+            switch failure {
+            case .targetUnavailable(let id):
+                state.intentIssue = registry.settingsEntry(for: id)?.state.availability.message
+                    ?? L10n.text("launcher.target_unavailable")
+            case .noDefaultAction: state.intentIssue = L10n.text("launcher.no_default_action")
+            }
+            actionExecutor.reset()
+        case .empty:
             state.displayedActionTitle = nil
             actionExecutor.reset()
         }
@@ -480,7 +515,7 @@ final class LauncherSession {
     }
 
     private func makeIntentCandidates() -> [(id: String, title: String)] {
-        guard currentIntentSnapshot != nil else { return [] }
+        guard hasPreparedDraft, !state.isReadingGettingStarted, pendingSetup == nil else { return [] }
         let defaultID = registry.fallbackActionID
         var values: [(String, String)] = []
         func append(_ id: String, _ title: String) {
@@ -501,9 +536,9 @@ final class LauncherSession {
         for snapshot in registry.setupSnapshots() {
             append(snapshot.id, snapshot.setup.title)
         }
-        if explicitTargetIdentity == actionInput().identity, let explicitTargetID,
-           !values.contains(where: { $0.0 == explicitTargetID }) {
-            append(explicitTargetID, targetTitle(explicitTargetID) ?? L10n.text("launcher.target_unavailable"))
+        if let selected = currentExplicitTarget,
+           !values.contains(where: { $0.0 == selected.targetID }) {
+            append(selected.targetID, targetTitle(selected.targetID) ?? selected.title)
         }
         return values
     }
@@ -513,12 +548,14 @@ final class LauncherSession {
         if let descriptor = registry.descriptor(for: id) { return descriptor.localizedTitle }
         return currentIntentSnapshot?.applications.first(where: { $0.id == id })
             .map { L10n.text("launcher.open_application", $0.name) }
+            ?? (currentExplicitTarget?.targetID == id ? currentExplicitTarget?.title : nil)
     }
 
     func cycleTarget(forward: Bool) {
+        guard !state.isComposingText, pendingSetup == nil, !isSubmitting else { return }
         let candidates = makeIntentCandidates()
         guard !candidates.isEmpty else { return }
-        let current = routeDecision.targetID
+        let current = currentExplicitTarget?.targetID ?? routeDecision.targetID
         let nextIndex: Int
         if let index = candidates.firstIndex(where: { $0.id == current }) {
             nextIndex = ((index + (forward ? 1 : -1)) % candidates.count + candidates.count) % candidates.count
@@ -529,15 +566,35 @@ final class LauncherSession {
     }
 
     func selectTarget(id: String, trigger: OperationSelectionTrigger = .button) {
-        guard makeIntentCandidates().contains(where: { $0.id == id }) else { return }
+        guard !state.isComposingText, acceptsIntentSuggestions, pendingSetup == nil,
+              !isSubmitting, let candidate = makeIntentCandidates().first(where: { $0.id == id }) else { return }
         invalidatePreparation()
-        correctionTargetID = nil
-        let token = captureOperation(.selection, userInitiated: true)
+        let token = captureOperation(.selection, userInitiated: true, allowEmpty: true)
         recordPresentedRoute(token: token)
+        routingInteractionRevision += 1
+        let kind = selectionTargetKind(id)
+        restoreRoutingSelection(.init(targetID: id, title: candidate.title, origin: .userChoice, kind: kind))
         recordSelection(id: id, origin: .userChoice, trigger: trigger, token: token)
-        explicitTargetID = id
-        explicitTargetIdentity = actionInput().identity
+        state.isIntentCandidateMenuVisible = false
         renderIntentSuggestion()
+    }
+
+    private func useAutomatic(trigger: OperationSelectionTrigger) {
+        guard !state.isComposingText, acceptsIntentSuggestions, pendingSetup == nil,
+              !isSubmitting, currentExplicitTarget != nil else { return }
+        invalidatePreparation()
+        let token = captureOperation(.selection, userInitiated: true, allowEmpty: true)
+        recordPresentedRoute(token: token)
+        routingInteractionRevision += 1
+        restoreRoutingSelection(nil)
+        firstChoiceEventID = nil
+        selectionIsInherited = false
+        if let token {
+            recordEvent(.targetSelected, token: token,
+                details: .selection(.init(selectionOrigin: .automatic, trigger: trigger, mode: .automatic)))
+        }
+        state.isIntentCandidateMenuVisible = false
+        refresh()
     }
 
     func confirm(_ source: IntentRecognition.ConfirmationSource) {
@@ -557,7 +614,7 @@ final class LauncherSession {
         }
         if draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             recordBlockedConfirmation("empty_input")
-            guard clearDraft() else { return }
+            guard preserveDraft() else { return }
             suspend()
             _ = handleEffect(.hidePanel(submitted: false, presentationPolicy: .returnToPreviousApplication))
             return
@@ -634,10 +691,12 @@ final class LauncherSession {
               registry.containsModule(id: pending.request.snapshot.id,
                                       instance: pending.request.snapshot.moduleInstance) else { return }
         if result == .completed, registry.executionSnapshot(for: pending.request.snapshot.id) != nil {
-            recordSelection(id: pending.request.snapshot.id, origin: .setupCompletion, trigger: .setupCompletion,
-                            token: captureOperation(.selection))
-            explicitTargetID = pending.request.snapshot.id
-            explicitTargetIdentity = pending.identity
+            let selected = pending.request.snapshot
+            routingInteractionRevision += 1
+            restoreRoutingSelection(.init(targetID: selected.id, title: selected.descriptor.localizedTitle,
+                                          origin: .setupCompletion))
+            recordSelection(id: selected.id, origin: .setupCompletion, trigger: .setupCompletion,
+                            token: captureOperation(.selection, allowEmpty: true))
         }
         activate()
         isRestoringPanel = true
@@ -658,11 +717,10 @@ final class LauncherSession {
                         operation: RecordedAttempt?) {
         guard !isSubmitting else { return }
         isSubmitting = true
-        defer { isSubmitting = false }
+        defer { isSubmitting = false; renderIntentSuggestion() }
         let submitted = draft
         let input = actionInput()
-        correctionTargetID = nil
-        clearExplicitTarget()
+        let submittedSelection = currentExplicitTarget
         suspend()
         _ = handleEffect(.prepareSubmission)
         guard clearDraft() else {
@@ -675,6 +733,7 @@ final class LauncherSession {
         recordSubmission(operation, accepted: true)
         let emptyDraftID = draft.id
         let emptyRevision = revision
+        let emptyRoutingRevision = routingInteractionRevision
         let requestID = UUID()
         var log = RuntimeLog.Context()
         log.module = .app
@@ -695,7 +754,8 @@ final class LauncherSession {
                 log.emit(.requestFinished, .init(outcome: .failed, errorCode: failure.code,
                     osStatus: failure.osStatus, actionID: snapshot.id, attemptID: operation?.attempt.id))
                 self?.restoreAfterFailure(submitted, emptyDraftID: emptyDraftID,
-                    emptyRevision: emptyRevision, message: failure.message, operation: operation)
+                    emptyRevision: emptyRevision, emptyRoutingRevision: emptyRoutingRevision,
+                    selection: submittedSelection, message: failure.message, operation: operation)
             }
             self?.submissions.removeValue(forKey: requestID)
             self?.activeSubmissionCount -= 1
@@ -703,22 +763,30 @@ final class LauncherSession {
     }
 
     private func restoreAfterFailure(_ submitted: RecordDraft,
-                                     emptyDraftID: UUID, emptyRevision: Int, message: String, operation: RecordedAttempt?) {
-        guard !state.isComposingText, draft.id == emptyDraftID, revision == emptyRevision else {
-            failedSubmission = FailedSubmission(draft: submitted, message: message,
-                operationInput: operation?.token.input, operationGeneration: operation?.token.generation,
-                sourceAttemptID: operation?.attempt.id, firstChoiceEventID: operation?.attempt.firstChoiceEventID)
+                                     emptyDraftID: UUID, emptyRevision: Int, emptyRoutingRevision: Int,
+                                     selection: DraftTargetSelection?, message: String, operation: RecordedAttempt?) {
+        let failed = FailedSubmission(draft: submitted, message: message, selection: selection,
+            selectionIsInherited: operation?.selectionIsInherited ?? true,
+            operationInput: operation?.token.input, operationGeneration: operation?.token.generation,
+            sourceAttemptID: operation?.attempt.id, firstChoiceEventID: operation?.attempt.firstChoiceEventID)
+        guard !state.isComposingText, draft.id == emptyDraftID, revision == emptyRevision,
+              routingInteractionRevision == emptyRoutingRevision else {
+            failedSubmission = failed
             state.hasFailedSubmission = true
             state.message = message
             return
         }
         guard replaceText(submitted.content, reason: .restoreDraft) else {
+            failedSubmission = failed
+            state.hasFailedSubmission = true
             state.message = message
             return
         }
         draft.id = submitted.id
+        restoreRoutingSelection(selection)
         restoreOperationInput(operation?.token.input, generation: operation?.token.generation,
-                              attemptID: operation?.attempt.id, firstChoiceID: operation?.attempt.firstChoiceEventID, merged: false)
+                              attemptID: operation?.attempt.id, firstChoiceID: operation?.attempt.firstChoiceEventID,
+                              inheritedSelection: operation?.selectionIsInherited ?? true, merged: false)
         savedRevision = revision
         synchronizeDraftState()
         failedSubmission = nil
@@ -742,6 +810,9 @@ final class LauncherSession {
             return
         }
         let requestID = UUID()
+        let submittedSelection = currentExplicitTarget
+        let submittedRoutingRevision = routingInteractionRevision
+        let submittedSelectionWasInherited = selectionIsInherited
         applicationOpenID = requestID
         state.isOpeningApplication = true
         suspend()
@@ -755,6 +826,12 @@ final class LauncherSession {
             log.emit(.requestStarted, .init(bytes: snapshot.text.utf8.count, actionID: application.id,
                                            attemptID: operation?.attempt.id))
             self?.recordSubmission(operation, accepted: true)
+            if let self, self.draft.id == snapshot.draftID, self.revision == snapshot.revision,
+               self.routingInteractionRevision == submittedRoutingRevision {
+                self.restoreRoutingSelection(nil)
+                self.selectionIsInherited = false
+                self.renderIntentSuggestion()
+            }
         }, completion: { [weak self] result in
             guard !completed else { return }
             completed = true
@@ -779,12 +856,21 @@ final class LauncherSession {
                 self.state.isOpeningApplication = false
                 return
             }
-            let ownsInput = self.draft.id == snapshot.draftID && self.revision == snapshot.revision
-                && self.panelSession == snapshot.panelSession && self.draft.content == snapshot.text
-                && !self.state.isComposingText
+            let ownsRoutingInput = self.draft.id == snapshot.draftID && self.revision == snapshot.revision
+                && self.draft.content == snapshot.text && !self.state.isComposingText
+                && self.routingInteractionRevision == submittedRoutingRevision
+            let ownsInput = ownsRoutingInput && self.panelSession == snapshot.panelSession
             switch result {
             case .failure:
-                if ownsInput {
+                if ownsRoutingInput {
+                    self.restoreRoutingSelection(submittedSelection)
+                    if let operation, self.recorder.isCurrent(operation.token) {
+                        self.firstChoiceEventID = operation.attempt.firstChoiceEventID
+                        self.selectionIsInherited = submittedSelectionWasInherited
+                    } else {
+                        self.firstChoiceEventID = nil
+                        self.selectionIsInherited = submittedSelection != nil
+                    }
                     self.applicationNotice = L10n.text("launcher.open_failed_preserved", application.name)
                 }
             case .success:
@@ -797,6 +883,7 @@ final class LauncherSession {
                 }
             }
             self.state.isOpeningApplication = false
+            self.refresh()
         }))
         if !dispatched, !completed {
             completed = true
@@ -815,9 +902,13 @@ final class LauncherSession {
         if let token { recordEvent(.draftCleared, token: token, details: .clear(.init())) }
         if panelIsVisible { clearedVisibleToken = token ?? lastVisibleToken }
         resetOperationLineage(text: "")
+        clearExplicitTarget()
         correctionTargetID = nil
         draft = RecordDraft()
+        draftRoutingStartRevision = routingInteractionRevision
+        committedDraftHasContent = false
         revision += 1
+        draftEditingStartRevision = revision
         savedRevision = revision
         synchronizeDraftState()
         cancelRecognizingHint()
@@ -837,8 +928,8 @@ final class LauncherSession {
             invalidatePreparation()
             draft.content = text
             revision += 1
-            clearExplicitTarget()
         }
+        committedDraftHasContent = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         trackOperationText(text)
         synchronizeDraftState()
         return true
@@ -1020,6 +1111,7 @@ final class LauncherSession {
         let token: OperationToken
         let attempt: OperationAttempt
         let startedAt: UInt64
+        let selectionIsInherited: Bool
     }
 
     private func resetOperationLineage(text: String) {
@@ -1032,7 +1124,7 @@ final class LauncherSession {
         capturedOperationToken = nil
         firstChoiceEventID = nil
         lastAttemptID = nil
-        selectionOrigin = .automatic
+        selectionIsInherited = currentExplicitTarget != nil
         presentedRoute = nil
         suppressRestoredCapture = false
     }
@@ -1060,7 +1152,7 @@ final class LauncherSession {
         presentedRoute = nil
         firstChoiceEventID = nil
         lastAttemptID = nil
-        selectionOrigin = .automatic
+        selectionIsInherited = currentExplicitTarget != nil
         suppressRestoredCapture = false
         stableInputTask?.cancel()
         guard !text.isEmpty else { return }
@@ -1207,16 +1299,27 @@ final class LauncherSession {
         }
     }
 
+    private func selectionTargetKind(_ id: String) -> OperationTargetKind {
+        if registry.setupSnapshot(for: id) != nil { return .setup }
+        if registry.descriptor(for: id) != nil { return .action }
+        if currentExplicitTarget?.targetID == id { return currentExplicitTarget?.kind ?? .unknown }
+        return currentIntentSnapshot?.applications.contains(where: { $0.id == id }) == true ? .application : .unknown
+    }
+
     private func recordSelection(id: String, origin: OperationSelectionOrigin,
                                  trigger: OperationSelectionTrigger, token: OperationToken?) {
-        selectionOrigin = origin
-        guard let token else { return }
-        let kind: OperationTargetKind = registry.setupSnapshot(for: id) != nil ? .setup
-            : registry.descriptor(for: id) != nil ? .action : .application
+        guard let token else {
+            selectionIsInherited = true
+            firstChoiceEventID = nil
+            return
+        }
+        let kind = selectionTargetKind(id)
         let previous = presentedRoute.flatMap { $0.token.inputID == token.inputID ? $0.event.id : nil }
         let eventID = recordEvent(.targetSelected, token: token, targetKind: kind, targetID: id, routeSource: .explicit,
             details: .selection(.init(selectionOrigin: origin, trigger: trigger, previousPresentedEventID: previous)))
-        if origin == .userChoice, firstChoiceEventID == nil { firstChoiceEventID = eventID }
+        selectionIsInherited = eventID == nil
+        if eventID == nil { firstChoiceEventID = nil }
+        else if origin == .userChoice, firstChoiceEventID == nil { firstChoiceEventID = eventID }
     }
 
     private func recordBlockedConfirmation(_ reason: String) {
@@ -1241,16 +1344,21 @@ final class LauncherSession {
         }
         let attempt = OperationAttempt(id: UUID().uuidString, inputID: token.inputID, contextID: token.contextID,
             targetKind: targetKind, targetID: targetID, routeSource: routeSource,
-            selectionOrigin: decision.source == .explicit ? selectionOrigin : .automatic,
-            confirmationSource: confirmation, decisionEventID: displayed, firstChoiceEventID: firstChoiceEventID,
+            selectionOrigin: decision.source == .explicit ? currentExplicitTarget?.origin ?? .automatic : .automatic,
+            confirmationSource: confirmation, decisionEventID: displayed,
+            firstChoiceEventID: decision.source == .explicit ? firstChoiceEventID : nil,
             retryOfAttemptID: lastAttemptID)
         let event = OperationEvent(id: UUID().uuidString, inputID: token.inputID, contextID: token.contextID,
             runID: token.runID, occurredAt: OperationRecorder.nowMilliseconds(), kind: .confirmRequested,
-            attemptID: attempt.id, details: .confirmation(.init(textTransform: targetKind == .application ? .unchanged : .trimWhitespaceAndNewlines)))
+            attemptID: attempt.id, details: .confirmation(.init(
+                textTransform: targetKind == .application ? .unchanged : .trimWhitespaceAndNewlines,
+                selectionContinuity: decision.source == .explicit && currentExplicitTarget != nil
+                    ? (selectionIsInherited ? .inherited : .direct) : nil)))
         guard recorder.confirm(attempt, event: event, token: token) else { return nil }
         lastAttemptID = attempt.id
         recorder.markInflight(token, activityID: attempt.id, active: true)
-        return RecordedAttempt(token: token, attempt: attempt, startedAt: RuntimeLog.ticks())
+        return RecordedAttempt(token: token, attempt: attempt, startedAt: RuntimeLog.ticks(),
+                               selectionIsInherited: selectionIsInherited)
     }
 
     private func recordSubmission(_ operation: RecordedAttempt?, accepted: Bool, reason: String? = nil) {
@@ -1277,7 +1385,8 @@ final class LauncherSession {
     }
 
     private func restoreOperationInput(_ input: OperationInput?, generation: Int64?, attemptID: String?,
-                                       firstChoiceID: String?, merged: Bool, userInitiated: Bool = false) {
+                                       firstChoiceID: String?, inheritedSelection: Bool = true,
+                                       merged: Bool, userInitiated: Bool = false) {
         stableInputTask?.cancel()
         guard let input else {
             if !merged { resetOperationLineage(text: draft.content) }
@@ -1299,7 +1408,7 @@ final class LauncherSession {
             capturedOperationToken = nil
             firstChoiceEventID = firstChoiceID
             lastAttemptID = attemptID
-            selectionOrigin = .automatic
+            selectionIsInherited = currentExplicitTarget != nil && inheritedSelection
             presentedRoute = nil
         }
         guard let token = captureOperation(.stableInput, userInitiated: userInitiated) else { return }
@@ -1355,33 +1464,79 @@ final class LauncherSession {
                     text: draft.content.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
+    private var currentExplicitTarget: DraftTargetSelection? {
+        explicitTargetDraftID == draft.id ? explicitTarget : nil
+    }
+
     private func clearExplicitTarget() {
-        explicitTargetID = nil
-        explicitTargetIdentity = nil
+        explicitTarget = nil
+        explicitTargetDraftID = nil
+        state.hasExplicitTarget = false
+        state.intentDeviated = false
+    }
+
+    private func restoreRoutingSelection(_ selection: DraftTargetSelection?) {
+        explicitTarget = selection
+        explicitTargetDraftID = selection == nil ? nil : draft.id
+        correctionTargetID = nil
+        state.hasExplicitTarget = selection != nil
+        state.intentDeviated = selection != nil
+    }
+
+    /// Only a committed edit from content to whitespace ends a draft. IME candidates never do.
+    private func finishCommittedEdit() {
+        let hasContent = !draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if committedDraftHasContent && !hasContent {
+            let token = captureOperation(.clear, userInitiated: true, allowEmpty: true)
+            if let token { recordEvent(.draftCleared, token: token, details: .clear(.init())) }
+            clearExplicitTarget()
+            correctionTargetID = nil
+            draft.id = UUID()
+            draftRoutingStartRevision = routingInteractionRevision
+            draftEditingStartRevision = revision
+            resetOperationLineage(text: draft.content)
+        }
+        committedDraftHasContent = hasContent
     }
 
     @discardableResult
     private func restoreFailedSubmission() -> Bool {
         guard let failedSubmission, !state.isComposingText else { return false }
-        let content = draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? failedSubmission.draft.content
-            : draft.content + "\n\n" + failedSubmission.draft.content
-        let merged = !draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasContent = !draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let merged = hasContent || revision != draftEditingStartRevision
+            || routingInteractionRevision != draftRoutingStartRevision
+        let content = hasContent ? draft.content + "\n\n" + failedSubmission.draft.content : failedSubmission.draft.content
         guard replaceText(content, reason: .restoreDraft) else { return false }
+        if !merged {
+            draft.id = failedSubmission.draft.id
+            restoreRoutingSelection(failedSubmission.selection)
+        }
         restoreOperationInput(failedSubmission.operationInput, generation: failedSubmission.operationGeneration,
                               attemptID: failedSubmission.sourceAttemptID,
-                              firstChoiceID: failedSubmission.firstChoiceEventID, merged: merged, userInitiated: true)
+                              firstChoiceID: failedSubmission.firstChoiceEventID,
+                              inheritedSelection: failedSubmission.selectionIsInherited,
+                              merged: merged, userInitiated: true)
         self.failedSubmission = nil
         state.hasFailedSubmission = false
         state.message = failedSubmission.message
         refresh()
         return true
     }
+
+}
+
+struct DraftTargetSelection: Sendable, Equatable {
+    let targetID: String
+    let title: String
+    let origin: OperationSelectionOrigin
+    var kind: OperationTargetKind = .action
 }
 
 struct FailedSubmission: Sendable, Equatable {
     let draft: RecordDraft
     let message: String
+    var selection: DraftTargetSelection? = nil
+    var selectionIsInherited = false
     var operationInput: OperationInput? = nil
     var operationGeneration: Int64? = nil
     var sourceAttemptID: String? = nil

@@ -27,8 +27,54 @@ private enum EditorPalette {
 /// AppKit 编辑器与窗口之间的焦点、组词和用户事件桥接。
 @MainActor @Observable
 final class EditorFocusTarget {
+    enum TargetMenuItem: Equatable {
+        case target(String)
+        case automatic
+    }
+
     @ObservationIgnored weak var textView: NSTextView?
     @ObservationIgnored var preserveSelectionOnNextFocus = false
+    var targetSelectorFocusRequest = 0
+    var highlightedTargetMenuItem: TargetMenuItem?
+
+    func resetTargetMenuFocus(state: LauncherViewState) {
+        highlightedTargetMenuItem = state.intentCandidates.first(where: \.isSelected)
+            .map { .target($0.id) } ?? state.intentCandidates.first.map { .target($0.id) }
+            ?? (state.hasExplicitTarget ? .automatic : nil)
+    }
+
+    func moveTargetMenuFocus(forward: Bool, state: LauncherViewState) {
+        let items = targetMenuItems(state: state)
+        guard !items.isEmpty else { return }
+        if highlightedTargetMenuItem == nil { resetTargetMenuFocus(state: state) }
+        let index = highlightedTargetMenuItem.flatMap { items.firstIndex(of: $0) }
+            ?? (forward ? -1 : 0)
+        highlightedTargetMenuItem = items[(index + (forward ? 1 : -1) + items.count) % items.count]
+    }
+
+    func selectHighlightedTarget(state: LauncherViewState, send: (LauncherEvent) -> Void) {
+        guard state.isIntentCandidateMenuVisible, !state.isComposingText,
+              textView?.hasMarkedText() != true else { return }
+        if !targetMenuItems(state: state).contains(where: { $0 == highlightedTargetMenuItem }) {
+            resetTargetMenuFocus(state: state)
+        }
+        switch highlightedTargetMenuItem {
+        case .target(let id): send(.selectTarget(id, trigger: .keyboard))
+        case .automatic: send(.useAutomatic(trigger: .keyboard))
+        case nil: break
+        }
+        send(.candidateMenuChanged(false))
+        restoreEditorFocus()
+    }
+
+    func restoreEditorFocus() {
+        guard let textView else { return }
+        textView.window?.makeFirstResponder(textView)
+    }
+
+    private func targetMenuItems(state: LauncherViewState) -> [TargetMenuItem] {
+        state.intentCandidates.map { .target($0.id) } + (state.hasExplicitTarget ? [.automatic] : [])
+    }
 }
 
 /// 记录面板的编辑器：唤起即空白卡片，直奔输入。
@@ -64,6 +110,7 @@ struct EditorView: View {
     @State private var reportedCardHeight: CGFloat = 0
     /// 同一轮布局里总高与卡高两个 preference 会先后到达，合并为一次上报，避免窗口收两帧几何。
     @State private var geometryReportScheduled = false
+    @FocusState private var isTargetSelectorFocused: Bool
 
     var body: some View {
         let stack = VStack(spacing: LauncherMetrics.cardGap) {
@@ -91,6 +138,16 @@ struct EditorView: View {
         // 表面和描边只响应外观，状态切换不改变卡片轮廓。
         stack
             .frame(maxHeight: .infinity, alignment: .top)
+            .onChange(of: state.isIntentCandidateMenuVisible) { _, visible in
+                if visible {
+                    if focusTarget.highlightedTargetMenuItem == nil { focusTarget.resetTargetMenuFocus(state: state) }
+                } else {
+                    focusTarget.highlightedTargetMenuItem = nil
+                }
+            }
+            .onChange(of: focusTarget.targetSelectorFocusRequest) { _, _ in
+                if state.canChooseTarget { isTargetSelectorFocused = true }
+            }
     }
 
     private var overlayAnimation: Animation {
@@ -228,27 +285,32 @@ struct EditorView: View {
         state.isIntentCandidateMenuVisible
     }
 
-    @ViewBuilder
-    private var actionTarget: some View {
-        if let title = state.displayedActionTitle, !state.isReadingGettingStarted {
-            primaryActionLabel(title: title)
-        }
-        // 空草稿：动作标签留白，动作行容器仍占位（22pt）。
+    private var hasDraftContent: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// 中性动作按钮保留蓝色回车键帽符号；点击与 Enter 共用同一路由解析。
-    /// ⌥↑/⌥↓ 在有多个目标时切换（无图标提示，切换说明落在 tooltip）。
+    @ViewBuilder
+    private var actionTarget: some View {
+        if !state.isReadingGettingStarted {
+            HStack(spacing: 4) {
+                if hasDraftContent, let title = state.displayedActionTitle {
+                    primaryActionLabel(title: title)
+                }
+                targetSelector
+            }
+            .layoutPriority(1)
+        }
+    }
+
+    /// 主动作与选择入口分开；只有非空草稿显示执行键帽。
     private func primaryActionLabel(title: String) -> some View {
         Button { send(.confirm(.button)) } label: {
             HStack(spacing: 5) {
-                if state.intentDeviated {
-                    // 已偏离 Jev 建议：●，提示这是用户改过的目标。
-                    Circle().fill(accent).frame(width: 5, height: 5)
-                }
+                explicitTargetMark
                 Text(title)
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
-                    .frame(maxWidth: 260, alignment: .leading)
+                    .frame(maxWidth: 220, alignment: .leading)
                 Text("↵")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundStyle(accent)
@@ -262,18 +324,109 @@ struct EditorView: View {
         }
         .buttonStyle(.plain)
         .fixedSize(horizontal: true, vertical: false)
-        .layoutPriority(1)
         .foregroundStyle(colorSchemeContrast == .increased ? Color.primary : Color(nsColor: EditorPalette.buttonText))
-        .disabled(isAnySelectorVisible)
-        .opacity(isAnySelectorVisible ? 0.45 : 1)
+        .disabled(isAnySelectorVisible || !state.canConfirm)
+        .opacity(isAnySelectorVisible || !state.canConfirm ? 0.45 : 1)
         .accessibilityIdentifier("jev-confirm-intent")
         .accessibilityLabel(title)
+        .accessibilityValue(state.hasExplicitTarget ? L10n.text("launcher.target_explicit") : L10n.text("launcher.target_automatic"))
         .help(actionTargetHelp)
     }
 
-    /// 动作标签的 tooltip：常态说明执行键；可切换时补上 ⌥↑/⌥↓（替代被撤下的展开图标）。
+    @ViewBuilder
+    private var explicitTargetMark: some View {
+        if state.hasExplicitTarget {
+            Circle().fill(accent).frame(width: 5, height: 5)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var targetSelector: some View {
+        Button {
+            guard focusTarget.textView?.hasMarkedText() != true else { return }
+            send(.toggleTargetMenu)
+            if state.isIntentCandidateMenuVisible { focusTarget.resetTargetMenuFocus(state: state) }
+        } label: {
+            HStack(spacing: 5) {
+                if !hasDraftContent {
+                    explicitTargetMark
+                    Text(state.displayedActionTitle ?? L10n.text("launcher.choose_target"))
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                        .frame(maxWidth: 260, alignment: .leading)
+                }
+                Image(systemName: state.isIntentCandidateMenuVisible ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(width: 10)
+            }
+            .padding(.horizontal, 7)
+            .frame(height: LauncherMetrics.actionRowHeight)
+            .background(Color(nsColor: EditorPalette.button), in: RoundedRectangle(cornerRadius: 6))
+            .overlay {
+                if isTargetSelectorFocused {
+                    RoundedRectangle(cornerRadius: 6).strokeBorder(accent, lineWidth: 1.5)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusable()
+        .focused($isTargetSelectorFocused)
+        .focusEffectDisabled()
+        .fixedSize(horizontal: true, vertical: false)
+        .foregroundStyle(colorSchemeContrast == .increased ? Color.primary : Color(nsColor: EditorPalette.buttonText))
+        .disabled(!state.canChooseTarget)
+        .accessibilityIdentifier("launcher-choose-target")
+        .accessibilityLabel(L10n.text("launcher.choose_target"))
+        .accessibilityValue(targetSelectorValue)
+        .help(L10n.text("launcher.choose_target_help"))
+        .onKeyPress(keys: [.return, .space, .upArrow, .downArrow, .escape, .tab], phases: .down) { key in
+            handleTargetSelectorKey(key)
+        }
+    }
+
+    private var targetSelectorValue: String {
+        let mode = L10n.text(state.hasExplicitTarget ? "launcher.target_explicit" : "launcher.target_automatic")
+        return state.displayedActionTitle.map { "\($0), \(mode)" } ?? mode
+    }
+
+    private func handleTargetSelectorKey(_ key: KeyPress) -> KeyPress.Result {
+        guard focusTarget.textView?.hasMarkedText() != true, !state.isComposingText else { return .ignored }
+        if key.modifiers == .option, key.key == .upArrow || key.key == .downArrow {
+            if state.intentCanCycle { send(.cycleTarget(forward: key.key == .downArrow)) }
+            return .handled
+        }
+        if key.key == .escape {
+            send(.candidateMenuChanged(false))
+            isTargetSelectorFocused = false
+            focusTarget.restoreEditorFocus()
+            return .handled
+        }
+        if state.isIntentCandidateMenuVisible {
+            if key.key == .upArrow || key.key == .downArrow || key.key == .tab {
+                let forward = key.key == .downArrow || (key.key == .tab && !key.modifiers.contains(.shift))
+                focusTarget.moveTargetMenuFocus(forward: forward, state: state)
+            } else if key.key == .return || key.key == .space {
+                focusTarget.selectHighlightedTarget(state: state, send: send)
+                isTargetSelectorFocused = false
+            }
+            return .handled
+        }
+        if key.key == .tab {
+            isTargetSelectorFocused = false
+            focusTarget.restoreEditorFocus()
+            return .handled
+        }
+        if key.key == .return || key.key == .space || key.key == .upArrow || key.key == .downArrow {
+            send(.toggleTargetMenu)
+            if state.isIntentCandidateMenuVisible { focusTarget.resetTargetMenuFocus(state: state) }
+            return .handled
+        }
+        return .ignored
+    }
+
     private var actionTargetHelp: String {
-        if state.intentDeviated {
+        if state.hasExplicitTarget {
             return state.intentCanCycle ? L10n.text("launcher.target_help.changed_cycle")
                 : L10n.text("launcher.target_help.changed")
         }
@@ -285,35 +438,43 @@ struct EditorView: View {
         cardChrome(intentCandidateMenuContent, cornerRadius: LauncherMetrics.overlayCornerRadius)
     }
 
-    /// D2：候选目标选择器卡——只有用户主动展开才出现；点击行只选定目标，不执行。
+    /// 菜单高亮只属于键盘导航；确定后才改变草稿的路由模式。
     private var intentCandidateMenuContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(state.intentCandidates) { candidate in
                 Button {
+                    guard focusTarget.textView?.hasMarkedText() != true else { return }
                     send(.selectTarget(candidate.id))
                     send(.candidateMenuChanged(false))
+                    isTargetSelectorFocused = false
+                    focusTarget.restoreEditorFocus()
                 } label: {
-                    HStack(spacing: 6) {
-                        Text(candidate.title)
-                        Spacer(minLength: 8)
-                        if candidate.isSelected {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(accent)
-                        }
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(candidate.isSelected ? accent.opacity(0.12) : .clear,
-                        in: RoundedRectangle(cornerRadius: 6))
-                    .contentShape(Rectangle())
+                    targetMenuLabel(title: candidate.title, selected: candidate.isSelected,
+                                    highlighted: focusTarget.highlightedTargetMenuItem == .target(candidate.id))
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("launcher-target-\(candidate.id)")
                 .accessibilityLabel(L10n.text("launcher.switch_target", candidate.title))
+                .accessibilityValue(candidate.isSelected ? L10n.text("launcher.target_selected") : "")
             }
+            Divider().padding(.horizontal, 10).padding(.vertical, 4)
+            Button {
+                guard focusTarget.textView?.hasMarkedText() != true else { return }
+                send(.useAutomatic())
+                isTargetSelectorFocused = false
+                focusTarget.restoreEditorFocus()
+            } label: {
+                targetMenuLabel(title: L10n.text("launcher.use_automatic"), selected: !state.hasExplicitTarget,
+                                highlighted: focusTarget.highlightedTargetMenuItem == .automatic)
+            }
+            .buttonStyle(.plain)
+            .disabled(!state.hasExplicitTarget)
+            .accessibilityIdentifier("launcher-use-automatic")
+            .accessibilityValue(state.hasExplicitTarget ? "" : L10n.text("launcher.target_automatic"))
+            .help(L10n.text("launcher.use_automatic_help"))
             HStack {
                 Spacer(minLength: 8)
+                keyHint("↑↓", L10n.text("launcher.navigate"))
                 keyHint("⏎", L10n.text("launcher.select"))
                 keyHint("esc", L10n.text("launcher.collapse"))
             }
@@ -323,6 +484,23 @@ struct EditorView: View {
         .font(.system(size: 12))
         .lineLimit(1)
         .padding(6)
+    }
+
+    private func targetMenuLabel(title: String, selected: Bool, highlighted: Bool) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+            Spacer(minLength: 8)
+            if selected {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(accent)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(highlighted ? accent.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .contentShape(Rectangle())
     }
 
     private func keyHint(_ key: String, _ action: String) -> some View {
@@ -853,20 +1031,31 @@ final class EditorTextView: NSTextView {
             if !event.isARepeat { send(.confirm(.commandEnter)) }
             return // Never submit a record or queue a future action while recognition is pending.
         }
-        // D2：候选目标菜单打开时键盘由选择器接管——↑↓ 切换、Enter 只选定不执行、Esc 收起。
-        if focusTarget != nil, state.isIntentCandidateMenuVisible {
+        // 菜单里的导航不修改路由；只有 Enter 才选定目标或恢复自动。
+        if let focusTarget, state.isIntentCandidateMenuVisible {
             if event.keyCode == 0x35 { // Esc 先收选择器
                 send(.candidateMenuChanged(false))
                 return
             }
             if returnModifiers.isEmpty, event.keyCode == 0x7E || event.keyCode == 0x7D {
-                if !event.isARepeat { send(.cycleTarget(forward: event.keyCode == 0x7D)) } // 0x7D=下=forward
+                if !event.isARepeat { focusTarget.moveTargetMenuFocus(forward: event.keyCode == 0x7D, state: state) }
                 return
             }
-            if isReturn, returnModifiers.isEmpty {
-                if !event.isARepeat { send(.candidateMenuChanged(false)) }
+            if event.keyCode == 0x30, returnModifiers.isEmpty || returnModifiers == .shift {
+                focusTarget.moveTargetMenuFocus(forward: returnModifiers.isEmpty, state: state)
                 return
             }
+            if isReturn {
+                suppressesIntentReturnRepeats = true
+                if !event.isARepeat { focusTarget.selectHighlightedTarget(state: state, send: send) }
+                return
+            }
+        }
+        // Tab 把真实键盘焦点移到选择按钮；关闭菜单后回到原编辑选区。
+        if let focusTarget, state.canChooseTarget, event.keyCode == 0x30,
+           returnModifiers.isEmpty || returnModifiers == .shift {
+            if !event.isARepeat { focusTarget.targetSelectorFocusRequest += 1 }
+            return
         }
         // ⌥↑/⌥↓：在 Jev 建议与其他可用目标间切换（仅当有多个目标可切换时拦截）。
         if focusTarget != nil, state.intentCanCycle,

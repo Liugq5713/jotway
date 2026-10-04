@@ -12,7 +12,7 @@ enum OperationExport {
     private struct Metadata: Encodable {
         let exportedAt: Int64
         let status: OperationRecorder.Status
-        let scope = "Jotway input versions, routing context, explicit choices, confirmations, and observed outcomes. Includes unsubmitted text; excludes keystrokes, other apps, clipboard monitoring, secrets, and full service responses."
+        let scope = "Jotway input versions, routing context, explicit choices and mode changes, confirmations, and observed outcomes. Includes unsubmitted text; excludes keystrokes, other apps, clipboard monitoring, secrets, and full service responses."
         let ordering = "Event sequence is authoritative. Unix millisecond timestamps are not ordering guarantees. Generation and runID isolate collection; generation is not a chronology."
         let completeness = "A missing terminal event means unknown. Successful outcomes do not prove intermediate events were captured. Legacy observations remain partial and are not attempts."
         let csvTextSafety = "CSV cells beginning with formula/control characters are prefixed with an apostrophe. JSONL preserves original values."
@@ -68,7 +68,7 @@ enum OperationExport {
         var rows = [["attempt_id", "lineage_id", "input_version", "input_id", "text", "utf8_bytes",
             "confirmed_at_ms", "confirm_sequence", "previous_presented_target_kind", "previous_presented_target_id",
             "previous_presented_route_source", "decision_event_id", "first_choice_event_id",
-            "final_target_kind", "final_target_id", "route_source", "selection_origin", "confirmation_source",
+            "final_target_kind", "final_target_id", "route_source", "selection_origin", "selection_continuity", "confirmation_source",
             "submission", "submission_reason", "execution_outcome", "execution_reason", "execution_duration_ms",
             "retry_of_attempt_id", "context_id", "rule_version", "requested_model", "actual_model",
             "text_transform", "expected_target", "problem_category", "candidate_rule", "notes"]]
@@ -101,11 +101,16 @@ enum OperationExport {
                 guard case .confirmation(let value) = confirmation?.details else { return "unknown" }
                 return value.textTransform.rawValue
             }()
+            let continuity: String = {
+                guard attempt.selectionOrigin != .automatic,
+                      case .confirmation(let value) = confirmation?.details else { return "" }
+                return (value.selectionContinuity ?? .direct).rawValue
+            }()
             rows.append([attempt.id, input.lineageID, String(input.inputVersion), input.id, input.text,
                 String(input.utf8Bytes), number(confirmation?.occurredAt), number(confirmation?.sequence),
                 previous?.targetKind?.rawValue ?? "", previous?.targetID ?? "", previous?.routeSource?.rawValue ?? "",
                 attempt.decisionEventID ?? "", attempt.firstChoiceEventID ?? "", attempt.targetKind.rawValue,
-                attempt.targetID, attempt.routeSource.rawValue, attempt.selectionOrigin.rawValue,
+                attempt.targetID, attempt.routeSource.rawValue, attempt.selectionOrigin.rawValue, continuity,
                 attempt.confirmationSource.rawValue,
                 submission.map { $0.kind == .submissionAccepted ? "accepted" : "rejected" } ?? "unknown",
                 submission?.reasonCode ?? "", execution?.outcome?.rawValue ?? "unknown", execution?.reasonCode ?? "",

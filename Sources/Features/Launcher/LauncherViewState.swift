@@ -19,7 +19,12 @@ final class LauncherViewState {
     var isReadingGettingStarted = false
     var isComposingText = false
     var intentTitle: String?
-    /// 当前会话是否有可手动选择的目标（不依赖 Jev 是否给出建议）。
+    /// 选择入口与目标循环分开：只有一个目标也能打开选择菜单。
+    var canChooseTarget = false
+    var hasExplicitTarget = false
+    /// 当前是否能接收确认；具体可用性和时间计划仍由会话校验。
+    var canConfirm = false
+    /// 是否存在与当前目标不同的候选，供 Option 上下键循环。
     var intentCanCycle = false
     /// 用户是否已明确指定目标，即使指定目标恰好等于建议也为 true。
     var intentDeviated = false

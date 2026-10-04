@@ -53,7 +53,7 @@ struct OperationStore: Sendable {
                 }
                 return false
             }
-            try Self.validate(attempt, in: db)
+            try Self.validate(attempt, confirmation: event, in: db)
             try db.execute(sql: """
                 INSERT INTO operation_attempts
                 (id,input_id,context_id,target_kind,target_id,route_source,selection_origin,confirmation_source,
@@ -239,7 +239,7 @@ struct OperationStore: Sendable {
         guard value == stored else { throw OperationStoreError.conflict("event") }
     }
 
-    private static func validate(_ attempt: OperationAttempt, in db: GRDB.Database) throws {
+    private static func validate(_ attempt: OperationAttempt, confirmation: OperationEvent, in db: GRDB.Database) throws {
         guard !attempt.id.isEmpty, !attempt.targetID.isEmpty,
               [.action, .application].contains(attempt.targetKind) else { throw OperationStoreError.invalid("attempt") }
         guard try Row.fetchOne(db, sql: "SELECT id FROM operation_inputs WHERE id = ?", arguments: [attempt.inputID]) != nil else {
@@ -251,18 +251,42 @@ struct OperationStore: Sendable {
                   decision.targetID == attempt.targetID, decision.routeSource == attempt.routeSource,
                   decision.outcome == .available else { throw OperationStoreError.invalid("decision_reference") }
         }
-        if attempt.selectionOrigin == .userChoice, attempt.firstChoiceEventID == nil {
+        guard case .confirmation(let detail) = confirmation.details else {
+            throw OperationStoreError.invalid("confirmation_details")
+        }
+        let selections = try Row.fetchAll(db, sql: """
+            SELECT event.* FROM operation_events event JOIN operation_inputs input ON input.id = event.input_id
+            WHERE input.lineage_id = (SELECT lineage_id FROM operation_inputs WHERE id = ?)
+                AND event.kind = 'target_selected' ORDER BY event.sequence
+            """, arguments: [attempt.inputID]).map(Self.event)
+        let lastAutomatic = selections.last { event in
+            if case .selection(let details) = event.details { return details.mode == .automatic }
+            return false
+        }?.sequence ?? 0
+        let inherited = detail.selectionContinuity == .inherited
+        if inherited {
+            guard attempt.routeSource == .explicit, attempt.selectionOrigin != .automatic,
+                  attempt.firstChoiceEventID == nil else { throw OperationStoreError.invalid("inherited_selection") }
+            // A cleared/off collection can lack the original click. When the lineage does
+            // contain a mode observation, inheritance must agree with its latest known state.
+            if let previous = selections.last, case .selection(let selection) = previous.details {
+                guard selection.mode != .automatic, previous.targetID == attempt.targetID,
+                      selection.selectionOrigin == attempt.selectionOrigin else {
+                    throw OperationStoreError.invalid("inherited_selection_state")
+                }
+            }
+        } else if attempt.selectionOrigin == .userChoice, attempt.firstChoiceEventID == nil {
             throw OperationStoreError.invalid("missing_choice_reference")
         }
         if let id = attempt.firstChoiceEventID {
             guard let choice = try event(id, in: db), choice.kind == .targetSelected,
-                  choice.inputID == attempt.inputID, case .selection(let detail) = choice.details,
+                  choice.inputID == attempt.inputID, choice.runID == confirmation.runID,
+                  case .selection(let detail) = choice.details, detail.mode != .automatic,
                   detail.selectionOrigin == .userChoice else { throw OperationStoreError.invalid("choice_reference") }
-            let choices = try Row.fetchAll(db, sql: "SELECT * FROM operation_events WHERE input_id = ? AND kind = 'target_selected' ORDER BY sequence",
-                                          arguments: [attempt.inputID]).map(Self.event)
-            let first = choices.first { event in
-                if case .selection(let details) = event.details { return details.selectionOrigin == .userChoice }
-                return false
+            let first = selections.first { event in
+                guard event.inputID == attempt.inputID, (event.sequence ?? 0) > lastAutomatic,
+                      case .selection(let details) = event.details else { return false }
+                return details.selectionOrigin == .userChoice && details.mode != .automatic
             }
             guard first?.id == id else { throw OperationStoreError.invalid("first_choice_reference") }
         }
@@ -368,10 +392,19 @@ struct OperationStore: Sendable {
             }
             if event.outcome == .setup, event.targetKind != .setup { throw OperationStoreError.invalid("presented_setup") }
         case (.targetSelected, .selection(let details)):
-            guard event.targetKind != nil, event.routeSource == .explicit else { throw OperationStoreError.invalid("selected_target") }
-            guard details.selectionOrigin != .automatic,
-                  (details.selectionOrigin == .setupCompletion) == (details.trigger == .setupCompletion) else {
-                throw OperationStoreError.invalid("selection_origin")
+            if details.mode == .automatic {
+                guard details.selectionOrigin == .automatic, details.trigger != .setupCompletion,
+                      event.targetKind == nil, event.targetID == nil, event.routeSource == nil else {
+                    throw OperationStoreError.invalid("automatic_mode_selection")
+                }
+            } else {
+                guard event.targetKind != nil, event.routeSource == .explicit else {
+                    throw OperationStoreError.invalid("selected_target")
+                }
+                guard details.selectionOrigin != .automatic,
+                      (details.selectionOrigin == .setupCompletion) == (details.trigger == .setupCompletion) else {
+                    throw OperationStoreError.invalid("selection_origin")
+                }
             }
             if let id = details.previousPresentedEventID {
                 guard let previous = try Self.event(id, in: db), previous.kind == .routePresented,
@@ -392,7 +425,8 @@ struct OperationStore: Sendable {
                       start.contextID == event.contextID, start.runID == event.runID,
                       start.targetID == event.targetID else { throw OperationStoreError.invalid("setup_order") }
             }
-        case (.confirmationBlocked, .confirmation):
+        case (.confirmationBlocked, .confirmation(let details)):
+            guard details.selectionContinuity == nil else { throw OperationStoreError.invalid("blocked_selection_continuity") }
             guard event.reasonCode != nil else { throw OperationStoreError.invalid("blocked_reason") }
             try outcome(event, allowed: [.unavailable, .failed])
         case (.confirmRequested, .confirmation): try outcome(event, allowed: [])

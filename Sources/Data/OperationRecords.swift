@@ -9,6 +9,8 @@ enum OperationRouteSource: String, Codable, Sendable {
     case userRule = "user_rule", localKeyword = "local_keyword", localApplication = "local_application"
 }
 enum OperationSelectionOrigin: String, Codable, Sendable { case userChoice = "user_choice", setupCompletion = "setup_completion", automatic }
+enum OperationSelectionMode: String, Codable, Sendable { case explicit, automatic }
+enum OperationSelectionContinuity: String, Codable, Sendable { case direct, inherited }
 enum OperationConfirmationSource: String, Codable, Sendable { case enter, commandEnter = "command_enter", button }
 enum OperationCaptureTrigger: String, Codable, Sendable { case stableInput = "stable_input", recognition, selection, confirmation, hide, clear }
 enum OperationSelectionTrigger: String, Codable, Sendable { case keyboard, button, setupCompletion = "setup_completion" }
@@ -179,9 +181,13 @@ struct OperationSelectionDetails: Codable, Equatable, Sendable {
     var selectionOrigin: OperationSelectionOrigin
     var trigger: OperationSelectionTrigger
     var previousPresentedEventID: String? = nil
+    /// Missing in earlier records, whose targetSelected events always selected an explicit target.
+    var mode: OperationSelectionMode? = nil
 }
 struct OperationConfirmationDetails: Codable, Equatable, Sendable {
     var textTransform: OperationTextTransform = .trimWhitespaceAndNewlines
+    /// An inherited choice has no newly observed click or cross-input first-choice reference.
+    var selectionContinuity: OperationSelectionContinuity? = nil
 }
 struct OperationSubmissionDetails: Codable, Equatable, Sendable {}
 struct OperationExecutionDetails: Codable, Equatable, Sendable {}

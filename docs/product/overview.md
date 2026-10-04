@@ -10,7 +10,7 @@ Jotway is a native macOS launcher for short, in-the-moment input. The user opens
 2. Enter plain text. Markdown-looking syntax, `/`, and `、` remain literal text; pasted rich text loses its styling, while image-only and file input is ignored.
 3. Jotway combines explicit selection, local matching, Jev's suggestion, and the default action to choose a destination. A direct application name or `打开 应用名` can resolve to a local application launch without opening a separate command menu.
 4. Press Enter to execute. If the target is Set Up Notes, Enter opens configuration and retains the draft; after setup, press Enter again to save. Shift+Enter inserts a newline.
-5. On success the panel clears and closes. On failure the draft is restored with an actionable message.
+5. When a text submission is accepted, the panel clears and closes and the next draft uses automatic routing. Failure restores the submitted text and its routing mode unless the new draft has already been edited or its routing changed; otherwise the failed submission is retained separately.
 
 ## Quick record panel appearance
 
@@ -24,6 +24,10 @@ The panel follows the system light or dark appearance. Both use an opaque neutra
 | Return keycap / cursor and Return symbol | `#DFE5ED` / `#285BAF` | `#3A4350` / `#72BDED` |
 
 The right-aligned action button uses 12 pt medium text, a 6 pt corner radius, and 7 pt horizontal / 3 pt vertical padding. It has no blue outline; the Return symbol and explicit-selection marker keep their blue accent. Action titles and status remain one line with truncation, full accessibility labels, and their existing tooltips. Reminder and Calendar plans use a separate result row above the action button: destination and absolute time on one line, or two lines in narrow layouts. Full destination and frozen time zone remain available through hover and VoiceOver. The editor gives up this row’s height before scrolling, keeping the action row visible. Candidate cards share the neutral surface without changing their layout or interaction.
+
+A separate target selector opens the candidate menu even for an empty draft or a single candidate. Empty drafts show Choose Target, or the explicitly selected target, without a Return hint. Selecting a target pins it to the draft through edits and panel reopening; selecting the current automatic target also establishes explicit mode. The menu's Use Automatic action releases that choice immediately. Only accepted submission, a completed edit that clears the draft, or Use Automatic ends the choice. An unavailable explicit target remains visible until the user changes mode or target.
+
+The selector supports keyboard focus. Enter inside its menu selects a target or changes mode without submitting; Escape closes only the menu. Option+Up/Down cycles targets separately and never cycles through Use Automatic. Text composition takes precedence over these keys.
 
 The area outside each card's rounded border stays transparent, without an outer shadow or gray backdrop.
 
