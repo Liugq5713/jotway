@@ -9,7 +9,7 @@ Jotway is a native macOS launcher for short, in-the-moment input. The user opens
 1. Open the quick record panel from the global shortcut, menu bar, Dock, or application launch.
 2. Enter plain text. Markdown-looking syntax, `/`, and `、` remain literal text; pasted rich text loses its styling, while image-only and file input is ignored.
 3. Jotway combines explicit selection, local matching, Jev's suggestion, and the default action to choose a destination. A direct application name or `打开 应用名` can resolve to a local application launch without opening a separate command menu.
-4. Press Enter to execute. If the target is Set Up Notes, Enter opens configuration and retains the draft; after setup, press Enter again to save. Shift+Enter inserts a newline.
+4. Press Enter or Command+Enter in the editor to execute. If the target is Set Up Notes, Enter opens configuration and retains the draft; after setup, press Enter again to save. Shift+Enter inserts a newline.
 5. When a text submission is accepted, the panel clears and closes and the next draft uses automatic routing. Failure restores the submitted text and its routing mode unless the new draft has already been edited or its routing changed; otherwise the failed submission is retained separately.
 
 ## Quick record panel appearance
@@ -20,14 +20,16 @@ The panel follows the system light or dark appearance. Both use an opaque neutra
 |---|---|---|
 | Card / outline | `#FAFBFC` / `#DCE0E5` | `#202226` / `#3F4248` |
 | Body / secondary text and placeholder | `#24262A` / `#777C85` | `#E7E9EE` / `#959BA7` |
-| Action button / label | `#EDF0F4` / `#5B6471` | `#2C2F35` / `#B9C1CD` |
+| Target button / label | `#EDF0F4` / `#5B6471` | `#2C2F35` / `#B9C1CD` |
 | Return keycap / cursor and Return symbol | `#DFE5ED` / `#285BAF` | `#3A4350` / `#72BDED` |
 
-The right-aligned action button uses 12 pt medium text, a 6 pt corner radius, and 7 pt horizontal / 3 pt vertical padding. It has no blue outline; the Return symbol and explicit-selection marker keep their blue accent. Action titles and status remain one line with truncation, full accessibility labels, and their existing tooltips. Reminder and Calendar plans use a separate result row above the action button: destination and absolute time on one line, or two lines in narrow layouts. Full destination and frozen time zone remain available through hover and VoiceOver. The editor gives up this row’s height before scrolling, keeping the action row visible. Candidate cards share the neutral surface without changing their layout or interaction.
+The right-aligned target button uses 12 pt medium text, a 6 pt corner radius, and 7 pt horizontal / 3 pt vertical padding. It has no blue outline; the Return symbol and explicit-selection marker keep their blue accent. The Return hint and candidate-menu keyboard hints use centered system symbols in uniform 16 pt square keycaps. Action titles and status remain one line with truncation, full accessibility labels, and their existing tooltips. Reminder and Calendar plans use a separate result row above the target button: destination and absolute time on one line, or two lines in narrow layouts. Full destination and frozen time zone remain available through hover and VoiceOver. The editor gives up this row’s height before scrolling, keeping the action row visible. Candidate cards share the neutral surface without changing their layout or interaction.
 
-A separate target selector opens the candidate menu even for an empty draft or a single candidate. Empty drafts show Choose Target, or the explicitly selected target, without a Return hint. Selecting a target pins it to the draft through edits and panel reopening; selecting the current automatic target also establishes explicit mode. The menu's Use Automatic action releases that choice immediately. Only accepted submission, a completed edit that clears the draft, or Use Automatic ends the choice. An unavailable explicit target remains visible until the user changes mode or target.
+The action name is the single target button, with a Return keycap hint for a nonempty draft and no separate dropdown arrow or execution button. Clicking it opens or closes the candidate menu, even for an empty draft or a single candidate. Empty drafts show Choose Target, or the explicitly selected target, without a Return hint. Selecting a target pins it to the draft through edits and panel reopening; selecting the current automatic target also establishes explicit mode. The menu's Use Automatic action releases that choice immediately. Only accepted submission, a completed edit that clears the draft, or Use Automatic ends the choice. An unavailable explicit target remains visible until the user changes mode or target.
 
-The selector supports keyboard focus. Enter inside its menu selects a target or changes mode without submitting; Escape closes only the menu. Option+Up/Down cycles targets separately and never cycles through Use Automatic. Text composition takes precedence over these keys.
+Tab focuses the target button; Return or Space opens its menu. Enter inside the menu selects a target or changes mode and restores editor focus without submitting; Escape closes only the menu. Option+Up/Down cycles targets separately and never cycles through Use Automatic. Text composition takes precedence over these keys.
+
+The candidate menu and window height update without layout animation, so opening or closing the menu does not animate the editor's position.
 
 The area outside each card's rounded border stays transparent, without an outer shadow or gray backdrop.
 

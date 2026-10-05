@@ -12,7 +12,7 @@ Without a stronger route, ready storage actions retain their fallback order: Not
 
 ## Authorization and configuration
 
-Pressing Enter or clicking Set Up Notes opens a single configuration window with the same Notes destination picker used in Settings → Actions. Opening the configuration flow or explicitly reading folders makes the Apple Events request that can trigger first authorization. Typing, rendering the panel, background recognition, and action prewarming do not request Notes permission.
+Pressing Enter or Command+Enter in the editor with Set Up Notes selected opens a single configuration window with the same Notes destination picker used in Settings → Actions. Opening the configuration flow or explicitly reading folders makes the Apple Events request that can trigger first authorization. Typing, rendering the panel, background recognition, and action prewarming do not request Notes permission.
 
 The draft, selection, and draft identity are retained while recognition is paused. Repeated confirmation focuses the existing configuration window. Completing, cancelling, or closing configuration returns to the same draft; successful configuration selects Notes and waits for another Enter before saving. A stale configuration callback cannot replace a newer draft or take its focus. Setup does not clear the draft, play a submission animation, or record action execution or model-adoption feedback.
 

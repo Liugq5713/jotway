@@ -95,7 +95,6 @@ struct EditorView: View {
     @Binding var text: String
     var appState: AppState? = nil
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let focusTarget: EditorFocusTarget
     let state: LauncherViewState
     let send: (LauncherEvent) -> Void
@@ -113,15 +112,14 @@ struct EditorView: View {
     @FocusState private var isTargetSelectorFocused: Bool
 
     var body: some View {
+        // 菜单开合与 NSPanel 的瞬时改高保持一致；整栈动画会让正文先跳位再滑回。
         let stack = VStack(spacing: LauncherMetrics.cardGap) {
             inputCard
             if isOverlayVisible {
                 overlayCard
-                    .transition(overlayTransition)
             }
         }
         .fixedSize(horizontal: false, vertical: true)
-        .animation(overlayAnimation, value: isOverlayVisible)
         .background(
             GeometryReader { proxy in
                 Color.clear.preference(key: LauncherTotalHeightKey.self, value: proxy.size.height)
@@ -135,9 +133,9 @@ struct EditorView: View {
             reportedCardHeight = card
             scheduleGeometryReport()
         }
-        // 表面和描边只响应外观，状态切换不改变卡片轮廓。
+        // 宿主尚未改高时也接受较小高度，让超出内容向下延展，避免临时居中跳位。
         stack
-            .frame(maxHeight: .infinity, alignment: .top)
+            .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
             .onChange(of: state.isIntentCandidateMenuVisible) { _, visible in
                 if visible {
                     if focusTarget.highlightedTargetMenuItem == nil { focusTarget.resetTargetMenuFocus(state: state) }
@@ -150,10 +148,6 @@ struct EditorView: View {
             }
     }
 
-    private var overlayAnimation: Animation {
-        .easeOut(duration: reduceMotion ? LauncherMetrics.reducedMotionDuration : LauncherMetrics.overlayAppearDuration)
-    }
-
     /// 合并同一轮布局里的几何上报：总高与卡高到齐后只通知窗口一次。
     private func scheduleGeometryReport() {
         guard !geometryReportScheduled else { return }
@@ -162,11 +156,6 @@ struct EditorView: View {
             geometryReportScheduled = false
             onContentSizeChange(reportedTotalHeight, reportedCardHeight)
         }
-    }
-
-    /// 悬浮层只快速淡入淡出：不做位移动画，窗口改高也是瞬时的，画面零抖动。
-    private var overlayTransition: AnyTransition {
-        .opacity
     }
 
     /// 悬浮层只挂动作目标选择器（普通输入的动作与摘要已收进输入卡动作行）。
@@ -257,7 +246,7 @@ struct EditorView: View {
         return nil
     }
 
-    /// 动作行：反馈/状态（单行尾省略，靠左）→ 弹性空间 → 确定性动作标签（靠右，点击 = Enter）。
+    /// 动作行：反馈/状态（单行尾省略，靠左）→ 弹性空间 → 目标选择入口（靠右）。
     private var actionRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
             if let status = actionRowStatusText {
@@ -280,11 +269,6 @@ struct EditorView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// 当前是否处于「选择器打开」状态：此时动作标签禁用，键盘由选择器接管。
-    private var isAnySelectorVisible: Bool {
-        state.isIntentCandidateMenuVisible
-    }
-
     private var hasDraftContent: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -292,45 +276,9 @@ struct EditorView: View {
     @ViewBuilder
     private var actionTarget: some View {
         if !state.isReadingGettingStarted {
-            HStack(spacing: 4) {
-                if hasDraftContent, let title = state.displayedActionTitle {
-                    primaryActionLabel(title: title)
-                }
-                targetSelector
-            }
-            .layoutPriority(1)
+            targetSelector
+                .layoutPriority(1)
         }
-    }
-
-    /// 主动作与选择入口分开；只有非空草稿显示执行键帽。
-    private func primaryActionLabel(title: String) -> some View {
-        Button { send(.confirm(.button)) } label: {
-            HStack(spacing: 5) {
-                explicitTargetMark
-                Text(title)
-                    .font(.system(size: 12, weight: .medium))
-                    .lineLimit(1)
-                    .frame(maxWidth: 220, alignment: .leading)
-                Text("↵")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(accent)
-                    .frame(width: 16, height: 16)
-                    .background(Color(nsColor: EditorPalette.keycap), in: RoundedRectangle(cornerRadius: 3))
-            }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(Color(nsColor: EditorPalette.button), in: RoundedRectangle(cornerRadius: 6))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .fixedSize(horizontal: true, vertical: false)
-        .foregroundStyle(colorSchemeContrast == .increased ? Color.primary : Color(nsColor: EditorPalette.buttonText))
-        .disabled(isAnySelectorVisible || !state.canConfirm)
-        .opacity(isAnySelectorVisible || !state.canConfirm ? 0.45 : 1)
-        .accessibilityIdentifier("jev-confirm-intent")
-        .accessibilityLabel(title)
-        .accessibilityValue(state.hasExplicitTarget ? L10n.text("launcher.target_explicit") : L10n.text("launcher.target_automatic"))
-        .help(actionTargetHelp)
     }
 
     @ViewBuilder
@@ -341,23 +289,27 @@ struct EditorView: View {
         }
     }
 
+    /// 名称本身就是选择入口；回车键帽只提示编辑区的执行快捷键。
     private var targetSelector: some View {
         Button {
-            guard focusTarget.textView?.hasMarkedText() != true else { return }
+            guard !state.isComposingText, focusTarget.textView?.hasMarkedText() != true else { return }
             send(.toggleTargetMenu)
             if state.isIntentCandidateMenuVisible { focusTarget.resetTargetMenuFocus(state: state) }
         } label: {
             HStack(spacing: 5) {
-                if !hasDraftContent {
-                    explicitTargetMark
-                    Text(state.displayedActionTitle ?? L10n.text("launcher.choose_target"))
-                        .font(.system(size: 12, weight: .medium))
-                        .lineLimit(1)
-                        .frame(maxWidth: 260, alignment: .leading)
+                explicitTargetMark
+                Text(state.displayedActionTitle ?? L10n.text("launcher.choose_target"))
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                    .frame(maxWidth: hasDraftContent ? 220 : 260, alignment: .leading)
+                if hasDraftContent, state.displayedActionTitle != nil {
+                    Image(systemName: "return")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(accent)
+                        .frame(width: 16, height: 16, alignment: .center)
+                        .background(Color(nsColor: EditorPalette.keycap), in: RoundedRectangle(cornerRadius: 3))
+                        .accessibilityHidden(true)
                 }
-                Image(systemName: state.isIntentCandidateMenuVisible ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
-                    .frame(width: 10)
             }
             .padding(.horizontal, 7)
             .frame(height: LauncherMetrics.actionRowHeight)
@@ -425,15 +377,6 @@ struct EditorView: View {
         return .ignored
     }
 
-    private var actionTargetHelp: String {
-        if state.hasExplicitTarget {
-            return state.intentCanCycle ? L10n.text("launcher.target_help.changed_cycle")
-                : L10n.text("launcher.target_help.changed")
-        }
-        return state.intentCanCycle ? L10n.text("launcher.target_help.execute_cycle")
-            : L10n.text("launcher.target_help.execute")
-    }
-
     private var overlayCard: some View {
         cardChrome(intentCandidateMenuContent, cornerRadius: LauncherMetrics.overlayCornerRadius)
     }
@@ -474,9 +417,9 @@ struct EditorView: View {
             .help(L10n.text("launcher.use_automatic_help"))
             HStack {
                 Spacer(minLength: 8)
-                keyHint("↑↓", L10n.text("launcher.navigate"))
-                keyHint("⏎", L10n.text("launcher.select"))
-                keyHint("esc", L10n.text("launcher.collapse"))
+                keyHint("↑↓", systemImage: "arrow.up.arrow.down", L10n.text("launcher.navigate"))
+                keyHint("⏎", systemImage: "return", L10n.text("launcher.select"))
+                keyHint("esc", systemImage: "escape", L10n.text("launcher.collapse"))
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
@@ -503,14 +446,14 @@ struct EditorView: View {
         .contentShape(Rectangle())
     }
 
-    private func keyHint(_ key: String, _ action: String) -> some View {
+    private func keyHint(_ key: String, systemImage: String, _ action: String) -> some View {
         HStack(spacing: 4) {
-            Text(key)
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
+            Image(systemName: systemImage)
+                .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
+                .frame(width: 16, height: 16, alignment: .center)
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .accessibilityLabel(key)
             Text(action)
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
