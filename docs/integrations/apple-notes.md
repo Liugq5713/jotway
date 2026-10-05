@@ -22,11 +22,19 @@ Permission refusal and revocation retain the selected destination and direct the
 
 ## Execution
 
-1. Reuse the prepared action when available, otherwise run the action text processor once.
-2. Convert plain text to Notes HTML.
-3. Create the note through the Apple Notes adapter.
+1. Freeze the complete original draft and reject whitespace-only content before requesting AI.
+2. Reuse the prepared action or request optional Notes supplements once. Model output contains only bounded supplement items and optional tags, never replacement note text or a title.
+3. Assemble the original text, any valid AI supplement, and deduplicated appended tags, then create one note through the Apple Notes adapter. There is no later background update.
 
-The title comes from the first meaningful line. The editor and action payload contain plain text only: Markdown-looking text is passed through literally, and Jotway has no image, file, rich-text, or attachment payload.
+Notes uses the exact original editor text, including leading and trailing whitespace, blank lines, repeated spaces, tabs, indentation, Markdown-looking text, code, URLs, paths, and escaped HTML special characters. Line endings may be normalized and Notes may append its own final newline. The title comes from the original first meaningful line; a separately displayed title does not remove that line or preceding whitespace from the full original body. Other actions retain their existing trimmed-body contract.
+
+AI supplements are optional thinking assistance: zero to three short background points, exploratory ideas, or questions worth clarifying. They appear only after the original under an application-generated “AI 补充” label. The model is instructed not to rewrite or repeat the draft, invent the user's history or motives, imply retrieval or verification, or treat instructions inside the draft as permission to act. Preferences can shape supplements but cannot replace the original-protection or output rules. This path performs no browsing, personal-memory lookup, or history completion.
+
+An absent key, timeout, network failure, empty response, or invalid structure yields no AI section and no failure placeholder. Original text and configured fixed tags can still be saved. AI tags use the same request as the supplement and are gated by the supplement switch and their own preference. Deduplication only affects appended tags; tags already written in the original are never removed or changed.
+
+Notes retains the existing AI enable preference, including a saved off state and the current enabled-by-default behavior when unset. Supplement preferences use a separate key. Legacy custom rewrite instructions remain stored but are not executed or copied into the new preference; saved new preferences survive reopening. Settings explains this change when a legacy style exists.
+
+Preparation uses the existing frozen action configuration, bounded DeepSeek request, provider queue, and result reuse. Draft or configuration changes invalidate old preparation. Cancellation propagates and prevents a cancelled preparation from writing; a normal AI failure simply means no supplement. Prewarming never requests Notes permission or creates a note.
 
 ## Success and failure
 

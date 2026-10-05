@@ -1,7 +1,7 @@
 import XCTest
 @testable import Jotway
 
-/// 启动器地板（Phase 1）：文本 → AI 处理（pass-through）→ 写入 Apple Notes。
+/// Notes 原文保护与启动器准备结果复用。
 @MainActor
 final class LauncherActionTests: XCTestCase {
     private let destination = AppleNotes.Destination(id: "folder-jotway", name: "测试 / Jotway")
@@ -73,7 +73,7 @@ final class LauncherActionTests: XCTestCase {
         XCTAssertEqual(outcome.localizedMessage, "Saved to Notes")
         XCTAssertEqual(captured?.operation, "create")
         XCTAssertEqual(captured?.folderID, destination.id)
-        // 首行进入标题，正文用 pre 保留。
+        // 标题独立展示，原文首行仍完整保留在正文。
         XCTAssertTrue(captured?.html?.contains("明天要买牛奶") == true)
     }
 

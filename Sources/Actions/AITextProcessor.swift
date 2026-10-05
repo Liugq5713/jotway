@@ -4,8 +4,6 @@ import Foundation
 /// Provider failures preserve the original text. Cancellation remains cancellation.
 struct AITextProcessor: ActionTextProcessor {
     enum Mode: Sendable {
-        /// 备忘录：整理正文，首行即标题。
-        case notes
         /// 提醒事项：只整理正文。
         case reminders
         /// 日历：只整理正文。
@@ -17,14 +15,10 @@ struct AITextProcessor: ActionTextProcessor {
     let mode: Mode
     /// 用户自定义的整理风格：非空时取代 `defaultStyle`，只影响风格段、锁定后缀原样保留。
     let styleOverride: String?
-    /// 备忘录追加相关标签开关；仅 `.notes` 模式消费，开时在锁定后缀追加自动打标签的要求。
-    let notesAutoTags: Bool
-    init(provider: AIProviderPlugin, mode: Mode, styleOverride: String? = nil,
-         notesAutoTags: Bool = false) {
+    init(provider: AIProviderPlugin, mode: Mode, styleOverride: String? = nil) {
         self.provider = provider
         self.mode = mode
         self.styleOverride = styleOverride
-        self.notesAutoTags = notesAutoTags
     }
 
     func process(_ text: String) async throws -> ProcessedText {
@@ -37,16 +31,11 @@ struct AITextProcessor: ActionTextProcessor {
             try Task.checkCancellation()
             let cleaned = output.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleaned.isEmpty else { return ProcessedText(text: text) }
-            switch mode {
-            case .notes:
-                return ProcessedText(text: cleaned)
-            case .reminders, .calendar:
-                // Structured/time JSON is not a body response. Never interpret its dates.
-                guard !cleaned.hasPrefix("{"), !cleaned.hasPrefix("["), !cleaned.hasPrefix("```") else {
-                    return ProcessedText(text: text)
-                }
-                return ProcessedText(text: cleaned)
+            // Structured/time JSON is not a body response. Never interpret its dates.
+            guard !cleaned.hasPrefix("{"), !cleaned.hasPrefix("["), !cleaned.hasPrefix("```") else {
+                return ProcessedText(text: text)
             }
+            return ProcessedText(text: cleaned)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -78,12 +67,6 @@ struct AITextProcessor: ActionTextProcessor {
 
     private func instructions() -> String {
         switch mode {
-        case .notes:
-            var suffix = "\n只输出整理后的正文本身（首行为标题），不要额外说明，不要用代码块包裹。\n正文中已有的 #标签 原样保留。"
-            if notesAutoTags {
-                suffix += "\n另起一行，在正文最后追加 1–3 个与内容相关的 #标签（# 后接连续文字、不含空格），独占最后一行。"
-            }
-            return style + suffix
         case .reminders, .calendar:
             return style + """
 

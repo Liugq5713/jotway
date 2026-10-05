@@ -110,19 +110,32 @@ struct AppleNotesSettingsView: View {
     @State private var showsSetup = false
 
     var body: some View {
+        // The editable preferences live in UserDefaults; the module revision drives their UI refresh.
+        let _ = module.configurationRevision
         Form {
             destinationSection(name: module.destination?.name, label: L10n.text("action.notes.destination_label")) { showsSetup = true }
-            Section(L10n.text("action.settings.ai_rewrite")) {
-                settingRow(L10n.text("action.notes.rewrite_help")) {
-                    Toggle(L10n.text("action.settings.rewrite_toggle"), isOn: Binding(
-                        get: { module.isAIRewriteEnabled }, set: { module.setAIRewriteEnabled($0) }))
-                        .accessibilityIdentifier("ai-rewrite-toggle-\(module.descriptor.id)")
+            Section(L10n.text("action.notes.ai_supplements")) {
+                settingRow(L10n.text("action.notes.supplement_help")) {
+                    Toggle(L10n.text("action.notes.supplement_toggle"), isOn: Binding(
+                        get: { module.isAISupplementEnabled }, set: { module.setAISupplementEnabled($0) }))
+                        .accessibilityIdentifier("notes-ai-supplement-toggle")
                 }
-                if module.isAIRewriteEnabled {
-                    InstructionEditor(title: L10n.text("action.settings.rewrite_style"), saved: module.rewritePrompt,
-                        defaultValue: AITextProcessor.localizedDefaultStyle,
-                        explanation: L10n.text("action.notes.rewrite_style_help"),
-                        onSave: { module.setRewritePrompt($0) })
+                if module.hasLegacyRewritePrompt {
+                    Text(L10n.text("action.notes.legacy_rewrite_help"))
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("notes-legacy-rewrite-notice")
+                }
+                if module.isAISupplementEnabled {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(L10n.text("action.notes.supplement_preferences"))
+                            .font(.body.weight(.medium))
+                        InstructionEditor(title: L10n.text("action.notes.supplement_preferences"), saved: module.supplementPrompt,
+                            defaultValue: AINotesSupplementProcessor.localizedDefaultPreference,
+                            explanation: L10n.text("action.notes.supplement_preferences_help"),
+                            compactFooter: true,
+                            onSave: { module.setSupplementPrompt($0) })
+                    }
                 }
             }
             Section(L10n.text("action.notes.tags")) {
@@ -131,11 +144,11 @@ struct AppleNotesSettingsView: View {
                         get: { module.notesTag }, set: { module.setNotesTag($0) }))
                         .accessibilityIdentifier("notes-fixed-tag")
                 }
-                settingRow(module.isAIRewriteEnabled ? L10n.text("action.notes.ai_tags_help")
-                                                     : L10n.text("action.notes.ai_tags_requires_rewrite")) {
+                settingRow(module.isAISupplementEnabled ? L10n.text("action.notes.ai_tags_help")
+                                                        : L10n.text("action.notes.ai_tags_requires_supplements")) {
                     Toggle(L10n.text("action.notes.ai_tags"), isOn: Binding(
                         get: { module.isAITagsEnabled }, set: { module.setAITagsEnabled($0) }))
-                        .disabled(!module.isAIRewriteEnabled)
+                        .disabled(!module.isAISupplementEnabled)
                         .accessibilityIdentifier("notes-ai-tags-toggle")
                 }
             }

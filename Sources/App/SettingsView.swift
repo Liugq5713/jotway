@@ -814,16 +814,19 @@ struct InstructionEditor: View {
     let saved: String
     let defaultValue: String
     let explanation: String
+    let compactFooter: Bool
     let onSave: (String) throws -> Void
     @State private var draft: String
     @State private var usesDefault: Bool
     @State private var message: String?
 
-    init(title: String, saved: String, defaultValue: String, explanation: String, onSave: @escaping (String) throws -> Void) {
+    init(title: String, saved: String, defaultValue: String, explanation: String,
+         compactFooter: Bool = false, onSave: @escaping (String) throws -> Void) {
         self.title = title
         self.saved = saved
         self.defaultValue = defaultValue
         self.explanation = explanation
+        self.compactFooter = compactFooter
         self.onSave = onSave
         _draft = State(initialValue: saved.isEmpty ? defaultValue : saved)
         _usesDefault = State(initialValue: saved.isEmpty)
@@ -848,7 +851,9 @@ struct InstructionEditor: View {
                 }
                     .accessibilityIdentifier("reset-\(title)")
                 Spacer(minLength: 12)
-                Text(L10n.text("instruction.enter_newline")).font(.caption).foregroundStyle(.secondary)
+                if !compactFooter {
+                    Text(L10n.text("instruction.enter_newline")).font(.caption).foregroundStyle(.secondary)
+                }
                 Button(L10n.text("common.cancel")) { draft = saved.isEmpty ? defaultValue : saved; usesDefault = saved.isEmpty; message = nil }
                     .accessibilityIdentifier("cancel-\(title)")
                 Button(L10n.text("common.save")) {
@@ -863,6 +868,10 @@ struct InstructionEditor: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("save-\(title)")
+            }
+            if compactFooter {
+                Text(L10n.text("instruction.enter_newline")).font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
             if let message { Text(message).font(.caption).foregroundStyle(.secondary).accessibilityAddTraits(.updatesFrequently) }
         }

@@ -19,11 +19,13 @@ final class AITextProcessorTests: XCTestCase {
         })
     }
 
-    func testNotesModeUsesCleanedText() async throws {
-        let processor = AITextProcessor(provider: provider(returning: "买牛奶\n还要买鸡蛋"),
-                                        mode: .notes)
-        let processed = try await processor.process("呃 就是那个 买牛奶 然后鸡蛋")
-        XCTAssertEqual(processed.text, "买牛奶\n还要买鸡蛋")
+    func testNotesReturnsSeparateSupplement() async throws {
+        let processor = AINotesSupplementProcessor(provider: provider(returning:
+            #"{"items":[{"kind":"question","text":"是否需要确认鸡蛋的数量？"}],"tags":["采购"]}"#),
+            autoTags: true)
+        let supplement = try await processor.process("呃 就是那个 买牛奶 然后鸡蛋")
+        XCTAssertEqual(supplement.items, [.init(kind: .question, text: "是否需要确认鸡蛋的数量？")])
+        XCTAssertEqual(supplement.tags, ["采购"])
     }
 
     func testRemindersModeUsesBodyWithoutTimeFields() async throws {
@@ -32,11 +34,10 @@ final class AITextProcessorTests: XCTestCase {
         XCTAssertEqual(processed.text, "开会")
     }
 
-    func testFailureFallsBackToOriginalText() async throws {
-        let processor = AITextProcessor(provider: failingProvider(),
-                                        mode: .notes)
-        let processed = try await processor.process("AI 挂了也要存下来")
-        XCTAssertEqual(processed.text, "AI 挂了也要存下来")
+    func testNotesFailureReturnsNoSupplement() async throws {
+        let processor = AINotesSupplementProcessor(provider: failingProvider())
+        let supplement = try await processor.process("AI 挂了也要存下来")
+        XCTAssertEqual(supplement, .empty)
     }
 
 }

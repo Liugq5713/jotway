@@ -34,8 +34,7 @@ enum BundledActions {
     }
 }
 
-func actionTextProcessor(preferences: UserDefaults, id: String, mode: AITextProcessor.Mode,
-                         notesAutoTags: Bool = false) -> any ActionTextProcessor {
+func actionTextProcessor(preferences: UserDefaults, id: String, mode: AITextProcessor.Mode) -> any ActionTextProcessor {
     let enabledKey = "aiRewriteEnabled.\(id)"
     let enabled = preferences.object(forKey: enabledKey) == nil || preferences.bool(forKey: enabledKey)
     guard enabled else { return PassthroughTextProcessor() }
@@ -44,8 +43,18 @@ func actionTextProcessor(preferences: UserDefaults, id: String, mode: AITextProc
     let override = preferences.string(forKey: "aiRewritePrompt.\(id)")
     return AITextProcessor(provider: provider, mode: mode,
                            styleOverride: override?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                               ? override : nil,
-                           notesAutoTags: notesAutoTags)
+                               ? override : nil)
+}
+
+func notesSupplementProcessor(preferences: UserDefaults, id: String) -> any NotesSupplementProcessor {
+    let enabledKey = "aiRewriteEnabled.\(id)"
+    let enabled = preferences.object(forKey: enabledKey) == nil || preferences.bool(forKey: enabledKey)
+    guard enabled else { return NoNotesSupplementProcessor() }
+    let deepSeek = DeepSeek.source()
+    let provider = AIProviderPlugin(configuration: { try deepSeek.configure(nil) })
+    let autoTags = preferences.object(forKey: "notesAITagsEnabled") == nil || preferences.bool(forKey: "notesAITagsEnabled")
+    return AINotesSupplementProcessor(provider: provider,
+        preferenceOverride: preferences.string(forKey: "notesSupplementPrompt"), autoTags: autoTags)
 }
 
 func cleanActionTag(_ raw: String) -> String {

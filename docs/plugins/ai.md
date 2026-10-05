@@ -5,19 +5,23 @@
 Jotway has two AI-related paths with different responsibilities:
 
 1. Jev suggests the destination action. It is documented separately.
-2. An action text processor may clean the body before a storage action writes. Reminder and Calendar time interpretation is local and separate.
+2. A storage action may request optional content assistance before writing. Reminder and Calendar time interpretation is local and separate.
 
 ## Action text processing
 
-Apple Notes, Reminders, and Calendar can each enable an `AITextProcessor` fixed to the DeepSeek source:
+Storage actions use DeepSeek independently of the general provider selected in AI settings:
 
-- Notes: clean the wording and put a concise title on the first line.
-- Reminders: clean the reminder wording.
-- Calendar: clean the event wording.
+- Notes uses a dedicated supplement processor. The exact original draft remains owned by the application; the model returns a bounded structured result containing zero to three short background points, exploratory ideas, or clarifying questions, plus optional tags. The application appends valid content under “AI 补充” and constructs the final HTML itself.
+- Reminders uses `AITextProcessor` to clean reminder wording.
+- Calendar uses `AITextProcessor` to clean event wording.
 
-Each action has an independent enable switch and user-editable body style instruction. Disabling the processor uses the original text. Reminder and Calendar schedules always come from the original draft through the local deterministic resolver; model output and style instructions cannot change those frozen times. Notes can append a fixed `#标签` text line and, while AI rewrite is enabled, ask the processor for related tags.
+Each action keeps its independent enable preference. Notes reuses its existing on/off value but stores supplement preferences separately from legacy rewrite styles, which remain stored and inactive. The default remains enabled when no value exists. Notes preserves original text, title source, blank lines, spacing, tabs, indentation and literal text syntax regardless of model output. Fixed tags and enabled AI tags are deduplicated only in the appended area; AI tags share the supplement request and are disabled when supplements are off.
 
-This processor is independent of the general source selected on the AI settings page. Missing key, network error, timeout, empty response, or invalid body output falls back to the original text. Cancellation propagates. Body fallback never alters time interpretation or turns a blocked time into a writable request.
+Reminder and Calendar body-style settings and fallback behavior remain unchanged. Their schedules always come from the original draft through the local deterministic resolver; model output and style instructions cannot change those frozen times.
+
+Missing key, network error, timeout, empty response, or invalid output produces no Notes supplement or AI tags; original text and configured fixed tags are still saved. It does not return a fallback copy of the original to append. For Reminders and Calendar, these failures retain their original-body fallback and never turn a blocked time into a writable request. Cancellation propagates through both paths and prevents the cancelled write.
+
+Notes uses one prepared result and one create request per accepted confirmation. It does not create a note first and edit it later. Prewarming uses existing action/configuration identities and is invalidated by changes. Custom supplement preferences cannot authorize replacing the original, inventing user background, or implying that external information was searched or verified. Draft instructions are treated as recorded content.
 
 ## General provider configuration
 

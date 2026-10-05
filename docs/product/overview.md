@@ -41,7 +41,7 @@ Clicking unused space inside the input card returns keyboard focus to the editor
 
 ## Bundled actions
 
-- Apple Notes: saves text; the factory default action.
+- Apple Notes: preserves the complete original text and can append separate AI thinking assistance; the factory default action.
 - Apple Reminders: creates a reminder for task-like input.
 - Apple Calendar: creates an event for time-bound input.
 - Chrome: opens a Google search.

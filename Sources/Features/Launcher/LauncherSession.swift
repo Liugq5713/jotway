@@ -1351,7 +1351,8 @@ final class LauncherSession {
         let event = OperationEvent(id: UUID().uuidString, inputID: token.inputID, contextID: token.contextID,
             runID: token.runID, occurredAt: OperationRecorder.nowMilliseconds(), kind: .confirmRequested,
             attemptID: attempt.id, details: .confirmation(.init(
-                textTransform: targetKind == .application ? .unchanged : .trimWhitespaceAndNewlines,
+                textTransform: targetKind == .application || registry.descriptor(for: targetID)?.preservesOriginalText == true
+                    ? .unchanged : .trimWhitespaceAndNewlines,
                 selectionContinuity: decision.source == .explicit && currentExplicitTarget != nil
                     ? (selectionIsInherited ? .inherited : .direct) : nil)))
         guard recorder.confirm(attempt, event: event, token: token) else { return nil }
@@ -1461,7 +1462,8 @@ final class LauncherSession {
 
     private func actionInput() -> ActionInput {
         ActionInput(identity: .init(draftID: draft.id, revision: revision),
-                    text: draft.content.trimmingCharacters(in: .whitespacesAndNewlines))
+                    text: draft.content.trimmingCharacters(in: .whitespacesAndNewlines),
+                    originalText: draft.content)
     }
 
     private var currentExplicitTarget: DraftTargetSelection? {

@@ -96,28 +96,45 @@ enum AppleNotes {
         }
     }
 
-    /// 纯文本 → Notes 内容（启动器路径，不经沉淀层的 Note）：
-    /// 首个非空行作标题，其余每行各自成普通段落（div）。不用 pre，故没有等宽灰底块，
-    /// 也不再有和标题重复的冗余正文；代价是不保留代码缩进（AI 加工后的正文以散文/要点为主）。
-    static func content(fromPlainText text: String) -> Content {
-        var lines = normalizedLines(text).split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        guard let titleIndex = lines.firstIndex(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) else {
-            // 全空白：占位标题，无正文。
-            return Content(html: "<div>Jotway</div>", plaintext: "Jotway\n")
+    /// Title and original body are separate: deriving a title never consumes an original line.
+    /// A span inside pre prevents HTML's special handling of a newline immediately after <pre>.
+    static func content(fromPlainText text: String, supplement: NotesSupplement = .empty,
+                        tags: [String] = []) -> Content {
+        let original = normalizedLines(text)
+        let title = original.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty } ?? "Jotway"
+        func preservedBlock(_ value: String, region: String) -> String {
+            "<pre data-jotway-region=\"\(region)\" style=\"font-family: -apple-system, Helvetica, sans-serif; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0;\"><span>\(escapedHTML(value))</span></pre>"
         }
-        let title = lines[titleIndex].trimmingCharacters(in: .whitespaces)
-        lines.removeSubrange(0...titleIndex)
-        let remainder = lines.joined(separator: "\n")
-        // Notes 会在最后一个块后追加一个换行。标题之后无内容时只发标题。
-        guard !remainder.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return Content(html: "<div>\(escapedHTML(title))</div>", plaintext: title + "\n")
+        // Native HTML import coalesces a block boundary with the body's first newline.
+        // An explicit separator prevents that boundary from consuming an original blank line.
+        var html = "<div>\(escapedHTML(title))</div><div><br></div>" + preservedBlock(original, region: "original")
+        var plaintext = title + "\n\n" + original
+        let items = supplement.items.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if !items.isEmpty {
+            let heading = L10n.text("action.notes.supplement.heading")
+            let additions = items.map { item in
+                let label = L10n.text("action.notes.supplement.\(item.kind.rawValue)")
+                return label + ": " + normalizedLines(item.text)
+            }.joined(separator: "\n\n")
+            html += "<hr><div><b>\(escapedHTML(heading))</b></div>" + preservedBlock(additions, region: "supplement")
+            plaintext += "\n\n" + heading + "\n" + additions
         }
-        // 每行独立成段，空行用 <br> 占位；普通 div 即正文默认样式，无灰底。
-        let bodyHTML = lines.map {
-            $0.trimmingCharacters(in: .whitespaces).isEmpty ? "<div><br></div>" : "<div>\(escapedHTML($0))</div>"
-        }.joined()
-        return Content(html: "<div>\(escapedHTML(title))</div>\(bodyHTML)",
-                       plaintext: title + "\n" + remainder + "\n")
+        // Existing original tags remain untouched. Only the appended collection is normalized/deduplicated.
+        var seen = Set(original.split(whereSeparator: { $0.isWhitespace }).map(String.init))
+        let appendedTags = (tags + supplement.tags).compactMap { raw -> String? in
+            let cleaned = cleanActionTag(raw)
+            guard !cleaned.isEmpty else { return nil }
+            let token = "#" + cleaned
+            return seen.insert(token).inserted ? token : nil
+        }
+        if !appendedTags.isEmpty {
+            let value = appendedTags.joined(separator: " ")
+            html += "<div><br></div>" + preservedBlock(value, region: "tags")
+            plaintext += "\n\n" + value
+        }
+        return Content(html: html, plaintext: plaintext + "\n")
     }
 
     private static func normalizedLines(_ text: String) -> String {

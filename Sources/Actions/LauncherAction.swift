@@ -109,12 +109,15 @@ struct ActionDescriptor: Sendable, Equatable {
     let fallbackPriority: Int?
     let intentHints: IntentHints
     let presentationPolicy: PresentationPolicy
+    /// Original-preserving actions consume `ActionInput.originalText` instead of its trimmed body.
+    let preservesOriginalText: Bool
 
     init(id: String, title: String, settingsName: String, summary: String,
          titleKey: String? = nil, settingsNameKey: String? = nil, summaryKey: String? = nil,
          systemImageName: String, tint: ActionTint, settingsGroup: ActionSettingsGroup,
          enablementPolicy: ActionEnablementPolicy, fallbackPriority: Int?,
-         intentHints: IntentHints, presentationPolicy: PresentationPolicy) {
+         intentHints: IntentHints, presentationPolicy: PresentationPolicy,
+         preservesOriginalText: Bool = false) {
         self.id = id
         self.title = title
         self.settingsName = settingsName
@@ -129,6 +132,7 @@ struct ActionDescriptor: Sendable, Equatable {
         self.fallbackPriority = fallbackPriority
         self.intentHints = intentHints
         self.presentationPolicy = presentationPolicy
+        self.preservesOriginalText = preservesOriginalText
     }
 
     var localizedTitle: String { titleKey.map { L10n.text($0) } ?? title }
@@ -171,6 +175,14 @@ struct ActionInput: Sendable {
 
     let identity: Identity
     let text: String
+    /// Exact frozen editor content. Existing actions retain the trimmed `text` contract.
+    let originalText: String
+
+    init(identity: Identity, text: String, originalText: String? = nil) {
+        self.identity = identity
+        self.text = text
+        self.originalText = originalText ?? text
+    }
 }
 
 struct PreparedAction: Sendable {
