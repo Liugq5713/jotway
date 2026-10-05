@@ -31,7 +31,11 @@
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
     <key>JotwayUpdatesEnabled</key>
-    <false/>
+    <true/>
+    <key>SUFeedURL</key>
+    <string>https://liugq5713.github.io/jotway/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>YuLt/YM89UhiBu4gVSelLS5af/qw5HRXdMXoZHlHey8=</string>
     <key>SUEnableAutomaticChecks</key>
     <true/>
     <key>SUScheduledCheckInterval</key>

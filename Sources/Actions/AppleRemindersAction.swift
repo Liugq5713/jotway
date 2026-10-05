@@ -26,6 +26,7 @@ final class AppleRemindersModule: ActionModule {
     private let preferences: UserDefaults
     private let run: @MainActor @Sendable (AppleReminders.Request) async throws -> AppleReminders.Response
     private(set) var destination: AppleReminders.Destination?
+    private(set) var repairFailure: ActionFailure?
     private(set) var configurationRevision = 0
 
     init(preferences: UserDefaults,
@@ -40,8 +41,9 @@ final class AppleRemindersModule: ActionModule {
 
     var state: ActionModuleState {
         .init(configurationRevision: configurationRevision,
-              availability: destination == nil
-                  ? .needsConfiguration(message: L10n.text("action.state.select_reminders")) : .ready,
+              availability: repairFailure.map { .needsConfiguration(message: $0.localizedDescription) }
+                  ?? (destination == nil
+                      ? .needsConfiguration(message: L10n.text("action.state.select_reminders")) : .ready),
               summary: destination.map { L10n.text("action.state.save_to", $0.name) }
                   ?? L10n.text("action.state.no_destination"),
               hasSavedConfiguration: ["remindersDestination", "aiRewriteEnabled.\(descriptor.id)",
@@ -54,7 +56,8 @@ final class AppleRemindersModule: ActionModule {
     func refreshAvailability() {}
     func makeAction() -> any LauncherAction {
         AppleRemindersAction(descriptor: descriptor, destination: destination,
-            processor: actionTextProcessor(preferences: preferences, id: descriptor.id, mode: .reminders), run: run)
+            processor: actionTextProcessor(preferences: preferences, id: descriptor.id, mode: .reminders),
+            run: { [self] request in try await perform(request) })
     }
 
     var isAIRewriteEnabled: Bool { enabledPreference("aiRewriteEnabled.\(descriptor.id)") }
@@ -66,25 +69,70 @@ final class AppleRemindersModule: ActionModule {
             throw ActionFailure(localized: "error.destination_save_failed", code: .storage)
         }
         destination = value
+        repairFailure = nil
         changed()
     }
     func loadDestinations() async throws -> [AppleReminders.Destination] {
-        let response = try await run(.init(requestID: UUID().uuidString, operation: "lists"))
-        guard response.status == "ok", let lists = response.lists, !lists.isEmpty else {
-            throw ActionFailure(localized: "error.reminders.no_lists", code: .configuration,
-                                osStatus: response.osStatus)
+        let values = try await readDestinations(allowAuthorizationPrompt: false)
+        if let destination, !values.contains(where: { $0.id == destination.id }) {
+            repairFailure = ActionFailure(localized: "destination.changed", code: .configuration)
+            changed()
+        } else if repairFailure != nil {
+            repairFailure = nil
+            changed()
         }
-        return lists
+        return values
     }
-    func verifyAndSetDestination(_ value: AppleReminders.Destination) async throws {
-        let response = try await run(.init(requestID: UUID().uuidString, operation: "create",
-            listID: value.id, name: "Jotway Connection Test", body: "This item can be deleted after verification.", due: .none))
-        guard response.status == "ok", response.reminderID?.isEmpty == false, response.listID == value.id else {
-            throw ActionFailure(localized: "error.reminders.verification_failed",
-                                code: .validation, osStatus: response.osStatus)
+
+    func authorizeAndSetDefaultDestination() async throws {
+        let values = try await readDestinations(allowAuthorizationPrompt: true)
+        let preferred = values.first { $0.id == destination?.id } ?? values[0]
+        try setDestination(preferred)
+    }
+
+    private func readDestinations(allowAuthorizationPrompt: Bool) async throws -> [AppleReminders.Destination] {
+        let expectedRevision = configurationRevision
+        let response = try await perform(.init(requestID: UUID().uuidString, operation: "lists",
+                                               allowAuthorizationPrompt: allowAuthorizationPrompt))
+        try Task.checkCancellation()
+        guard configurationRevision == expectedRevision else { throw CancellationError() }
+        guard let values = response.lists, !values.isEmpty else {
+            let failure = ActionFailure(localized: "error.reminders.no_lists", code: .configuration,
+                                        osStatus: response.osStatus)
+            repairFailure = failure
+            changed()
+            throw failure
         }
-        try setDestination(value)
+        return values
     }
+
+    private func perform(_ request: AppleReminders.Request) async throws -> AppleReminders.Response {
+        try Task.checkCancellation()
+        let expectedRevision = configurationRevision
+        do {
+            let response = try await run(request)
+            try Task.checkCancellation()
+            guard response.status == "ok" else {
+                throw ActionFailure(localized: request.operation == "lists"
+                    ? "error.reminders.no_lists" : "error.reminders.create_failed",
+                    code: request.operation == "lists" ? .configuration : .processFailed,
+                    osStatus: response.osStatus)
+            }
+            return response
+        } catch {
+            try Task.checkCancellation()
+            if error is CancellationError { throw error }
+            let failure = AppleReminders.actionFailure(for: error, operation: request.operation)
+            let isObsoleteDestination = (error as? AppleReminders.Failure)?.kind == .destination
+                && request.listID != destination?.id
+            if configurationRevision == expectedRevision, failure.code == .configuration, !isObsoleteDestination {
+                repairFailure = failure
+                changed()
+            }
+            throw failure
+        }
+    }
+
     func setAIRewriteEnabled(_ enabled: Bool) { preferences.set(enabled, forKey: "aiRewriteEnabled.\(descriptor.id)"); changed() }
     func setRewritePrompt(_ text: String) {
         let key = "aiRewritePrompt.\(descriptor.id)"
@@ -98,7 +146,7 @@ final class AppleRemindersModule: ActionModule {
     private func changed() { configurationRevision &+= 1; onChange?() }
 }
 
-/// The destination and locally resolved time are frozen before body preparation.
+/// A due-date precision and destination are frozen before optional body rewriting.
 struct AppleRemindersAction: LauncherAction {
     let descriptor: ActionDescriptor
     let destination: AppleReminders.Destination?

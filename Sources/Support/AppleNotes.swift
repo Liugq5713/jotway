@@ -32,14 +32,6 @@ enum AppleNotes {
         var message: String?
         /// 失败时的 Apple Event OSStatus（如 -1743 权限、-1728 目标不存在），用于诊断日志。
         var osStatus: Int?
-
-        /// 校验一次「存入备忘录」写入是否完整落地：状态 ok、拿到 noteID、落在预期文件夹、
-        /// 正文逐字一致。启动器路径（AppleNotesAction / 设置验证）共用。
-        func confirms(requestID: String, folderID: String, plaintext: String) -> Bool {
-            version == 1 && status == "ok" && self.requestID == requestID
-                && noteID?.isEmpty == false && self.folderID == folderID
-                && self.plaintext == plaintext
-        }
     }
 
     struct Failure: LocalizedError {
@@ -224,13 +216,41 @@ enum AppleNotes {
             var mayHaveWritten = false
             do {
                 if request.operation == "folders" {
+                    // Defaults can be unavailable while accounts are syncing. They only
+                    // determine ordering; permission errors must still reach the caller.
+                    func optionalDefault(_ read: () throws -> NSAppleEventDescriptor) throws -> NSAppleEventDescriptor? {
+                        do { return try read() }
+                        catch {
+                            let error = error as NSError
+                            if error.domain == NSOSStatusErrorDomain, error.code == -1743 { throw error }
+                            return nil
+                        }
+                    }
+                    let defaultAccount = try optionalDefault { try property(0x64666163, of: .null()) } // dfac
+                    let defaultAccountID = try defaultAccount.flatMap { account in
+                        try optionalDefault { try property(0x49442020, of: account) }?.stringValue // ID
+                    }
                     var folders: [Destination] = []
+                    var preferredFolderIDs: [String] = []
                     for account in try elements(0x61636374) { // acct
+                        let accountID = try text(0x49442020, of: account) // ID
                         let accountName = try text(0x706E616D, of: account) // pnam
+                        if let defaultFolder = try optionalDefault({ try property(0x64666F6C, of: account) }), // dfol
+                           let folderID = try optionalDefault({ try property(0x49442020, of: defaultFolder) })?.stringValue {
+                            if accountID == defaultAccountID { preferredFolderIDs.insert(folderID, at: 0) }
+                            else { preferredFolderIDs.append(folderID) }
+                        }
                         for folder in try elements(0x63666F6C, in: account) { // cfol
                             folders.append(try Destination(id: text(0x49442020, of: folder),
                                 name: accountName + " / " + text(0x706E616D, of: folder)))
                         }
+                    }
+                    // Prefer the system default, then another account's default, before
+                    // falling back to a folder exposed by Notes' scripting interface.
+                    if let defaultFolder = preferredFolderIDs.lazy.compactMap({ id in
+                        folders.first(where: { $0.id == id })
+                    }).first, let index = folders.firstIndex(where: { $0.id == defaultFolder.id }) {
+                        folders.insert(folders.remove(at: index), at: 0)
                     }
                     return Response(version: 1, requestID: request.requestID, status: "ok", folders: folders)
                 }

@@ -2,68 +2,72 @@
 
 > Role: **Current**
 
-Jotway includes Sparkle, but packaged builds currently use local updates. GitHub Actions runs continuous build/test validation, publishes tag-triggered GitHub Releases, and automatically updates the website with verified download details. The published packages remain ad-hoc signed and do not enable Sparkle online updates.
+Jotway uses Sparkle to check the HTTPS [GitHub Pages appcast](https://liugq5713.github.io/jotway/appcast.xml), download an EdDSA-signed DMG from GitHub Releases, and install it after the user confirms. Online releases require the configured signing key and a deployed feed. Existing builds that disabled Sparkle require a one-time manual installation of an online-enabled release.
 
 ## Client behavior
 
-- Builds set `JotwayUpdatesEnabled` to false and contain no `SUFeedURL`. Settings → 关于 shows that the build uses local updates and disables update controls; no update check is sent.
-- Sparkle can be enabled once a new HTTPS feed and EdDSA signing public key are configured. Its update checks start after the application finishes its critical startup path, and manual checks use Sparkle's standard UI.
-- Before termination for an update, Jotway asks the panel controller to preserve any recoverable draft state; an unsafe exit is cancelled.
+- Release packages embed `JotwayUpdatesEnabled=true`, the HTTPS `SUFeedURL`, and the Jotway `SUPublicEDKey`. Debug packages disable update checks. An explicit offline release also removes the feed and public key.
+- Update checks start after the critical startup path. Automatic checks default to once every 24 hours and can be changed in Settings → About. The menu and About page support manual checks through Sparkle's standard UI.
+- Downloaded updates must pass EdDSA verification before extraction. Automatic background installation is disabled; the user confirms installation and relaunch.
+- Installation is postponed while an action is running, a failed submission remains recoverable, or the quick record panel has a nonempty draft. The user must handle those contents and retry. Input composition, action setup, and other unsafe termination states also block relaunch.
+- Drafts live in memory and are not restored after relaunch. Ordinary application quit retains its existing behavior of clearing the draft.
 
-Updates within Jotway retain `com.liuguangqi.jotway` and preserve its data. Installations with another bundle identifier are separate applications and are never imported or replaced automatically.
+Updates retain `com.liuguangqi.jotway` and preserve its persistent data. Installations with another bundle identifier are separate applications and are never imported or replaced automatically.
 
-## Release flow
+## Signing configuration
 
-Preview:
+The public update key is checked into `Resources/Info.plist`. Its private key is stored in `.secrets/sparkle-private.key` at the repository root. The `.secrets` directory has mode `700`, the private-key file has mode `600`, and the directory is excluded from Git. Local online releases read this file; `SPARKLE_PRIVATE_KEY`, when provided, takes precedence. Dry runs do not read the private key.
+
+The same private key must be configured as the repository Actions secret `SPARKLE_PRIVATE_KEY` before a tag can publish an online release. Provision it through the repository secret-management interface, never through committed workflow contents. The workflow fails when the secret is missing, and packaging rejects a private key that does not match the embedded public key before building the application.
+
+Keep the local private-key file and a secure backup across builds and releases. Do not regenerate it for each release: installed clients trust the existing public key. Never commit, print, or pass the private key as a command-line argument. Local packaging and CI supply it to Sparkle through standard input.
+
+The appcast and installer files are public. The signing key grants authority to sign Jotway updates and remains private.
+
+## Local release flow
+
+Preview without building, writing files, or reading the private key:
 
 ```bash
 ./scripts/release.py --dry-run --notes "本次更新内容"
 ```
 
-Build a local patch release:
+Build an online-enabled local release using `.secrets/sparkle-private.key`, or the `SPARKLE_PRIVATE_KEY` environment variable when supplied:
 
 ```bash
 ./scripts/release.py patch --notes "本次更新内容"
 ```
 
-`release.py`:
+For an offline package that needs no update-signing key:
 
-1. selects the next display/build version from the source metadata (initially 0.1.0, build 1) and existing `release/*/release.json` records;
-2. validates the manually written release notes;
-3. builds the release application with bundled actions and AI providers;
-4. writes the version into the release copy and keeps online updates disabled;
-5. ad-hoc signs and verifies the application, then creates and verifies the DMG;
-6. calculates the DMG SHA-256 and writes local release metadata.
+```bash
+./scripts/release.py patch --offline --notes "本次更新内容"
+```
 
-This command does not upload files, read login credentials, create update-signing keys, or generate an appcast. GitHub Releases are published only by the tag-triggered workflow described below; a replacement Sparkle update feed is not yet configured.
+The script builds the release application with bundled actions and AI providers, writes display/build versions into the release copy, ad-hoc signs and verifies it, then creates and verifies the arm64 DMG. Online packaging generates `appcast.xml` with Sparkle's `generate_appcast`, embeds the provided release notes, and verifies the DMG signature using the public key embedded in the application. The feed specifies the package's minimum macOS version and Apple silicon requirement. Only full updates are published.
 
-## GitHub Actions release
+`release.py` writes a local `release.json` containing version, build, filename, architecture, minimum macOS, creation time, byte length, SHA-256, release notes, source commit, signing status, and `updatesEnabled`. Local metadata remains unpublished until the GitHub workflow publishes and verifies the assets. The command does not upload files or modify the installed app.
 
-Pull requests and pushes to `main` run `swift build` and `swift test` on an arm64 macOS runner. A semver tag such as `v0.1.1` starts the release workflow, which:
+Build numbers are the greater of the current UTC Unix timestamp in seconds and one above all known build numbers. The local release history and an optional `--previous-release` metadata file provide the lower bound. The previous stable release must have a lower display version as well. This avoids repeated build numbers on clean CI runners or after a clock rollback. Keep local `release/*/release.json` records for successive local builds.
 
-1. builds the release application;
-2. creates and verifies the arm64 DMG;
-3. records the SHA-256 checksum and release metadata;
-4. uploads the DMG and metadata as workflow artifacts;
-5. creates a GitHub Release with the same files attached; and
-6. verifies the public download against the local artifact and builds a separate downloadable [website artifact](../development/website.md) containing its generated metadata.
+For development delivery, `./scripts/build-app.sh release --update` replaces and restarts an installation with the same bundle identifier. It preserves the installed version metadata when newer than the source defaults. A debug delivery keeps online checks disabled.
 
-When the release workflow succeeds, the Pages workflow checks out `main`, fetches GitHub's latest stable release and its artifact metadata, verifies the public DMG's size and SHA-256 without download credentials, then rebuilds and deploys the website. It also runs for stable release publishing or edits, website changes on `main`, and manual dispatch. Every deployment resolves the latest stable release rather than using the checked-in offline metadata snapshot. Verification or build failures leave the deployed site unchanged.
+## GitHub Actions publication
 
-The workflows use the repository's `GITHUB_TOKEN` for creating the GitHub Release and reading its published asset metadata. Pages listens for successful release workflow completion because release events created with this token do not trigger another workflow. Website synchronization needs no personal access token, scheduled task, or automatic metadata commit. Packaging does not require Apple credentials or Sparkle signing keys because the artifact is ad-hoc signed, not notarized, and has online updates disabled.
+A semver tag such as `v0.1.2` triggers the release workflow. Releases run serially across tags. The workflow:
 
-Users can install a downloaded DMG by replacing the application. For local development delivery, `./scripts/build-app.sh release --update` replaces and restarts the installed application.
+1. requires the signing secret and verifies the previous stable public release;
+2. rejects an equal or older display version and chooses a higher build number;
+3. builds the DMG and generates its signed update entry;
+4. attaches the DMG, `appcast.xml`, `release.json`, and `SHA256SUMS.txt` to the GitHub Release;
+5. verifies the public downloads and update signature, then builds a website artifact.
 
-## Release notes
+The Pages workflow runs after successful release workflow completion, stable release publishing/edits, website changes, or manual dispatch. It checks out `main`, resolves the latest stable release, verifies the public DMG's size, SHA-256 and EdDSA signature, validates the feed against that package, and deploys the feed alongside the website. Verification or build failures stop deployment. An older release without online-update metadata produces a valid empty feed during the transition.
 
-`--notes` is required for both previews and local release builds. Release notes are written by the releaser; the script does not infer them from commits or call an AI service. A dry run does not build or write files.
+Publication uses the repository's `GITHUB_TOKEN`; only the signing operation receives `SPARKLE_PRIVATE_KEY`. No personal access token, scheduled polling, or automatic metadata commit is needed. The public DMG and feed are checked without download credentials. The Pages verifier uses OpenSSL for public-key verification; on macOS it can use Homebrew OpenSSL when the system version lacks Ed25519 support.
 
-The tag workflow uses the version label as the artifact's notes and asks GitHub to generate the GitHub Release body. The website preserves the artifact's notes and links to the GitHub Release for its full description.
+## Release notes and signing boundary
 
-## Outputs
+`--notes` is required, including for previews. The script does not infer notes from commits or call an AI service. The tag workflow uses the version label for embedded notes and asks GitHub to generate the Release body; the website links to the full GitHub description.
 
-Each version directory under `release/` contains the DMG and `release.json`, including the version, build, filename, inspected architecture, minimum macOS, UTC creation time, size, SHA-256, notes, and source commit. The metadata marks the artifact as unpublished. Keep these local records so successive builds advance the version; build directories and versioned binary products remain untracked.
-
-## Signing boundary
-
-The current application uses ad-hoc macOS code signing and is not Apple-notarized. Local DMGs do not carry a Sparkle EdDSA update signature. Enabling online distribution will require a separate update-signing and hosting flow; Sparkle signatures do not replace Apple code signing or notarization.
+Packages use ad-hoc macOS code signing and are not Apple-notarized. Sparkle's EdDSA signature authenticates downloaded updates; it does not replace Developer ID signing or Apple notarization. First installation remains a manual DMG installation subject to macOS's normal checks.

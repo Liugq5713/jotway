@@ -12,9 +12,13 @@ Settings show ChatGPT under **Conversations**, with an enable switch that defaul
 
 ## Routing
 
-Select **Open in ChatGPT** using the candidate row or Option+Up/Down, or begin the draft with `问 ChatGPT `, `问ChatGPT `, `ChatGPT:`, `ChatGPT：`, `Codex:`, or `Codex：`. English matching is case-insensitive, and text may follow either colon immediately. Prefixes remain part of the submitted text. Saved phrase rules can also target the stable ID `chatgpt`.
+Select **Open in ChatGPT** using the candidate row or Option+Up/Down, or begin the draft with `问 ChatGPT `, `问ChatGPT `, `ChatGPT `, `ChatGPT:`, `ChatGPT：`, `Codex `, `Codex:`, or `Codex：`. English matching is case-insensitive. A name followed by a space and text, such as `chatgpt 帮我处理一下，如何能高效完成工作`, selects this action; text may also follow either colon immediately. Prefixes remain part of the submitted text. Saved phrase rules can also target the stable ID `chatgpt`.
 
-Explicit selection takes precedence over prefixes and model suggestions. Bare `ChatGPT` or `Codex` names retain local application-matching behavior. Ordinary questions do not automatically select this action. ChatGPT is never a fallback and does not participate in Jev capture or web-search bindings; manual selection and prefixes work without a Jev key or configured storage action.
+With Jev configured, ordinary requests for an explanation, how-to answer, analysis, comparison, summary, translation, writing, or generated content can suggest ChatGPT without an application name or prefix. For example, `如何能高效完成工作`, `帮我分析这两种方案`, and `写一份计划` belong to the conversation category. Explicit web searches and requests for webpages, links, sources, or current public facts remain Chrome suggestions. Notes, reminders, and actual calendar scheduling remain storage routes; quoted, negated, or deferred assistant requests do not become conversation suggestions.
+
+The module declares the `.conversation` model binding. A Jev conversation result maps to ChatGPT only when it is enabled and available in the current request snapshot. Missing, disabled, or incompatible installations cannot become a model target. ChatGPT is never a fallback and does not participate in storage capture.
+
+Explicit selection takes precedence over prefixes and model suggestions. Bare `ChatGPT` or `Codex` names retain local application-matching behavior. Manual selection and prefixes work without a Jev key or configured storage action. A model suggestion still requires user confirmation to open the destination, where the user reviews and sends the text.
 
 ## Execution and text boundary
 

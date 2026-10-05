@@ -10,7 +10,9 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 from urllib.request import Request, urlopen
+from appcast import MAX_BYTES, empty_feed, validate_feed, verify_signature
 from release_metadata import sha256, validate
 
 
@@ -25,12 +27,25 @@ def public_request(url):
     return Request(url, headers={'User-Agent': 'Jotway-release-verifier'})
 
 
+def read_public_asset(release, name):
+    asset = uploaded_asset(release, name)
+    with urlopen(public_request(asset['browser_download_url']), timeout=90) as remote:
+        raw = remote.read(MAX_BYTES + 1)
+    if len(raw) > MAX_BYTES or len(raw) != asset['size']:
+        raise ValueError(f'Public {name} size is invalid.')
+    digest = asset.get('digest')
+    if digest and digest != 'sha256:' + hashlib.sha256(raw).hexdigest():
+        raise ValueError(f'Public {name} digest does not match GitHub.')
+    return raw
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--release', type=Path, help='Local release.json and adjacent DMG; otherwise use the public release.json asset')
     parser.add_argument('--repository', default='Liugq5713/jotway')
     parser.add_argument('--tag', help='Stable vMAJOR.MINOR.PATCH tag; defaults to GitHub latest release')
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--appcast-output', type=Path, help='Write the verified public feed (empty for older releases)')
     args = parser.parse_args()
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', args.repository):
         raise ValueError('Invalid repository.')
@@ -47,15 +62,7 @@ def main():
     if args.release:
         record = json.loads(args.release.read_text())
     else:
-        metadata_asset = uploaded_asset(release, 'release.json')
-        with urlopen(public_request(metadata_asset['browser_download_url']), timeout=90) as remote:
-            raw = remote.read(1024 * 1024 + 1)
-        if len(raw) > 1024 * 1024 or len(raw) != metadata_asset['size']:
-            raise ValueError('Public release.json size is invalid.')
-        digest = metadata_asset.get('digest')
-        if digest and digest != 'sha256:' + hashlib.sha256(raw).hexdigest():
-            raise ValueError('Public release.json digest does not match GitHub.')
-        record = json.loads(raw)
+        record = json.loads(read_public_asset(release, 'release.json'))
     if record['version'] != tag[1:]:
         raise ValueError('Tag does not match the artifact version.')
     if Path(record['file']).name != record['file']:
@@ -64,8 +71,11 @@ def main():
     exported = {key: record[key] for key in ('version', 'build', 'minimumMacOS', 'architecture', 'file',
                                              'bytes', 'sha256', 'codeSigning', 'notarized', 'notes')}
     exported.update(schemaVersion=1, status='published', releaseDate=release['published_at'],
-                    downloadURL=asset['browser_download_url'], releaseURL=release['html_url'])
+                    downloadURL=asset['browser_download_url'], releaseURL=release['html_url'],
+                    updatesEnabled=record.get('updatesEnabled', False))
     validate(exported)
+    appcast = read_public_asset(release, 'appcast.xml') if exported['updatesEnabled'] else empty_feed()
+    signature = validate_feed(appcast, exported)
     if args.release:
         artifact = args.release.parent / record['file']
         if artifact.stat().st_size != record['bytes'] or sha256(artifact) != record['sha256']:
@@ -78,14 +88,22 @@ def main():
     # Read without auth to prove that users can download the recorded bytes.
     request = public_request(asset['browser_download_url'])
     remote_digest, size = hashlib.sha256(), 0
-    with urlopen(request, timeout=90) as remote:
-        for chunk in iter(lambda: remote.read(1024 * 1024), b''):
-            size += len(chunk)
-            if size > record['bytes']:
-                raise ValueError('Remote artifact is larger than the local artifact.')
-            remote_digest.update(chunk)
-    if size != record['bytes'] or remote_digest.hexdigest() != record['sha256']:
-        raise ValueError('Public download bytes do not match the local artifact.')
+    with tempfile.TemporaryDirectory(prefix='jotway-public-update-') as directory:
+        downloaded = Path(directory) / record['file']
+        with urlopen(request, timeout=90) as remote, downloaded.open('wb') as stream:
+            for chunk in iter(lambda: remote.read(1024 * 1024), b''):
+                size += len(chunk)
+                if size > record['bytes']:
+                    raise ValueError('Remote artifact is larger than the local artifact.')
+                remote_digest.update(chunk)
+                stream.write(chunk)
+        if size != record['bytes'] or remote_digest.hexdigest() != record['sha256']:
+            raise ValueError('Public download bytes do not match the local artifact.')
+        if signature is not None:
+            verify_signature(downloaded, signature)
+    if args.appcast_output:
+        args.appcast_output.parent.mkdir(parents=True, exist_ok=True)
+        args.appcast_output.write_bytes(appcast)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(exported, ensure_ascii=False, indent=2) + '\n')
     print(f'Public artifact verified ({tag}); wrote {args.output}')

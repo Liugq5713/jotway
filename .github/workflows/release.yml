@@ -9,7 +9,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  # Version/build validation and publication must finish before another tag runs.
+  group: release
   cancel-in-progress: false
 
 jobs:
@@ -18,6 +19,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Show toolchain
         run: |
@@ -35,9 +38,29 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Require update signing key
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "Configure the Jotway SPARKLE_PRIVATE_KEY Actions secret before publishing." >&2
+            exit 1
+          fi
+
+      - name: Verify previous stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/website/publish-metadata.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --output "$RUNNER_TEMP/previous-release.json"
+
       - name: Build and package DMG
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           ./scripts/release.py "${{ steps.version.outputs.version }}" \
+            --previous-release "$RUNNER_TEMP/previous-release.json" \
             --notes "Jotway ${{ github.ref_name }}"
 
       - name: Create checksum file
@@ -45,7 +68,7 @@ jobs:
         run: |
           release_dir="$(find release -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
           test -n "$release_dir"
-          shasum -a 256 "$release_dir"/*.dmg > "$release_dir/SHA256SUMS.txt"
+          (cd "$release_dir" && shasum -a 256 *.dmg appcast.xml release.json > SHA256SUMS.txt)
           echo "RELEASE_DIR=$release_dir" >> "$GITHUB_ENV"
 
       - name: Upload workflow artifact
@@ -55,6 +78,7 @@ jobs:
           path: |
             ${{ env.RELEASE_DIR }}/*.dmg
             ${{ env.RELEASE_DIR }}/release.json
+            ${{ env.RELEASE_DIR }}/appcast.xml
             ${{ env.RELEASE_DIR }}/SHA256SUMS.txt
           if-no-files-found: error
 
@@ -65,8 +89,10 @@ jobs:
           gh release create "${{ github.ref_name }}" \
             "$RELEASE_DIR"/*.dmg \
             "$RELEASE_DIR/release.json" \
+            "$RELEASE_DIR/appcast.xml" \
             "$RELEASE_DIR/SHA256SUMS.txt" \
             --title "Jotway ${{ github.ref_name }}" \
+            --verify-tag \
             --generate-notes
 
       - name: Verify public download and build website artifact
@@ -77,8 +103,11 @@ jobs:
             --release "$RELEASE_DIR/release.json" \
             --repository "$GITHUB_REPOSITORY" \
             --tag "$GITHUB_REF_NAME" \
-            --output "$RELEASE_DIR/website-release.json"
-          python3 scripts/website/build.py --metadata "$RELEASE_DIR/website-release.json"
+            --output "$RELEASE_DIR/website-release.json" \
+            --appcast-output "$RUNNER_TEMP/appcast.xml"
+          python3 scripts/website/build.py \
+            --metadata "$RELEASE_DIR/website-release.json" \
+            --appcast "$RUNNER_TEMP/appcast.xml"
 
       - name: Upload website for separate deployment
         uses: actions/upload-artifact@v4

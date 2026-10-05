@@ -7,6 +7,7 @@ on:
       - 'website/**'
       - 'scripts/website/**'
       - 'Resources/Icons/AppIcon.png'
+      - 'Resources/Info.plist'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
   release:
@@ -58,10 +59,14 @@ jobs:
         run: |
           python3 scripts/website/publish-metadata.py \
             --repository "$GITHUB_REPOSITORY" \
-            --output "$RUNNER_TEMP/website-release.json"
+            --output "$RUNNER_TEMP/website-release.json" \
+            --appcast-output "$RUNNER_TEMP/appcast.xml"
 
       - name: Build static website
-        run: python3 scripts/website/build.py --metadata "$RUNNER_TEMP/website-release.json"
+        run: |
+          python3 scripts/website/build.py \
+            --metadata "$RUNNER_TEMP/website-release.json" \
+            --appcast "$RUNNER_TEMP/appcast.xml"
 
       - name: Check demo JavaScript syntax
         run: node --check website/src/site.js

@@ -26,6 +26,7 @@ final class AppleCalendarModule: ActionModule {
     private let preferences: UserDefaults
     private let run: @MainActor @Sendable (AppleCalendar.Request) async throws -> AppleCalendar.Response
     private(set) var destination: AppleCalendar.Destination?
+    private(set) var repairFailure: ActionFailure?
     private(set) var configurationRevision = 0
 
     init(preferences: UserDefaults,
@@ -40,8 +41,9 @@ final class AppleCalendarModule: ActionModule {
 
     var state: ActionModuleState {
         .init(configurationRevision: configurationRevision,
-              availability: destination == nil
-                  ? .needsConfiguration(message: L10n.text("action.state.select_calendar")) : .ready,
+              availability: repairFailure.map { .needsConfiguration(message: $0.localizedDescription) }
+                  ?? (destination == nil
+                      ? .needsConfiguration(message: L10n.text("action.state.select_calendar")) : .ready),
               summary: destination.map { L10n.text("action.state.save_to", $0.name) }
                   ?? L10n.text("action.state.no_destination"),
               hasSavedConfiguration: ["calendarDestination", "aiRewriteEnabled.\(descriptor.id)",
@@ -54,7 +56,8 @@ final class AppleCalendarModule: ActionModule {
     func refreshAvailability() {}
     func makeAction() -> any LauncherAction {
         AppleCalendarAction(descriptor: descriptor, destination: destination,
-            processor: actionTextProcessor(preferences: preferences, id: descriptor.id, mode: .calendar), run: run)
+            processor: actionTextProcessor(preferences: preferences, id: descriptor.id, mode: .calendar),
+            run: { [self] request in try await perform(request) })
     }
 
     var isAIRewriteEnabled: Bool { enabledPreference("aiRewriteEnabled.\(descriptor.id)") }
@@ -66,28 +69,70 @@ final class AppleCalendarModule: ActionModule {
             throw ActionFailure(localized: "error.destination_save_failed", code: .storage)
         }
         destination = value
+        repairFailure = nil
         changed()
     }
     func loadDestinations() async throws -> [AppleCalendar.Destination] {
-        let response = try await run(.init(requestID: UUID().uuidString, operation: "calendars"))
-        guard response.status == "ok", let calendars = response.calendars, !calendars.isEmpty else {
-            throw ActionFailure(localized: "error.calendar.no_calendars", code: .configuration,
-                                osStatus: response.osStatus)
+        let values = try await readDestinations(allowAuthorizationPrompt: false)
+        if let destination, !values.contains(where: { $0.id == destination.id }) {
+            repairFailure = ActionFailure(localized: "destination.changed", code: .configuration)
+            changed()
+        } else if repairFailure != nil {
+            repairFailure = nil
+            changed()
         }
-        return calendars
+        return values
     }
-    func verifyAndSetDestination(_ value: AppleCalendar.Destination) async throws {
-        let now = Date()
-        let response = try await run(.init(requestID: UUID().uuidString, operation: "create",
-            calendarID: value.id, title: "Jotway Connection Test", body: "This event can be deleted after verification.",
-            schedule: try CalendarSchedule(start: now, end: now.addingTimeInterval(300),
-                timeZoneID: TimeZone.current.identifier, endSource: .explicitDuration)))
-        guard response.status == "ok", response.eventID?.isEmpty == false, response.calendarID == value.id else {
-            throw ActionFailure(localized: "error.calendar.verification_failed",
-                                code: .validation, osStatus: response.osStatus)
+
+    func authorizeAndSetDefaultDestination() async throws {
+        let values = try await readDestinations(allowAuthorizationPrompt: true)
+        let preferred = values.first { $0.id == destination?.id } ?? values[0]
+        try setDestination(preferred)
+    }
+
+    private func readDestinations(allowAuthorizationPrompt: Bool) async throws -> [AppleCalendar.Destination] {
+        let expectedRevision = configurationRevision
+        let response = try await perform(.init(requestID: UUID().uuidString, operation: "calendars",
+                                               allowAuthorizationPrompt: allowAuthorizationPrompt))
+        try Task.checkCancellation()
+        guard configurationRevision == expectedRevision else { throw CancellationError() }
+        guard let values = response.calendars, !values.isEmpty else {
+            let failure = ActionFailure(localized: "error.calendar.no_calendars", code: .configuration,
+                                        osStatus: response.osStatus)
+            repairFailure = failure
+            changed()
+            throw failure
         }
-        try setDestination(value)
+        return values
     }
+
+    private func perform(_ request: AppleCalendar.Request) async throws -> AppleCalendar.Response {
+        try Task.checkCancellation()
+        let expectedRevision = configurationRevision
+        do {
+            let response = try await run(request)
+            try Task.checkCancellation()
+            guard response.status == "ok" else {
+                throw ActionFailure(localized: request.operation == "calendars"
+                    ? "error.calendar.no_calendars" : "error.calendar.create_failed",
+                    code: request.operation == "calendars" ? .configuration : .processFailed,
+                    osStatus: response.osStatus)
+            }
+            return response
+        } catch {
+            try Task.checkCancellation()
+            if error is CancellationError { throw error }
+            let failure = AppleCalendar.actionFailure(for: error, operation: request.operation)
+            let isObsoleteDestination = (error as? AppleCalendar.Failure)?.kind == .destination
+                && request.calendarID != destination?.id
+            if configurationRevision == expectedRevision, failure.code == .configuration, !isObsoleteDestination {
+                repairFailure = failure
+                changed()
+            }
+            throw failure
+        }
+    }
+
     func setAIRewriteEnabled(_ enabled: Bool) { preferences.set(enabled, forKey: "aiRewriteEnabled.\(descriptor.id)"); changed() }
     func setRewritePrompt(_ text: String) {
         let key = "aiRewritePrompt.\(descriptor.id)"
@@ -101,7 +146,7 @@ final class AppleCalendarModule: ActionModule {
     private func changed() { configurationRevision &+= 1; onChange?() }
 }
 
-/// The destination and locally resolved time are frozen before body preparation.
+/// A local schedule and destination are frozen before any optional body rewriting.
 struct AppleCalendarAction: LauncherAction {
     let descriptor: ActionDescriptor
     let destination: AppleCalendar.Destination?

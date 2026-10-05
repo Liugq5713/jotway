@@ -26,7 +26,11 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
     private let send: (LauncherEvent) -> Void
     private var keyMonitor: Any?
     /// 手动拖过的高度（§3.3 手动拖拽优先）：本会话内自动长高让位，重新唤起恢复。
-    private var manualContentHeight: CGFloat?
+    private var manualInputCardHeight: CGFloat? {
+        didSet { editorHostingView?.rootView.manualInputCardHeight = manualInputCardHeight }
+    }
+    private var editorHostingView: NSHostingView<EditorView>?
+    private var lastOverlayHeight: CGFloat = 0
     /// 最近一次上报的输入卡高度（提交特效按双卡轮廓合成截图用）。
     private var lastInputCardHeight: CGFloat = LauncherMetrics.inputCardMinHeight
     private(set) var submissionAnimationWindow: NSPanel?
@@ -85,6 +89,7 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
             )
         )
         hostingView.sizingOptions = [] // 窗口负责尺寸限制，内容只跟随可用宽高
+        editorHostingView = hostingView
         // 双卡结构（§3.1）：窗口透明无材质，输入卡与悬浮层各自持有玻璃/回退材质。
         // contentView 用独立容器而非 hostingView 本体：NSHostingView 会把渲染子视图
         // 插到最上层，直接当 contentView 会把 edgeGlow 压在 SwiftUI 内容下面。
@@ -170,7 +175,7 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
 
     /// 每次唤起先选屏，再恢复该屏位置；显示期间不再跟随鼠标。
     func showPanel() {
-        manualContentHeight = nil // 重新唤起恢复自动长高（§3.3）
+        manualInputCardHeight = nil // 重新唤起恢复自动长高（§3.3）
         if !isVisible {
             // 离屏先完成一轮布局：草稿文本、卡片高度上报与改高都在显示前落地，
             // 避免面板出现后再被看见长个（appear 期间的残留尺寸变化由下方 alpha 门槛兜住）。
@@ -235,14 +240,23 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
             contentMinSize = NSSize(width: minimumWidth, height: minimumHeight)
             if constrained != frame { setFrame(constrained, display: true) }
         }
+        if manualInputCardHeight != nil { updateManualInputCardHeight() }
     }
 
     /// 双卡内容尺寸变化：锚定输入卡顶边改窗高，瞬时完成（不做 resize 动画，用户明确不要画面抖动）。
     /// 手动拖拽优先：本会话内用户拖过高度后按手动值，重新唤起恢复自动（§3.3）。
     private func contentSizeDidChange(totalHeight: CGFloat, inputCardHeight: CGFloat) {
         if inputCardHeight > 0 { lastInputCardHeight = inputCardHeight }
+        lastOverlayHeight = max(0, totalHeight - inputCardHeight)
         guard totalHeight > 0, !inLiveResize else { return }
-        let target = min(max(manualContentHeight ?? totalHeight, contentMinSize.height), contentMaxSize.height)
+        if let manualInputCardHeight, totalHeight > contentMaxSize.height,
+           manualInputCardHeight > contentMaxSize.height - lastOverlayHeight {
+            self.manualInputCardHeight = max(
+                editorHostingView?.rootView.minimumInputCardHeight ?? LauncherMetrics.inputCardMinHeight,
+                contentMaxSize.height - lastOverlayHeight
+            )
+        }
+        let target = min(max(totalHeight, contentMinSize.height), contentMaxSize.height)
         var resized = frame
         let delta = target - contentRect(forFrameRect: resized).height
         guard abs(delta) > 0.5 else { return }
@@ -264,11 +278,32 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
             ? LauncherMetrics.reducedMotionDuration : LauncherMetrics.overlayAppearDuration
     }
 
+    func windowWillStartLiveResize(_ notification: Notification) {
+        guard !isAdjustingFrame, let event = NSApp.currentEvent, event.window === self,
+              event.type == .leftMouseDown || event.type == .leftMouseDragged else { return }
+        manualInputCardHeight = lastInputCardHeight
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        guard !isAdjustingFrame, manualInputCardHeight != nil else { return }
+        updateManualInputCardHeight()
+    }
+
+    private func updateManualInputCardHeight() {
+        manualInputCardHeight = max(editorHostingView?.rootView.minimumInputCardHeight ?? LauncherMetrics.inputCardMinHeight,
+                                    contentRect(forFrameRect: frame).height - lastOverlayHeight)
+    }
+
     func windowDidEndLiveResize(_ notification: Notification) {
         // 只认用户拖拽：setFrame(animate:) 的原生 resize 动画也会触发这对通知，不能当成手动值
         guard let event = NSApp.currentEvent, event.window === self,
               event.type == .leftMouseUp || event.type == .leftMouseDragged else { return }
-        manualContentHeight = contentRect(forFrameRect: frame).height
+        updateManualInputCardHeight()
+        // 拖得低于正文和动作区的最小高度时，收敛到实际卡片尺寸。
+        if let manualInputCardHeight {
+            contentSizeDidChange(totalHeight: manualInputCardHeight + lastOverlayHeight,
+                                 inputCardHeight: manualInputCardHeight)
+        }
     }
 
     func windowDidChangeScreen(_ notification: Notification) {

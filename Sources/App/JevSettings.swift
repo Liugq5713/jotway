@@ -32,6 +32,13 @@ final class JevSettings {
         case .error(let value): value
         }
     }
+    var keyIssue: String? {
+        switch keyStatus {
+        case .empty: L10n.text("jev.key.empty")
+        case .error(let value): value
+        case .notSaved, .saved, .removed: nil
+        }
+    }
     private(set) var isTesting = false
     private var connectionStatus: ConnectionStatus?
     var connectionMessage: String? {

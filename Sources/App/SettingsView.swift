@@ -97,9 +97,6 @@ struct SettingsView: View {
     @AppStorage("submissionEffect") private var submissionEffect: SubmissionEffect = .wind
     @State private var selectedActionID: String?
     @State private var shortcutStatus = AppState.recordShortcutStatus()
-    @State private var aiKey = ""
-    @State private var hasAIKey = false
-    @State private var keyStatus = L10n.text("settings.key.not_saved")
     @State private var showsGettingStartedShortcuts = false
 
     init(themeMode: Binding<ThemeMode>, appState: AppState, initialPage: Page = .general,
@@ -176,7 +173,7 @@ struct SettingsView: View {
 
             List(selection: $selectedPage) {
                 Section(L10n.text("settings.sidebar.configuration")) {
-                    ForEach([Page.general, .ai, .intent, .actions, .instructions], id: \.self) { page in
+                    ForEach([Page.general, .intent, .ai, .actions, .instructions], id: \.self) { page in
                         sidebarLabel(page)
                     }
                 }
@@ -343,17 +340,7 @@ struct SettingsView: View {
     }
 
     private var aiPage: some View {
-        Form {
-            aiSourceSection
-        }
-        .formStyle(.grouped)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear { refreshAIKeyStatus() }
-        .onChange(of: appState.selectedAISource?.id) {
-            aiKey = ""
-            refreshAIKeyStatus()
-        }
-        .onDisappear { aiKey = "" }
+        AISettingsView(appState: appState, checkAPIKey: checkAIKey)
     }
 
     private var intentPage: some View {
@@ -362,139 +349,6 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    @ViewBuilder
-    private var aiSourceSection: some View {
-        Section {
-            Picker(L10n.text("settings.ai.provider"), selection: Binding(
-                get: { appState.aiSource }, set: { appState.setAISource($0) }
-            )) {
-                ForEach(appState.aiSources) { source in
-                    Text(source.title).tag(source.id)
-                }
-                if appState.selectedAISource == nil {
-                    Text(L10n.text("settings.ai.source_unregistered", appState.aiSource)).tag(appState.aiSource)
-                }
-            }
-            .pickerStyle(.menu)
-            .disabled(appState.onTestAIConnection == nil)
-
-            if let source = appState.selectedAISource, !source.models.isEmpty {
-                Picker(L10n.text("settings.ai.model"), selection: Binding(
-                    get: { appState.aiModel ?? "" }, set: { appState.setAIModel($0) }
-                )) {
-                    ForEach(source.models, id: \.id) { model in
-                        Text(model.title).tag(model.id)
-                    }
-                }
-                .disabled(appState.onTestAIConnection == nil)
-            }
-        } header: {
-            Text(L10n.text("settings.ai.source"))
-        } footer: {
-            Text(appState.onTestAIConnection == nil ? L10n.text("settings.ai.unavailable")
-                : appState.selectedAISource.map(localizedSourceDetail) ?? L10n.text("settings.ai.choose_source"))
-        }
-
-        if appState.onTestAIConnection != nil {
-            if let source = appState.selectedAISource, let keyURL = source.keyURL {
-                Section {
-                    HStack(spacing: 12) {
-                        SecureField(hasAIKey ? L10n.text("settings.key.replace_placeholder") : "\(source.title) API Key", text: Binding(
-                            get: { aiKey }, set: { aiKey = $0; appState.invalidateAIConnectionTest() }
-                        ))
-                        .textFieldStyle(.roundedBorder)
-                        .textContentType(.password)
-                        .onSubmit { saveAIKey() }
-                        .accessibilityLabel("\(source.title) API Key")
-                        Button(L10n.text("common.save")) { saveAIKey() }.disabled(aiKey.isEmpty)
-                    }
-                    HStack(spacing: 12) {
-                        Label(keyStatus, systemImage: hasAIKey ? "checkmark.circle" : "key")
-                            .font(.caption).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
-                        if hasAIKey {
-                            Button(L10n.text("settings.key.remove"), role: .destructive) { removeAIKey() }
-                                .controlSize(.small)
-                        }
-                    }
-                    Link(L10n.text("settings.key.get", source.title), destination: keyURL)
-                } header: {
-                    Text(L10n.text("settings.key.section"))
-                } footer: {
-                    Text(L10n.text("settings.key.storage_help"))
-                }
-            }
-
-            Section {
-                HStack(spacing: 12) {
-                    Text(L10n.text("settings.connection.verify"))
-                    Spacer(minLength: 12)
-                    if appState.isTestingAIConnection {
-                        ProgressView().controlSize(.small)
-                    }
-                    Button(appState.isTestingAIConnection ? L10n.text("settings.connection.testing") : L10n.text("settings.connection.test")) {
-                        Task { await appState.testAIConnection() }
-                    }
-                    .disabled(appState.isTestingAIConnection
-                        || appState.selectedAISource == nil
-                        || (appState.selectedAISource?.keyURL != nil && (!hasAIKey || !aiKey.isEmpty)))
-                }
-                if let connectionMessage = appState.aiConnectionMessage {
-                    Text(connectionMessage).font(.callout).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityAddTraits(.updatesFrequently)
-                }
-            } header: {
-                Text(L10n.text("settings.connection.section"))
-            } footer: {
-                Text(L10n.text("settings.ai.connection.help"))
-            }
-        }
-    }
-
-    private func localizedSourceDetail(_ source: AIProviderPlugin.Source) -> String {
-        switch source.id {
-        case "deepSeek": L10n.text("settings.ai.detail.deepseek")
-        case "moonshot": L10n.text("settings.ai.detail.moonshot")
-        default: source.detail
-        }
-    }
-
-    private func refreshAIKeyStatus() {
-        guard let hasKey = appState.selectedAISource?.hasKey,
-              appState.onTestAIConnection != nil else { return }
-        do {
-            hasAIKey = try (checkAIKey ?? hasKey)()
-            keyStatus = hasAIKey ? L10n.text("settings.key.saved") : L10n.text("settings.key.not_saved")
-        } catch {
-            hasAIKey = false
-            keyStatus = error.localizedDescription
-        }
-    }
-
-    private func saveAIKey() {
-        do {
-            guard let save = appState.selectedAISource?.saveKey else { return }
-            try save(aiKey)
-            aiKey = ""
-            hasAIKey = true
-            keyStatus = L10n.text("settings.key.saved")
-            appState.invalidateAIConnectionTest()
-        } catch { keyStatus = error.localizedDescription }
-    }
-
-    private func removeAIKey() {
-        do {
-            guard let remove = appState.selectedAISource?.removeKey else { return }
-            try remove()
-            aiKey = ""
-            hasAIKey = false
-            keyStatus = L10n.text("settings.key.removed")
-            appState.invalidateAIConnectionTest()
-        } catch { keyStatus = error.localizedDescription }
     }
 
     private func refreshShortcutIssue() {

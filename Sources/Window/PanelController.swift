@@ -183,6 +183,21 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     /// Sparkle 在最终安装之前调用。返回原因时取消本次安装，不延迟自动重启。
     func prepareForUpdate() -> String? {
+        if let reason = prepareForTermination() { return reason }
+        guard session.activeSubmissionCount == 0 else {
+            return L10n.text("update.blocked.action_running")
+        }
+        guard session.failedSubmission == nil else {
+            return L10n.text("update.blocked.failed_submission")
+        }
+        guard session.draft.content.isEmpty else {
+            return L10n.text("update.blocked.nonempty_draft")
+        }
+        return nil
+    }
+
+    /// 普通退出只同步会话状态；草稿仍按产品约定在退出后清空。
+    func prepareForTermination() -> String? {
         guard !isHidingPanel else { return L10n.text("update.blocked.panel_closing") }
         guard actionSetupRequest == nil, !session.state.isConfiguringAction else {
             return L10n.text("update.blocked.action_setup")

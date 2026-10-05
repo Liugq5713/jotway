@@ -17,6 +17,8 @@ def sha256(path):
 def validate(metadata, *, allow_local=False):
     if metadata.get('schemaVersion') != 1:
         raise ValueError('Unsupported release metadata schema.')
+    if type(metadata.get('updatesEnabled', False)) is not bool:
+        raise ValueError('Online update status must be a boolean.')
     if metadata.get('status') == 'unpublished':
         if set(metadata) != {'schemaVersion', 'status'}:
             raise ValueError('An unpublished site record must not advertise an artifact.')
@@ -69,6 +71,7 @@ def local_preview(record_path):
     result = {key: record[key] for key in ('version', 'build', 'minimumMacOS', 'architecture', 'file',
                                           'bytes', 'sha256', 'codeSigning', 'notarized', 'notes')}
     result.update(schemaVersion=1, status='local', releaseDate=record['createdAt'],
-                  downloadURL='/downloads/' + record['file'])
+                  downloadURL='/downloads/' + record['file'],
+                  updatesEnabled=record.get('updatesEnabled', False))
     validate(result, allow_local=True)
     return result, artifact

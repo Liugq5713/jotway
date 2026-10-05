@@ -11,8 +11,8 @@ final class ChatGPTModule: ActionModule {
         settingsGroup: .init(id: "conversation", title: "Conversations", order: 200,
                              titleKey: "actions.group.conversation"),
         enablementPolicy: .userToggle(defaultEnabled: true), fallbackPriority: nil,
-        intentHints: IntentHints(localKeywords: ["问 ChatGPT ", "问ChatGPT ", "ChatGPT:", "ChatGPT：",
-                                                "Codex:", "Codex："], modelBinding: .none),
+        intentHints: IntentHints(localKeywords: ["问 ChatGPT ", "问ChatGPT ", "ChatGPT ", "ChatGPT:", "ChatGPT：",
+                                                "Codex ", "Codex:", "Codex："], modelBinding: .conversation),
         presentationPolicy: .keepDestinationFrontmost)
 
     let descriptor = ChatGPTModule.moduleDescriptor

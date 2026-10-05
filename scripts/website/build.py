@@ -10,6 +10,7 @@ import re
 import shutil
 import sys
 from urllib.parse import unquote, urlsplit
+from appcast import validate_feed
 from release_metadata import local_preview, validate
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -88,6 +89,7 @@ def main():
     inputs = parser.add_mutually_exclusive_group()
     inputs.add_argument('--metadata', type=Path, default=SITE / 'release.json')
     inputs.add_argument('--local-release', type=Path, help='Preview a verified local DMG; never marks it published')
+    parser.add_argument('--appcast', type=Path, help='Verified Sparkle feed to publish alongside release metadata')
     # Output is fixed to avoid deleting arbitrary user directories during a rebuild.
     args = parser.parse_args()
     artifact = None
@@ -96,6 +98,12 @@ def main():
     else:
         metadata = json.loads(args.metadata.read_text())
         validate(metadata)
+    appcast = None
+    if args.appcast:
+        appcast = args.appcast.read_bytes()
+        validate_feed(appcast, metadata)
+    elif metadata['status'] == 'published' and metadata.get('updatesEnabled', False):
+        raise ValueError('A published release with online updates requires --appcast.')
     output = SITE / 'dist'
     if output.is_symlink():
         raise ValueError('Refusing to replace symlinked website/dist.')
@@ -109,6 +117,8 @@ def main():
         shutil.copyfile(SITE / 'src' / name, output / 'assets' / name)
     shutil.copyfile(ROOT / 'Resources/Icons/AppIcon.png', output / 'assets/AppIcon.png')
     (output / 'release.json').write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + '\n')
+    if appcast is not None:
+        (output / 'appcast.xml').write_bytes(appcast)
     layout = (SITE / 'src/layout.html').read_text()
     published = metadata['status'] == 'published'
     common = {'home_cta': 'Download Jotway' if published else 'Check availability',

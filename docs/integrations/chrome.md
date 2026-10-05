@@ -6,7 +6,7 @@ Chrome opens a Google search for the current text.
 
 ## Routing
 
-Local phrases include “Google 搜”, “谷歌搜”, and “Chrome 搜”. Jev may suggest the action for a public-information search. Chrome cannot be the default action.
+Local phrases include “Google 搜”, “谷歌搜”, and “Chrome 搜”. Jev may suggest the action for explicit searches, webpages, links, original sources, existing templates, or current public-fact lookups. General explanations, how-to answers, analysis, and generated content belong to the ChatGPT conversation route. Chrome cannot be the default action.
 
 ## Execution
 

@@ -236,5 +236,6 @@ struct IntentHints: Sendable, Equatable {
         case none
         case capture(criteria: String)
         case webSearch
+        case conversation
     }
 }

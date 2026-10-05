@@ -15,14 +15,14 @@ enum LauncherMetrics {
     static let cardGap: CGFloat = 8
     /// 输入卡内边距。
     static let cardPaddingH: CGFloat = 20
-    static let cardPaddingTop: CGFloat = 18
-    static let cardPaddingBottom: CGFloat = 14
-    /// 输入卡最小高，与窗口初始尺寸共用：18 + 26 + 10 + 22 + 14 = 90。
+    static let cardPaddingTop: CGFloat = 20
+    static let cardPaddingBottom: CGFloat = 16
+    /// 输入卡最小高，与窗口初始尺寸共用：20 + 26 + 12 + 22 + 16 = 96。
     static let inputCardMinHeight: CGFloat = cardPaddingTop + editorMinHeight + cardInnerGap + actionRowHeight + cardPaddingBottom
     /// 输入卡自动长高的上限，超出后编辑器内部滚动。
     static let inputCardMaxHeight: CGFloat = 360
     /// 输入卡内编辑区与动作行之间的间距（与 cardGap 区分：那是卡与选择器卡的间距）。
-    static let cardInnerGap: CGFloat = 10
+    static let cardInnerGap: CGFloat = 12
     /// 动作行始终占位；空闲时只隐藏标签。
     static let actionRowHeight: CGFloat = 22
     /// Time results get at most two lines; the editor gives up this budget before scrolling.
@@ -31,7 +31,7 @@ enum LauncherMetrics {
     /// 普通中英文基线间距；用额外行距实现，保留字形与光标的自然行框。
     static let editorLineHeight: CGFloat = 26
     static let editorMinHeight: CGFloat = editorLineHeight
-    /// 编辑区上限 296；超出后内部滚动，动作行始终可见。
+    /// 编辑区上限 290；超出后内部滚动，动作行始终可见。
     static let editorMaxHeight: CGFloat = inputCardMaxHeight - cardPaddingTop - cardPaddingBottom - cardInnerGap - actionRowHeight
     /// 悬浮层结果行高。
     static let overlayRowHeight: CGFloat = 38

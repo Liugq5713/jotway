@@ -12,13 +12,13 @@ Without a stronger route, ready storage actions retain their fallback order: Not
 
 ## Authorization and configuration
 
-Pressing Enter or Command+Enter in the editor with Set Up Notes selected opens a single configuration window with the same Notes destination picker used in Settings → Actions. Opening the configuration flow or explicitly reading folders makes the Apple Events request that can trigger first authorization. Typing, rendering the panel, background recognition, and action prewarming do not request Notes permission.
+Pressing Enter or Command+Enter in the editor with Set Up Notes selected opens a single configuration window with an Authorize button and an explanation of the default destination. Clicking Authorize makes the Apple Events request that can trigger the macOS consent dialog. Opening the setup window or action settings page, typing, rendering the panel, background recognition, and action prewarming do not request Notes permission.
+
+After authorization, Jotway keeps the saved destination when it is still available. Otherwise, it selects the default folder in the default Notes account, then another account's default folder, then the first exposed folder if no account default is available. Successful launcher setup completes automatically. Settings → Actions shows the selected destination and offers Change… to open the optional folder picker; the launcher setup window has no picker. Authorization and destination selection do not create a test note, and no verification step is required.
 
 The draft, selection, and draft identity are retained while recognition is paused. Repeated confirmation focuses the existing configuration window. Completing, cancelling, or closing configuration returns to the same draft; successful configuration selects Notes and waits for another Enter before saving. A stale configuration callback cannot replace a newer draft or take its focus. Setup does not clear the draft, play a submission animation, or record action execution or model-adoption feedback.
 
-Verify and Finish explicitly creates the test note described in the configuration UI, using fixed sample content rather than the current draft. Opening or reading the picker alone never writes a test note or saves the draft.
-
-Permission refusal and revocation retain the selected destination and direct the user to System Settings → Privacy & Security → Automation → Jotway → Notes. The configuration view offers Open System Settings and a fresh folder read. It does not reset permissions or promise that macOS will show the consent dialog again. A successful authorized read clears the known permission-failure state.
+Permission refusal and revocation retain the selected destination and direct the user to System Settings → Privacy & Security → Automation → Jotway → Notes. When authorization or the saved destination needs repair, settings and launcher setup offer Open System Settings and Authorize Again. They do not reset permissions or promise that macOS will show the consent dialog again. A successful authorized read clears the known permission-failure state.
 
 ## Execution
 

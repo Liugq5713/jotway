@@ -21,8 +21,10 @@ enum AppleCalendar {
         var title: String?
         /// 日程备注（event notes）；为空则不写。
         var body: String?
-        /// Required for create; frozen by the action plan.
+        /// Required for create; already frozen by the action's visible plan.
         var schedule: CalendarSchedule?
+        /// Only an explicit authorization button may request the system permission prompt.
+        var allowAuthorizationPrompt = false
     }
 
     struct Response: Sendable {
@@ -38,7 +40,7 @@ enum AppleCalendar {
     }
 
     struct Failure: LocalizedError {
-        enum Kind: Sendable { case operation, validation }
+        enum Kind: Sendable { case operation, permission, destination, validation }
         let message: String
         /// 仅能证明写入根本未开始的错误可直接重试。
         var notStarted = false
@@ -51,13 +53,22 @@ enum AppleCalendar {
     static func actionFailure(for error: Error, operation: String) -> ActionFailure {
         if let failure = error as? ActionFailure { return failure }
         let failure = error as? Failure
-        if failure?.kind == .validation {
+        switch failure?.kind {
+        case .validation:
             return ActionFailure(localized: "error.calendar.invalid_schedule", code: .validation,
                                  osStatus: failure?.osStatus, executionOutcome: .failed)
+        case .permission:
+            return ActionFailure(localized: "calendar.permission_denied", code: .configuration,
+                                 osStatus: failure?.osStatus)
+        case .destination:
+            return ActionFailure(localized: "destination.changed", code: .configuration,
+                                 osStatus: failure?.osStatus)
+        default:
+            return ActionFailure(localized: operation == "calendars"
+                ? "error.calendar.no_calendars" : "error.calendar.create_failed",
+                code: .processFailed, osStatus: failure?.osStatus,
+                executionOutcome: operation == "create" && failure?.notStarted != true ? .unknown : .failed)
         }
-        return ActionFailure(localized: operation == "calendars" ? "error.calendar.no_calendars" : "error.calendar.create_failed",
-            code: .processFailed, osStatus: failure?.osStatus,
-            executionOutcome: operation == "create" && failure?.notStarted != true ? .unknown : .failed)
     }
 
     /// Pure validation, before touching EventKit or requesting access. No missing value is repaired.
@@ -74,13 +85,15 @@ enum AppleCalendar {
     /// 单例事件库：避免每次调用重复申请权限。EventKit 建议复用一个 store（与提醒事项各自独立）。
     @MainActor private static let store = EKEventStore()
 
-    /// 确保已拿到日历完全访问权限；未决时弹系统授权框。
+    /// 检查日历完全访问权限；只有显式授权操作才弹系统授权框。
     @MainActor
-    private static func ensureAccess() async throws -> Bool {
+    private static func ensureAccess(allowPrompt: Bool) async throws -> Bool {
         switch EKEventStore.authorizationStatus(for: .event) {
         case .fullAccess:
             return true
-        case .notDetermined:
+        case .notDetermined where allowPrompt:
+            return try await store.requestFullAccessToEvents()
+        case .writeOnly where allowPrompt:
             return try await store.requestFullAccessToEvents()
         default:
             return false
@@ -91,25 +104,30 @@ enum AppleCalendar {
     static func run(_ request: Request) async throws -> Response {
         try Task.checkCancellation()
         let schedule = request.operation == "create" ? try validateCreateRequest(request) : nil
-        guard try await ensureAccess() else {
-            throw Failure(message: L10n.text("calendar.permission_denied"))
-        }
         do {
+            guard try await ensureAccess(allowPrompt: request.allowAuthorizationPrompt) else {
+                throw Failure(message: L10n.text("calendar.permission_denied"),
+                              notStarted: true, kind: .permission)
+            }
+            try Task.checkCancellation()
             switch request.operation {
             case "calendars":
-                let calendars = store.calendars(for: .event)
+                let writable = store.calendars(for: .event)
                     .filter { $0.allowsContentModifications }
-                    .map { calendar -> Destination in
-                        let name = (calendar.source?.title).map { $0 + " / " + calendar.title } ?? calendar.title
-                        return Destination(id: calendar.calendarIdentifier, name: name)
-                    }
+                let defaultID = store.defaultCalendarForNewEvents?.calendarIdentifier
+                let ordered = writable.filter { $0.calendarIdentifier == defaultID }
+                    + writable.filter { $0.calendarIdentifier != defaultID }
+                let calendars = ordered.map { calendar -> Destination in
+                    let name = (calendar.source?.title).map { $0 + " / " + calendar.title } ?? calendar.title
+                    return Destination(id: calendar.calendarIdentifier, name: name)
+                }
                 return Response(version: 1, requestID: request.requestID, status: "ok", calendars: calendars)
 
             case "create":
                 guard let calendarID = request.calendarID,
                       let calendar = store.calendar(withIdentifier: calendarID),
                       calendar.allowsContentModifications else {
-                    throw Failure(message: L10n.text("destination.changed"))
+                    throw Failure(message: L10n.text("destination.changed"), notStarted: true, kind: .destination)
                 }
                 guard let title = request.title, let schedule else {
                     throw Failure(message: L10n.text("error.calendar.invalid_schedule"), notStarted: true, kind: .validation)
@@ -129,12 +147,17 @@ enum AppleCalendar {
             default:
                 throw Failure(message: L10n.text("calendar.unsupported_operation"))
             }
+        } catch is CancellationError {
+            throw CancellationError()
         } catch let failure as Failure {
             throw failure
         } catch {
             // EventKit 抛错说明写入未落地，可直接重试。
+            let error = error as NSError
+            let kind: Failure.Kind = error.domain == EKErrorDomain
+                && error.code == EKError.Code.eventStoreNotAuthorized.rawValue ? .permission : .operation
             throw Failure(message: error.localizedDescription, notStarted: true,
-                          osStatus: (error as NSError).code)
+                          osStatus: error.code, kind: kind)
         }
     }
 }

@@ -107,13 +107,16 @@ struct ActionSettingsView: View {
 
 struct AppleNotesSettingsView: View {
     let module: AppleNotesModule
-    @State private var showsSetup = false
 
     var body: some View {
         // The editable preferences live in UserDefaults; the module revision drives their UI refresh.
         let _ = module.configurationRevision
         Form {
-            destinationSection(name: module.destination?.name, label: L10n.text("action.notes.destination_label")) { showsSetup = true }
+            StorageDestinationSection(destination: module.destination, failure: module.repairFailure,
+                label: L10n.text("action.notes.destination_label"),
+                defaultLocation: L10n.text("action.notes.default_location"), privacyPane: "Automation",
+                name: { $0.name }, authorize: { try await module.authorizeAndSetDefaultDestination() },
+                load: { try await module.loadDestinations() }, save: { try module.setDestination($0) })
             Section(L10n.text("action.notes.ai_supplements")) {
                 settingRow(L10n.text("action.notes.supplement_help")) {
                     Toggle(L10n.text("action.notes.supplement_toggle"), isOn: Binding(
@@ -154,18 +157,18 @@ struct AppleNotesSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .sheet(isPresented: $showsSetup) {
-            AppleNotesSetupView(module: module) { _ in showsSetup = false }
-        }
     }
 }
 
 struct AppleRemindersSettingsView: View {
     let module: AppleRemindersModule
-    @State private var showsSetup = false
     var body: some View {
         Form {
-            destinationSection(name: module.destination?.name, label: L10n.text("action.reminders.destination_label")) { showsSetup = true }
+            StorageDestinationSection(destination: module.destination, failure: module.repairFailure,
+                label: L10n.text("action.reminders.destination_label"),
+                defaultLocation: L10n.text("action.reminders.default_location"), privacyPane: "Reminders",
+                name: { $0.name }, authorize: { try await module.authorizeAndSetDefaultDestination() },
+                load: { try await module.loadDestinations() }, save: { try module.setDestination($0) })
             Section(L10n.text("action.settings.time_rules")) {
                 Text(L10n.text("action.reminders.time_help"))
                     .font(.callout)
@@ -186,16 +189,18 @@ struct AppleRemindersSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .sheet(isPresented: $showsSetup) { AppleRemindersSetupView(module: module) }
     }
 }
 
 struct AppleCalendarSettingsView: View {
     let module: AppleCalendarModule
-    @State private var showsSetup = false
     var body: some View {
         Form {
-            destinationSection(name: module.destination?.name, label: L10n.text("action.calendar.destination_label")) { showsSetup = true }
+            StorageDestinationSection(destination: module.destination, failure: module.repairFailure,
+                label: L10n.text("action.calendar.destination_label"),
+                defaultLocation: L10n.text("action.calendar.default_location"), privacyPane: "Calendars",
+                name: { $0.name }, authorize: { try await module.authorizeAndSetDefaultDestination() },
+                load: { try await module.loadDestinations() }, save: { try module.setDestination($0) })
             Section(L10n.text("action.settings.time_rules")) {
                 Text(L10n.text("action.calendar.time_help"))
                     .font(.callout)
@@ -216,23 +221,154 @@ struct AppleCalendarSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .sheet(isPresented: $showsSetup) { AppleCalendarSetupView(module: module) }
+    }
+}
+
+/// Shared presentation only; each module owns authorization, defaults, and typed persistence.
+private struct StorageDestinationSection<Destination: Identifiable>: View where Destination.ID == String {
+    let destination: Destination?
+    let failure: ActionFailure?
+    let label: String
+    let defaultLocation: String
+    let privacyPane: String
+    let name: (Destination) -> String
+    let authorize: @MainActor () async throws -> Void
+    let load: @MainActor () async throws -> [Destination]
+    let save: @MainActor (Destination) throws -> Void
+    @State private var showsPicker = false
+    @State private var task: Task<Void, Never>?
+    @State private var status: DestinationSetupStatus?
+
+    var body: some View {
+        Section(L10n.text("action.settings.destination")) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(destination.map(name) ?? defaultLocation).font(.body.weight(.medium))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(L10n.text(destination == nil ? "action.settings.authorize_help" : "action.settings.destination_help"))
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 12)
+                if task != nil { ProgressView().controlSize(.small) }
+                if destination == nil || failure != nil {
+                    Button(L10n.text(failure == nil ? "action.setup.authorize" : "action.setup.retry_authorization"), action: requestAuthorization)
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityLabel(L10n.text("action.setup.authorize_app", label))
+                        .accessibilityIdentifier("authorize-\(privacyPane.lowercased())")
+                        .disabled(task != nil)
+                } else {
+                    Button(L10n.text("common.change")) { showsPicker = true }
+                        .accessibilityLabel(L10n.text("action.settings.choose_destination", label))
+                }
+            }
+            .padding(.vertical, 4)
+            if let message = status?.text ?? failure?.localizedDescription {
+                Text(message).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if failure != nil {
+                privacySettingsLink(pane: privacyPane)
+            }
+        }
+        .sheet(isPresented: $showsPicker) {
+            StorageDestinationPicker(destination: destination, name: name, load: load, save: save)
+        }
+        .onDisappear {
+            task?.cancel()
+            task = nil
+            status = nil
+        }
+    }
+
+    private func requestAuthorization() {
+        guard task == nil else { return }
+        status = .key("action.setup.authorizing")
+        task = Task { @MainActor in
+            defer { task = nil }
+            do {
+                try await authorize()
+                try Task.checkCancellation()
+                status = nil
+            } catch {
+                guard !Task.isCancelled else { return }
+                status = .failure(ActionFailure.presentation(for: error))
+            }
+        }
+    }
+}
+
+private struct StorageDestinationPicker<Destination: Identifiable>: View where Destination.ID == String {
+    let destination: Destination?
+    let name: (Destination) -> String
+    let load: @MainActor () async throws -> [Destination]
+    let save: @MainActor (Destination) throws -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var destinations: [Destination] = []
+    @State private var selectedID = ""
+    @State private var isBusy = true
+    @State private var status: DestinationSetupStatus?
+    @State private var reloadID = 0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(L10n.text("action.settings.destination")).font(.headline)
+            if !destinations.isEmpty {
+                Picker(L10n.text("action.setup.save_to"), selection: $selectedID) {
+                    ForEach(destinations) { Text(name($0)).tag($0.id) }
+                }
+                .disabled(isBusy)
+            }
+            if let status {
+                Text(status.text).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Button(L10n.text("action.setup.reload")) { reloadID += 1 }
+                    .disabled(isBusy)
+                if isBusy { ProgressView().controlSize(.small) }
+                Spacer()
+                Button(L10n.text("common.cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(L10n.text("common.save"), action: saveSelection)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isBusy || !destinations.contains(where: { $0.id == selectedID }))
+            }
+        }
+        .padding(24).frame(width: 440)
+        .task(id: reloadID) {
+            isBusy = true
+            destinations = []
+            status = nil
+            defer { isBusy = false }
+            do {
+                let values = try await load()
+                try Task.checkCancellation()
+                destinations = values
+                selectedID = values.first(where: { $0.id == selectedID })?.id
+                    ?? values.first(where: { $0.id == destination?.id })?.id
+                    ?? values.first?.id ?? ""
+            } catch {
+                guard !Task.isCancelled else { return }
+                status = .failure(ActionFailure.presentation(for: error))
+            }
+        }
+    }
+
+    private func saveSelection() {
+        guard let value = destinations.first(where: { $0.id == selectedID }) else { return }
+        do {
+            try save(value)
+            dismiss()
+        } catch { status = .failure(ActionFailure.presentation(for: error)) }
     }
 }
 
 @MainActor
-private func destinationSection(name: String?, label: String, show: @escaping @MainActor () -> Void) -> some View {
-    Section(L10n.text("action.settings.destination")) {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(name ?? L10n.text("action.state.no_destination")).font(.body.weight(.medium))
-                Text(L10n.text("action.settings.destination_help")).font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 12)
-            Button(name == nil ? L10n.text("common.choose") : L10n.text("common.change"), action: show)
-                .accessibilityLabel(L10n.text("action.settings.choose_destination", label))
+private func privacySettingsLink(pane: String) -> some View {
+    Group {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_" + pane) {
+            Link(L10n.text("action.setup.open_settings"), destination: url)
         }
-        .padding(.vertical, 4)
     }
 }
 
@@ -252,13 +388,9 @@ final class AppleNotesSetupLifetime {
 struct AppleNotesSetupView: View {
     let module: AppleNotesModule
     let onFinish: @MainActor (ActionSetupResult) -> Void
-    @Environment(\.openURL) private var openURL
-    @State private var destinations: [AppleNotes.Destination] = []
-    @State private var selectedID = ""
     @State private var isBusy = false
     @State private var status: DestinationSetupStatus?
     @State private var isActive = false
-    @State private var operationID: UUID?
     @State private var lifetime: AppleNotesSetupLifetime
 
     init(module: AppleNotesModule, lifetime: AppleNotesSetupLifetime = AppleNotesSetupLifetime(),
@@ -272,106 +404,50 @@ struct AppleNotesSetupView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text(L10n.text("action.notes.setup.title")).font(.headline)
             Text(L10n.text("action.notes.setup.explanation")).font(.callout)
-            VStack(alignment: .leading, spacing: 8) {
-                Text(L10n.text("action.notes.setup.permission"))
-                Button(L10n.text("action.notes.setup.open_automation")) {
-                    guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") else { return }
-                    openURL(url)
-                }
-                if let destination = module.destination {
-                    Text(L10n.text("action.notes.setup.saved_location", destination.name))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if !destinations.isEmpty {
-                    Picker(L10n.text("action.setup.save_to"), selection: $selectedID) {
-                        ForEach(destinations) { Text($0.name).tag($0.id) }
-                    }
-                    .disabled(isBusy)
-                }
-                Button(L10n.text("action.setup.reload"), action: load).disabled(isBusy)
-            }
-            .font(.callout)
-            Text(L10n.text("action.notes.setup.test_help"))
-                .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            if let status {
-                Text(status.text).font(.caption).foregroundStyle(.secondary)
-                    .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            Text(module.destination?.name ?? L10n.text("action.notes.default_location"))
+                .font(.callout.weight(.medium))
+                .fixedSize(horizontal: false, vertical: true)
+            if let message = status?.text ?? module.repairFailure?.localizedDescription {
+                Text(message).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("notes-setup-status")
+            }
+            if module.repairFailure != nil {
+                privacySettingsLink(pane: "Automation")
             }
             HStack {
                 if isBusy { ProgressView().controlSize(.small) }
                 Spacer()
-                Button(L10n.text("common.close")) { finish(.cancelled) }
+                Button(L10n.text("common.cancel")) { finish(.cancelled) }
                     .keyboardShortcut(.cancelAction)
-                Button(L10n.text("action.setup.verify_finish"), action: verify)
+                Button(L10n.text(module.repairFailure == nil ? "action.setup.authorize" : "action.setup.retry_authorization"), action: authorize)
                     .buttonStyle(.borderedProminent)
-                    .disabled(isBusy || !destinations.contains(where: { $0.id == selectedID }))
+                    .accessibilityIdentifier("notes-setup-authorize")
+                    .disabled(isBusy)
             }
         }
         .padding(24).frame(width: 440)
-        .onAppear {
-            isActive = true
-            selectedID = module.destination?.id ?? ""
-            load()
-        }
+        .onAppear { isActive = true }
         .onDisappear { invalidate() }
     }
 
-    private func load() {
-        guard let id = beginOperation(messageKey: "action.notes.setup.loading") else { return }
-        destinations = []
-        lifetime.task = Task {
-            do {
-                let values = try await module.loadDestinations()
-                guard isCurrent(id) else { return }
-                destinations = values
-                selectedID = values.first(where: { $0.id == selectedID })?.id
-                    ?? values.first(where: { $0.id == module.destination?.id })?.id
-                    ?? values[0].id
-                status = .key("action.setup.choose_then_verify")
-                completeOperation()
-            } catch { show(error, for: id) }
-        }
-    }
-
-    private func verify() {
-        guard let value = destinations.first(where: { $0.id == selectedID }),
-              let id = beginOperation(messageKey: "action.notes.setup.verifying") else { return }
-        lifetime.task = Task {
-            do {
-                try await module.verifyAndSetDestination(value)
-                guard isCurrent(id) else { return }
-                completeOperation()
-                finish(.completed)
-            } catch { show(error, for: id) }
-        }
-    }
-
-    private func beginOperation(messageKey: String) -> UUID? {
-        guard isActive, lifetime.isActive, !isBusy else { return nil }
-        let id = UUID()
-        operationID = id
+    private func authorize() {
+        guard isActive, lifetime.isActive, !isBusy else { return }
         isBusy = true
-        status = .key(messageKey)
-        return id
-    }
-
-    private func isCurrent(_ id: UUID) -> Bool {
-        isActive && lifetime.isActive && operationID == id && !Task.isCancelled
-    }
-
-    private func show(_ error: Error, for id: UUID) {
-        guard isCurrent(id) else { return }
-        status = .failure(ActionFailure.presentation(for: error))
-        completeOperation()
-    }
-
-    private func completeOperation() {
-        operationID = nil
-        lifetime.task = nil
-        isBusy = false
+        status = .key("action.setup.authorizing")
+        lifetime.task = Task { @MainActor in
+            do {
+                try await module.authorizeAndSetDefaultDestination()
+                guard isActive, lifetime.isActive, !Task.isCancelled else { return }
+                finish(.completed)
+            } catch {
+                guard isActive, lifetime.isActive, !Task.isCancelled else { return }
+                status = .failure(ActionFailure.presentation(for: error))
+                lifetime.task = nil
+                isBusy = false
+            }
+        }
     }
 
     private func finish(_ result: ActionSetupResult) {
@@ -383,95 +459,8 @@ struct AppleNotesSetupView: View {
     private func invalidate() {
         isActive = false
         lifetime.invalidate()
-        completeOperation()
+        isBusy = false
     }
-}
-
-private struct AppleRemindersSetupView: View {
-    let module: AppleRemindersModule
-    @Environment(\.dismiss) private var dismiss
-    @State private var destinations: [AppleReminders.Destination] = []
-    @State private var selectedID = ""
-    @State private var isBusy = false
-    @State private var status: DestinationSetupStatus?
-    var body: some View {
-        destinationSetup(title: L10n.text("action.reminders.setup.title"), explanation: L10n.text("action.reminders.setup.explanation"),
-            permission: L10n.text("action.reminders.setup.permission"), pickerLabel: L10n.text("action.setup.save_to"),
-            values: destinations.map { ($0.id, $0.name) }, selectedID: $selectedID, isBusy: isBusy,
-            message: status?.text ?? L10n.text("action.reminders.setup.test_help"),
-            reload: load, verify: verify, dismiss: { dismiss() })
-        .task { load() }
-    }
-    private func load() { run(messageKey: "action.reminders.setup.loading") {
-        let values = try await module.loadDestinations(); destinations = values
-        selectedID = values.first(where: { $0.id == module.destination?.id })?.id ?? values[0].id
-        status = .key("action.setup.choose_then_verify")
-    } }
-    private func verify() { guard let value = destinations.first(where: { $0.id == selectedID }) else { return }
-        run(messageKey: "action.reminders.setup.verifying") { try await module.verifyAndSetDestination(value); dismiss() } }
-    private func run(messageKey: String, _ work: @escaping @MainActor () async throws -> Void) {
-        isBusy = true; status = .key(messageKey)
-        Task { defer { isBusy = false }; do { try await work() } catch { status = .failure(ActionFailure.presentation(for: error)) } }
-    }
-}
-
-private struct AppleCalendarSetupView: View {
-    let module: AppleCalendarModule
-    @Environment(\.dismiss) private var dismiss
-    @State private var destinations: [AppleCalendar.Destination] = []
-    @State private var selectedID = ""
-    @State private var isBusy = false
-    @State private var status: DestinationSetupStatus?
-    var body: some View {
-        destinationSetup(title: L10n.text("action.calendar.setup.title"), explanation: L10n.text("action.calendar.setup.explanation"),
-            permission: L10n.text("action.calendar.setup.permission"), pickerLabel: L10n.text("action.setup.save_to"),
-            values: destinations.map { ($0.id, $0.name) }, selectedID: $selectedID, isBusy: isBusy,
-            message: status?.text ?? L10n.text("action.calendar.setup.test_help"),
-            reload: load, verify: verify, dismiss: { dismiss() })
-        .task { load() }
-    }
-    private func load() { run(messageKey: "action.calendar.setup.loading") {
-        let values = try await module.loadDestinations(); destinations = values
-        selectedID = values.first(where: { $0.id == module.destination?.id })?.id ?? values[0].id
-        status = .key("action.setup.choose_then_verify")
-    } }
-    private func verify() { guard let value = destinations.first(where: { $0.id == selectedID }) else { return }
-        run(messageKey: "action.calendar.setup.verifying") { try await module.verifyAndSetDestination(value); dismiss() } }
-    private func run(messageKey: String, _ work: @escaping @MainActor () async throws -> Void) {
-        isBusy = true; status = .key(messageKey)
-        Task { defer { isBusy = false }; do { try await work() } catch { status = .failure(ActionFailure.presentation(for: error)) } }
-    }
-}
-
-@MainActor
-private func destinationSetup(title: String, explanation: String, permission: String, pickerLabel: String,
-                              values: [(String, String)], selectedID: Binding<String>, isBusy: Bool,
-                              message: String, reload: @escaping () -> Void, verify: @escaping () -> Void,
-                              dismiss: @escaping () -> Void) -> some View {
-    VStack(alignment: .leading, spacing: 16) {
-        Text(title).font(.headline)
-        Text(explanation).font(.callout)
-        VStack(alignment: .leading, spacing: 8) {
-            Text(permission)
-            if !values.isEmpty {
-                Picker(pickerLabel, selection: selectedID) {
-                    ForEach(values, id: \.0) { Text($0.1).tag($0.0) }
-                }
-            }
-            Button(L10n.text("action.setup.reload"), action: reload)
-        }
-        .font(.callout).disabled(isBusy)
-        Text(message).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-            .fixedSize(horizontal: false, vertical: true)
-        HStack {
-            if isBusy { ProgressView().controlSize(.small) }
-            Spacer()
-            Button(L10n.text("common.close"), action: dismiss).keyboardShortcut(.cancelAction)
-            Button(L10n.text("action.setup.verify_finish"), action: verify).buttonStyle(.borderedProminent)
-                .disabled(isBusy || selectedID.wrappedValue.isEmpty)
-        }
-    }
-    .padding(24).frame(width: 440)
 }
 
 private enum DestinationSetupStatus {

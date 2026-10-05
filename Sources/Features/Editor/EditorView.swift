@@ -100,6 +100,8 @@ struct EditorView: View {
     let send: (LauncherEvent) -> Void
     /// 内容尺寸变化上报（总高、输入卡高），窗口据此顶锚定改高
     var onContentSizeChange: (CGFloat, CGFloat) -> Void = { _, _ in }
+    /// 手动调整时固定输入卡高度，新增空间交给编辑区；nil 恢复按正文自动长高。
+    var manualInputCardHeight: CGFloat? = nil
 
     /// placeholder 单点定义（EditorTextView 的默认值也引用这里）。
     static var placeholderText: String { L10n.text("launcher.placeholder") }
@@ -200,6 +202,11 @@ struct EditorView: View {
             || state.preparationFailure != nil || state.isCheckingActionPlan)
     }
 
+    var minimumInputCardHeight: CGFloat {
+        LauncherMetrics.inputCardMinHeight
+            + (hasPlanResult ? LauncherMetrics.planResultMaxHeight + LauncherMetrics.cardInnerGap : 0)
+    }
+
     private var inputCard: some View {
         cardChrome(
             VStack(spacing: LauncherMetrics.cardInnerGap) {
@@ -211,15 +218,18 @@ struct EditorView: View {
                     placeholder: Self.placeholderText,
                     onContentHeightChange: { editorTextHeight = $0 }
                 )
-                .frame(height: editorHeight)
+                .frame(minHeight: manualInputCardHeight == nil ? editorHeight : LauncherMetrics.editorMinHeight,
+                       maxHeight: manualInputCardHeight == nil ? editorHeight : .infinity)
                 if hasPlanResult {
                     ActionPlanResultRow(state: state, send: send)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 actionRow
             }
             .padding(.horizontal, LauncherMetrics.cardPaddingH)
             .padding(.top, LauncherMetrics.cardPaddingTop)
             .padding(.bottom, LauncherMetrics.cardPaddingBottom)
+            .frame(height: manualInputCardHeight.map { max($0, minimumInputCardHeight) })
             .background(
                 GeometryReader { proxy in
                     Color.clear.preference(key: LauncherInputCardHeightKey.self, value: proxy.size.height)

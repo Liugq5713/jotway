@@ -39,6 +39,8 @@ final class IntentRecognition {
         var captureOptions: [Jev.CaptureOption] = []
         /// 当前快照里声明 webSearch 绑定的 action；Jev 的 google 只能映射到此 ID。
         var webSearchActionID: String?
+        /// 当前快照里声明 conversation 绑定的 action；Jev 只向此可用目标建议对话。
+        var conversationActionID: String?
     }
 
     /// ⌥↕ 一个可切换目标的最小信息：稳定 id + 面向用户标题。均来自 registry。
@@ -221,6 +223,7 @@ final class IntentRecognition {
                     let actionID: String? = switch answer.action {
                     case .capture(let id): next.captureOptions.contains(where: { $0.id == id }) ? id : nil
                     case .google: next.webSearchActionID
+                    case .conversation: next.conversationActionID
                     }
                     observedAction = actionID.map { .action($0, diagnostic: answer.action.diagnosticAction) }
                 }

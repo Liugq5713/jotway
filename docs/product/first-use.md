@@ -29,7 +29,9 @@ The shortest successful path is:
 
 Without a usable Jev configuration or a local match, a ready default action handles the input. Apple Notes is preferred when configured and available, followed by Reminders and Calendar. If none is ready, the panel shows Set Up Notes, including while recognition is pending or fails. Notes also remains selectable directly or through a local Notes prefix.
 
-Opening Set Up Notes preserves the text and selection while it opens the authorization and folder picker. The user grants access, selects a folder, and explicitly chooses Verify and Finish; the UI explains that verification creates a fixed test note, not the draft. Completing or cancelling returns to the original draft. After completion, check Save to Notes and press Enter again to save. Configuration alone never submits or clears the draft.
+Opening Set Up Notes preserves the text and selection and shows an Authorize button. The user clicks Authorize and grants macOS access; Jotway keeps an available saved folder or selects the default folder in the default Notes account. If needed, it tries another account's default folder before the first exposed folder. Successful authorization completes setup and returns to the original draft; cancelling also returns without submitting. After completion, check Save to Notes and press Enter again to save. Setup does not write a test note or require verification. Configuration alone never submits or clears the draft.
+
+Settings → Actions offers the same direct authorization for Notes, Reminders, and Calendar. Reminders defaults to the system reminder list and Calendar to the system calendar for new events, with a writable fallback if needed. Existing valid destinations are retained. Change… optionally selects another location in each action's settings; the Notes launcher setup window has no picker. Opening an action settings page or the setup window alone never prompts for permission.
 
 The usage guide demonstrates Apple Notes, Reminders, Calendar, Chrome search, and local application opening without executing examples automatically. Clicking the target name opens the candidate menu; the same button shows Choose Target or an explicit choice before typing and remains available with a single candidate. A chosen target follows edits and panel reopening; Use Automatic releases it. Option+Up/Down cycles available targets without including Use Automatic. It also explains the plain-text input boundary, in-memory draft lifetime, local time interpretation, undated and date-only reminders, the explicit Calendar start requirement and displayed one-hour default duration, and the distinction between intent recognition, Notes AI supplements, and Reminder/Calendar body rewriting.
 
@@ -38,8 +40,8 @@ For Reminders and Calendar, correct unclear time directly in the draft before sa
 ## Failure guidance
 
 - Shortcut conflict: keep menu bar/Dock access visible and link to General settings.
-- Missing Notes destination: use Set Up Notes from the panel or Settings → Actions, retaining the draft. Other missing destinations keep their existing action settings flow.
-- Notes permission denied or revoked: retain the selected folder, follow System Settings → Privacy & Security → Automation → Jotway → Notes, then read folders again. Jotway does not reset system authorization.
+- Missing Notes destination: use Set Up Notes from the panel or Settings → Actions, retaining the draft. Reminders and Calendar use Authorize in their action settings.
+- Storage permission denied or revoked: retain the selected destination, open the linked System Settings privacy controls, then use Authorize Again. Notes uses Privacy & Security → Automation → Jotway → Notes. Jotway does not reset system authorization.
 - Action failure: restore the submitted text and routing mode; if the new draft has been edited or its routing changed, retain the failed submission separately without overwriting it. The current UI does not expose a recovery button for that retained submission.
 - Missing Jev key: continue through local matching and the default action; recognition is optional.
 

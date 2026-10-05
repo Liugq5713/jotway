@@ -103,30 +103,29 @@ final class AppleNotesModule: ActionModule {
         guard let folders = response.folders else {
             throw ActionFailure(localized: "error.notes.folders_failed", code: .validation)
         }
-        if repairFailure?.osStatus == -1743
-            || (repairFailure != nil && folders.contains(where: { $0.id == destination?.id })) {
+        guard !folders.isEmpty else {
+            let failure = ActionFailure(localized: "error.notes.no_folders", code: .configuration,
+                                        osStatus: response.osStatus)
+            repairFailure = failure
+            changed()
+            throw failure
+        }
+        if let destination, !folders.contains(where: { $0.id == destination.id }) {
+            repairFailure = ActionFailure(localized: "error.notes.destination_missing", code: .configuration)
+            changed()
+        } else if repairFailure != nil {
             repairFailure = nil
             changed()
-        }
-        guard !folders.isEmpty else {
-            throw ActionFailure(localized: "error.notes.no_folders", code: .configuration,
-                                osStatus: response.osStatus)
         }
         return folders
     }
 
-    func verifyAndSetDestination(_ value: AppleNotes.Destination) async throws {
-        let expectedRevision = configurationRevision
-        let content = AppleNotes.content(fromPlainText: "Jotway Connection Test\nText, links, and escaping <&> test\nhttps://example.com\nThis item can be deleted after verification.")
-        let requestID = UUID().uuidString
-        let response = try await perform(.init(requestID: requestID, operation: "create",
-                                           folderID: value.id, html: content.html))
-        guard response.confirms(requestID: requestID, folderID: value.id, plaintext: content.plaintext) else {
-            throw ActionFailure(localized: "error.notes.verification_failed",
-                                code: .validation, osStatus: response.osStatus)
-        }
-        guard configurationRevision == expectedRevision else {
-            throw ActionFailure(localized: "error.notes.configuration_changed", code: .stale)
+    func authorizeAndSetDefaultDestination() async throws {
+        let folders = try await loadDestinations()
+        try Task.checkCancellation()
+        // The adapter places Notes' default folder first. Keep a valid user choice.
+        guard let value = folders.first(where: { $0.id == destination?.id }) ?? folders.first else {
+            throw ActionFailure(localized: "error.notes.no_folders", code: .configuration)
         }
         try setDestination(value)
     }
@@ -136,7 +135,7 @@ final class AppleNotesModule: ActionModule {
         let expectedRevision = configurationRevision
         do {
             let response = try await run(request)
-            // A closed setup view cannot apply a late folder/verification response.
+            // A closed setup view cannot apply a late authorization response.
             try Task.checkCancellation()
             if let failure = AppleNotes.actionFailure(for: response, operation: request.operation) {
                 throw failure

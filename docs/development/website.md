@@ -38,9 +38,9 @@ python3 -m http.server 8765 --bind 127.0.0.1 --directory website/dist
 
 Open `http://127.0.0.1:8765/`. Stop the server after review and confirm its port is no longer listening. `website/dist/` is disposable, ignored build output. GitHub Pages publishes it with directory-index routing, so `/`, `/download/` and `/privacy/` resolve under the project path.
 
-The build validates the release contract, copies the app icon and local CSS/JavaScript, expands the shared layout and release facts, rejects Chinese UI text, and checks local references and fragment targets. It emits relative links for the `/jotway/` project path and versions shared assets by their content hash. The builder does not fetch a release or start a server. Missing assets or invalid metadata fail the build.
+The build validates the release contract, copies the app icon and local CSS/JavaScript, expands the shared layout and release facts, rejects Chinese UI text, and checks local references and fragment targets. It emits relative links for the `/jotway/` project path and versions shared assets by their content hash. Online-enabled metadata also requires a matching `--appcast` input; the builder copies it to `appcast.xml` without changing its contents. The builder does not fetch a release or start a server. Missing assets or invalid metadata fail the build.
 
-The deployment workflow is `.github/workflows/pages.yml`. It runs for website changes on `main`, manual dispatch, a successful completion of the `Release` workflow, or a stable GitHub Release being published, edited, or released. It always checks out `main`, exports verified metadata for GitHub's latest stable release into a runner temporary file, builds with that metadata, checks JavaScript syntax, and deploys `website/dist/` to GitHub Pages. A failed release lookup, download verification, or build stops deployment and leaves the existing site in place.
+The deployment workflow is `.github/workflows/pages.yml`. It runs for website changes on `main`, manual dispatch, a successful completion of the `Release` workflow, or a stable GitHub Release being published, edited, or released. It always checks out `main`, exports verified metadata for GitHub's latest stable release into a runner temporary file, verifies and exports the release appcast, builds with that metadata and feed, checks JavaScript syntax, and deploys `website/dist/` to GitHub Pages. The update feed lives at `/jotway/appcast.xml`; its DMG URL, versions, size, architecture and minimum macOS must match the verified release, and the DMG EdDSA signature must verify against the public key in `Resources/Info.plist`. Pre-online releases produce an empty feed. Public-key verification uses OpenSSL (Homebrew OpenSSL on macOS when necessary). A failed release lookup, download verification, or build stops deployment and leaves the existing site in place.
 
 The `workflow_run` trigger covers releases created with the repository's `GITHUB_TOKEN`, whose release events do not start another workflow. Release event triggers also cover manual publishing and edits; their dispatch job uses `actions: write` to request a deployment on `main`, respecting the Pages environment's branch restriction. Failed release workflows and draft/prerelease events cannot replace a queued deployment. This flow needs no personal access token, scheduled polling, or automatic commit of website metadata.
 
@@ -53,8 +53,8 @@ The artifact producer `scripts/release.py` reads bundle metadata from the packag
 To refresh the offline snapshot from GitHub's latest stable release and build it:
 
 ```bash
-python3 scripts/website/publish-metadata.py --output website/release.json
-python3 scripts/website/build.py
+python3 scripts/website/publish-metadata.py --output website/release.json --appcast-output /tmp/jotway-appcast.xml
+python3 scripts/website/build.py --appcast /tmp/jotway-appcast.xml
 ```
 
 To verify a specific release against a local artifact, the original explicit form remains available:

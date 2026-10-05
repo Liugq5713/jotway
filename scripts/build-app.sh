@@ -35,6 +35,9 @@ rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BIN" "$APP_DIR/Contents/MacOS/$APP"
 cp Resources/Info.plist "$APP_DIR/Contents/Info.plist"
+if [ "$CONFIG" = debug ]; then
+    /usr/libexec/PlistBuddy -c 'Set :JotwayUpdatesEnabled false' "$APP_DIR/Contents/Info.plist"
+fi
 cp Resources/AppIcon.icns Resources/JotwayMenuBarTemplate.pdf "$APP_DIR/Contents/Resources/"
 
 echo "==> 嵌入 Sparkle（保留符号链接，先签名内层服务）"

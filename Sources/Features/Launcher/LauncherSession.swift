@@ -387,6 +387,9 @@ final class LauncherSession {
         let webSearchActionID = available.first {
             $0.descriptor.intentHints.modelBinding == .webSearch
         }?.id
+        let conversationActionID = available.first {
+            $0.descriptor.intentHints.modelBinding == .conversation
+        }?.id
         let applications = draft.content.utf8.count <= Jev.maximumTextBytes
             ? IntentRecognition.applicationCandidates(in: draft.content, from: catalog.applications ?? []) : []
         let usage = applicationUsage()
@@ -398,7 +401,7 @@ final class LauncherSession {
             configuration: configuration().revision, registryRevision: registry.revision, text: draft.content,
             applications: applications, applicationRanks: ranks, availableActions: availableActions,
             defaultActionID: defaultActionID, captureOptions: captureOptions,
-            webSearchActionID: webSearchActionID)
+            webSearchActionID: webSearchActionID, conversationActionID: conversationActionID)
     }
 
     /// 展示、预览和提交每次都消费同一个值类型决策。
@@ -1177,6 +1180,7 @@ final class LauncherSession {
             case .none: binding = "none"; criteria = nil
             case .capture(let value): binding = "capture"; criteria = value
             case .webSearch: binding = "web_search"; criteria = nil
+            case .conversation: binding = "conversation"; criteria = nil
             }
             return .init(id: entry.id, localKeywords: entry.descriptor.intentHints.localKeywords,
                          modelBinding: binding, modelCriteria: criteria, isEnabled: entry.isEnabled,

@@ -43,7 +43,9 @@ These describe active or candidate changes. Their contents do not override Curre
 | Document | State |
 |---|---|
 | [Launcher UI](development/launcher-ui.md) | Active design brief |
+| [Submission receipt](product/submission-receipt.md) | P1 implementation brief: immediate non-activating completion feedback and grouped results |
 | [Editor cursor alignment](development/editor-cursor-alignment.md) | Confirmed follow-up: integrate, verify, and deliver the existing caret alignment fix |
+| [Personal routing memory](development/personal-routing-memory.md) | Paused candidate; automatic learning and its previous storage assumptions require reassessment |
 
 Delete a Work document after its resulting behavior has been merged into the relevant Current document.
 
@@ -54,6 +56,8 @@ Delete a Work document after its resulting behavior has been merged into the rel
 | [Launcher pivot](development/launcher-refactor.md) | Decision: transient launcher instead of local inbox |
 | [Connector to action](development/launcher-connector-to-action.md) | Decision: one action abstraction |
 | [Jev API](integrations/jev-api-research.md) | Reference: external protocol and uncertainty boundary |
+| [Cloudflare Workers AI proxy](integrations/cloudflare-workers-ai-research.md) | Reference: proxy integration, mainland China latency, and measurement boundaries |
+| [Launcher competitor research](development/launcher-competitor-research.md) | Reference: Raycast, Alfred, and LaunchBar capabilities and Jotway comparison boundaries |
 | [AI provider onboarding](development/ai-provider-onboarding.md) | Reference: adding an AI source |
 | [AI provider implementation](plugins/ai-provider-implementation.md) | Reference: provider request path |
 | [Third-party notices](../THIRD_PARTY_NOTICES.md) | Reference: dependency sources and licenses |

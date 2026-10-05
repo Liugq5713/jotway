@@ -20,7 +20,7 @@ struct JevDiagnostics: Codable, Sendable, Equatable {
         case captureKind = "capture_kind"
     }
     enum Action: String, Codable, Sendable {
-        case google, openApplication = "open_application", capture, none, unknown
+        case google, conversation, openApplication = "open_application", capture, none, unknown
 
         init(from decoder: Decoder) throws {
             let rawValue = try decoder.singleValueContainer().decode(String.self)
@@ -113,7 +113,7 @@ struct JevDiagnostics: Codable, Sendable, Equatable {
         switch question {
         case .currentRequest, .connectionCheck: []
         case .outerOperation: ["google_search", "open_app", "unspecified", "multiple", "unsupported", "unclear"]
-        case .taskScope: ["public_web", "other", "unclear"]
+        case .taskScope: ["public_web", "conversation", "other", "unclear"]
         case .captureKind: [] // 动态：合法选项是运行时注入的 action id，见 Jev.evaluate 与 bounded。
         case .appTarget: Set((0..<32).map { "app_\($0)" } + ["none"])
         }
@@ -121,7 +121,7 @@ struct JevDiagnostics: Codable, Sendable, Equatable {
 
     var bounded: Self {
         var value = self
-        value.ruleVersion = ["jev-intent-v1", "jev-intent-v2", "jev-intent-v3", "jev-intent-v4", "jev-intent-v5", "jev-intent-v6", "jev-intent-v7", Jev.ruleVersion, "jev-connection-v1"].contains(ruleVersion) ? ruleVersion : "unknown"
+        value.ruleVersion = ["jev-intent-v1", "jev-intent-v2", "jev-intent-v3", "jev-intent-v4", "jev-intent-v5", "jev-intent-v6", "jev-intent-v7", "jev-intent-v8", Jev.ruleVersion, "jev-connection-v1"].contains(ruleVersion) ? ruleVersion : "unknown"
         value.draftRevision = draftRevision.flatMap { $0 >= 0 ? $0 : nil }
         value.candidateCount = min(10_000, max(0, candidateCount))
         value.applicationIDs = Array(applicationIDs.filter {
@@ -275,6 +275,7 @@ extension Jev.Action {
     var diagnosticAction: JevDiagnostics.Action {
         switch self {
         case .google: .google
+        case .conversation: .conversation
         case .capture: .capture
         }
     }

@@ -141,7 +141,7 @@ final class JotwayAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if quitting { return .terminateNow }
-        if let reason = panelController?.prepareForUpdate() {
+        if let reason = panelController?.prepareForTermination() {
             fputs("[Jotway] Could not save before quitting: \(reason)\n", stderr)
             return .terminateCancel
         }
