@@ -9,19 +9,25 @@
         </div>
         <p class="release-note">{{release_summary}}</p>
     </div>
-    <div class="demo" id="product-demo" role="group" tabindex="0" aria-label="Animated quick record panel" aria-describedby="demo-description" data-state="idle" data-playback="paused">
+    <div class="demo" id="product-demo" role="group" tabindex="0" aria-label="Jotway interactive demo" aria-describedby="demo-description" data-playback="paused">
         <div class="demo-panel" id="demo-panel">
-            <div class="demo-draft">
-                <span id="demo-text"></span><span class="demo-placeholder" id="demo-placeholder">What would you like to do?</span><span class="demo-cursor" aria-hidden="true"></span>
-            </div>
-            <div class="demo-action-row">
-                <button class="demo-confirm" id="demo-confirm" type="button" disabled aria-label="Confirm the example Action">
-                    <span id="demo-action-title">Save to Notes</span><span class="demo-return" aria-hidden="true">↵</span>
-                </button>
+            <div class="demo-body" id="demo-body">
+                <div class="demo-draft" id="demo-draft">
+                    <span id="demo-text"></span><span class="demo-placeholder" id="demo-placeholder">What would you like to do?</span><span class="demo-caret" id="demo-caret" aria-hidden="true"></span>
+                </div>
+                <div class="demo-action-row">
+                    <span class="demo-intent" id="demo-intent" aria-hidden="true"></span>
+                    <div class="demo-target" id="demo-target" aria-label="Suggested Action" hidden>
+                        <span id="demo-action-title"></span>
+                        <span class="demo-return" id="demo-return" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M15 4v7H5m4-4-4 4 4 4"/></svg></span>
+                    </div>
+                </div>
             </div>
         </div>
         <canvas class="demo-wind" id="demo-wind" aria-hidden="true" hidden></canvas>
-        <p class="visually-hidden" id="demo-description">Simulated typing and confirmation, followed by the panel drifting away. No apps open and no data is sent. Click the panel or press Space to pause or resume; Enter confirms the suggested Action. With reduced motion, a static example is shown.</p>
+        <svg class="demo-pointer" id="demo-pointer" viewBox="0 0 28 34" aria-hidden="true"><path d="m4 3 19 15-9 1-4 9Z"/></svg>
+        <div class="demo-click" id="demo-click" aria-hidden="true"></div>
+        <p class="visually-hidden" id="demo-description">A simulated Jotway walkthrough: type a thought, see its automatically suggested Action, then press Enter to submit. Two examples show an idea going to Notes and a task going to Reminders. No apps open and no data is sent. Click the panel or press Space to pause or resume. Escape pauses. Enter confirms a ready example. Reduced motion shows a complete, static example. Submission is not a confirmation of saving.</p>
         <p class="visually-hidden" id="demo-status" role="status" aria-live="polite"></p>
     </div>
 </section>

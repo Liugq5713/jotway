@@ -58,28 +58,35 @@ a[aria-current="page"] { color: var(--blue); }
 .release-note { margin-top: 18px; font-size: .875rem; color: var(--muted); }
 kbd { display: inline-block; font: inherit; font-size: .85em; line-height: 1.5; padding: 1px 5px; border: 1px solid #cbd4e3; border-bottom-width: 2px; border-radius: 4px; background: #fff; color: #34415a; white-space: nowrap; }
 
-/* Only the quick record panel is visible; the canvas carries its exit effect. */
+/* One continuous panel, with a deterministic timeline in site.js. */
+@font-face { font-family: Geist; src: url('./fonts/Geist-Variable.woff2') format('woff2'); font-style: normal; font-weight: 100 900; font-display: swap; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
-.demo { position: relative; min-width: 0; width: 100%; max-width: 624px; padding: 56px 32px; margin-inline: auto; border-radius: 14px; }
-.demo-panel { position: relative; color: #f1f2f4; background: #202226; border: 1px solid #3f4248; border-radius: 14px; padding: 18px 20px 14px; }
-.demo:focus-visible { outline: none; }
-.demo:focus-visible .demo-panel { outline: 2px solid #95baff; outline-offset: 3px; }
-.demo-draft { min-height: 52px; line-height: 26px; font-size: 16px; font-weight: 400; overflow-wrap: anywhere; cursor: default; }
-.demo-placeholder { color: #a8abb2; }
-.demo-cursor { display: inline-block; vertical-align: -.15em; height: 1.15em; width: 1.5px; margin-left: 1px; background: #7ea6ff; opacity: 0; }
-.demo[data-state="idle"] .demo-cursor, .demo[data-state="typing"] .demo-cursor { animation: cursor-blink 1s steps(1) infinite; }
-.demo[data-state="idle"] .demo-cursor { position: absolute; left: 20px; top: 23px; }
-.demo-action-row { display: flex; justify-content: flex-end; min-height: 24px; margin-top: 10px; }
-.demo-confirm { display: inline-flex; align-items: center; gap: 10px; max-width: 100%; border: 1px solid #44474f; color: #d8dbe2; background: #303238; border-radius: 6px; padding: 2px 8px; min-height: 24px; font-size: 12px; line-height: 18px; }
-.demo-return { color: #83aaff; font-size: 14px; }
-.demo-confirm:enabled:hover { background: #3b3e46; }
-.demo-confirm:focus-visible { outline-color: #95baff; outline-offset: 3px; }
-.demo[data-state="idle"] .demo-confirm, .demo[data-state="typing"] .demo-confirm { visibility: hidden; }
-.demo[data-state="confirmed"] .demo-confirm { background: #40557b; border-color: #6f8bb7; }
-.demo[data-state="dissolving"] .demo-panel, .demo[data-state="completed"] .demo-panel { opacity: 0; pointer-events: none; }
-.demo-wind { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
-.demo[data-playback="paused"] .demo-cursor { animation-play-state: paused; }
-@keyframes cursor-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+.demo { position: relative; isolation: isolate; min-width: 0; width: 100%; max-width: 624px; aspect-ratio: 1; min-height: 304px; margin-inline: auto; border-radius: 24px; background: #f3f2ef; overflow: hidden; font-family: Geist, -apple-system, BlinkMacSystemFont, sans-serif; color: #242424; }
+.demo:focus-visible { outline: 2px solid var(--blue); outline-offset: 5px; }
+.demo-panel { position: absolute; top: calc(50% - 74px); left: 5%; width: 90%; height: 148px; color: #242424; background: #fff; border: 1px solid #ddd; border-radius: 16px; overflow: hidden; }
+.demo-body { position: relative; height: 148px; padding: 22px 20px 18px; }
+.demo-draft { min-height: 54px; line-height: 27px; font-size: 18px; letter-spacing: -.025em; font-weight: 430; overflow-wrap: anywhere; cursor: default; }
+.demo-placeholder { color: #81817e; }
+.demo-caret { display: inline-block; vertical-align: -.15em; height: 1.1em; width: 1.5px; margin-left: 1px; background: var(--blue); opacity: 0; }
+.demo-placeholder:not([hidden]) + .demo-caret { position: absolute; left: 19px; top: 26px; }
+.demo-action-row { position: absolute; bottom: 17px; left: 20px; right: 20px; display: flex; gap: 8px; align-items: center; justify-content: flex-end; min-height: 25px; }
+.demo-intent { margin-right: auto; font-size: 10px; white-space: nowrap; color: #888; overflow: hidden; text-overflow: ellipsis; }
+.demo-target { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 6px; max-width: 100%; border: 0; color: #55565b; background: #f0f0ef; border-radius: 6px; padding: 4px 7px; height: 26px; font-size: 12px; line-height: 18px; font-weight: 500; white-space: nowrap; }
+.demo:not([data-ready]) .demo-target { visibility: hidden; }
+.demo-return { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 3px; color: var(--blue); background: #245bec14; }
+.demo svg { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.demo-return svg { width: 16px; height: 16px; }
+.demo-pointer { position: absolute; z-index: 4; width: 25px; height: 31px; pointer-events: none; transform-origin: 4px 3px; opacity: 0; }
+.demo .demo-pointer path { fill: #242424; stroke: #fff; stroke-width: 1.7; }
+.demo-click { position: absolute; z-index: 3; width: 20px; height: 20px; border: 1.5px solid #245bec; border-radius: 50%; opacity: 0; pointer-events: none; }
+.demo-wind { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+@media (max-width: 420px) {
+    .demo-body { padding-inline: 16px; padding-top: 20px; }
+    .demo-draft { font-size: 16px; line-height: 25px; }
+    .demo-placeholder:not([hidden]) + .demo-caret { left: 15px; top: 23px; }
+    .demo-action-row { left: 16px; right: 16px; }
+    .demo-intent { font-size: 9px; }
+}
 
 .section { padding-block: 84px; }
 .section-heading { margin-bottom: 38px; }
@@ -184,7 +191,7 @@ kbd { display: inline-block; font: inherit; font-size: .85em; line-height: 1.5; 
     .hero h1 { font-size: clamp(2.75rem, 8vw, 4rem); }
     .hero .lede { margin-top: 20px; }
     .hero-links { margin-top: 24px; }
-    .demo { max-width: 624px; padding-block: 34px; }
+    .demo { max-width: 560px; }
     .section { padding-block: 56px; }
     .steps { grid-template-columns: 1fr; gap: 24px; }
     .steps li { display: grid; grid-template-columns: 30px 1fr; gap: 4px 14px; padding-top: 20px; }
@@ -215,7 +222,6 @@ kbd { display: inline-block; font: inherit; font-size: .85em; line-height: 1.5; 
     .site-header nav { gap: 16px; width: 100%; justify-content: space-between; }
     .site-header .nav-download { padding: 6px 10px; }
     .hero { padding-top: 20px; }
-    .demo { padding: 34px 8px; }
     .hero h1 { font-size: 2.8rem; }
     .hero-links { gap: 16px; }
     .button { padding-inline: 18px; }

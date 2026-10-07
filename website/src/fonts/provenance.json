@@ -1,0 +1,22 @@
+{
+  "family": "Geist",
+  "release": "v1.7.2",
+  "source": "https://github.com/vercel/geist-font",
+  "releaseURL": "https://github.com/vercel/geist-font/releases/tag/v1.7.2",
+  "archiveURL": "https://github.com/vercel/geist-font/releases/download/v1.7.2/geist-font-v1.7.2.zip",
+  "archiveSHA256": "7fc800d2ac6b92844895196e5041aca55d814c15db70c44f79b3b83ab82b04e2",
+  "upstreamPath": "geist-font/Geist/webfonts/Geist[wght].woff2",
+  "file": "Geist-Variable.woff2",
+  "sha256": "a369fcf5628ea2aa4e1b9e2ec6a5b3624e365bda588e1f0f2f12b564f728fbb8",
+  "license": "OFL-1.1",
+  "licenseFile": "OFL.txt",
+  "axes": [
+    {
+      "tag": "wght",
+      "min": 100.0,
+      "default": 400.0,
+      "max": 900.0
+    }
+  ],
+  "modifications": "None; the variable webfont was renamed for a URL without brackets."
+}

@@ -115,6 +115,7 @@ def main():
         shutil.copyfile(artifact, output / 'downloads' / artifact.name)
     for name in ('site.css', 'site.js'):
         shutil.copyfile(SITE / 'src' / name, output / 'assets' / name)
+    shutil.copytree(SITE / 'src/fonts', output / 'assets/fonts')
     shutil.copyfile(ROOT / 'Resources/Icons/AppIcon.png', output / 'assets/AppIcon.png')
     (output / 'release.json').write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + '\n')
     if appcast is not None:
