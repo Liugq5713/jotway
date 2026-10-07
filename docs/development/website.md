@@ -16,7 +16,7 @@ Action cards are examples, not the total Action count. Product copy follows the 
 
 ## Interactive product demo
 
-The home page contains a silent, 14-second walkthrough on a warm-gray canvas. A white panel takes a natural-language thought, shows its automatically suggested Action, illustrates Enter confirmation, and dissolves into particles. Black-and-white components use the existing blue accent. The locally bundled Geist font makes no third-party requests; its license and source are in `website/src/fonts/`.
+The home page contains a silent, 14-second walkthrough directly on the page's white background. A white panel takes a natural-language thought, shows its automatically suggested Action, illustrates Enter confirmation, and dissolves into particles. Black-and-white components use the existing blue accent. The locally bundled Geist font makes no third-party requests; its license and source are in `website/src/fonts/`.
 
 Two seven-second examples show the automatic path: `An idea for the next design review` suggests Notes, and `Remind me to send the design draft` suggests Reminders. The Action label is a read-only indicator: there is no candidate menu, manual selection, explicit-selection dot, or cursor click on the Action. The website performs no real recognition and never executes an Action, opens an application, sends text, or persists a visitor choice. The native app still supports manual target selection.
 
