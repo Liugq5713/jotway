@@ -6,11 +6,11 @@ The repository contains a static English-language website at `website/`. It is p
 
 ## Pages and behavior
 
-- `/`: quick record flow, four example Actions, recovery, optional AI, and privacy summary. The primary call to action says “Download Jotway” and points to the download page when a verified public artifact is available; an unpublished build says “Check availability”.
+- `/`: quick record flow, four example Actions, recovery, optional AI, and privacy summary. The primary call to action says “Download Jotway” and downloads the verified public DMG directly. “Installation & details” opens the download page; an unpublished build says “Check availability” and opens that page instead.
 - `/download/`: verified artifact facts, a DMG download, installation instructions, and source-build guidance. An unpublished build shows an availability message instead. Directory routes also resolve from `/download` on a directory-index static host.
 - `/privacy/`: draft lifetime, Action transfer, optional provider requests, full-text local feedback, retention and clearing boundaries. `/privacy` resolves in the same way.
 
-Pages share `website/src/layout.html`, local styles, navigation and footer. A small dependency-free script drives the interactive product demo and copies an available checksum. Reading and navigation work without JavaScript. The site has no account system, analytics, external fonts or persistent browser preferences.
+Pages share `website/src/layout.html`, local styles, navigation and footer. The top navigation includes the GitHub repository and a direct download using the same verified release URL as the home page, with “Check availability” as the fallback when no public artifact is available. The footer's “Install guide” keeps release details and installation instructions accessible. A small dependency-free script drives the interactive product demo and copies an available checksum. Reading, navigation and downloads work without JavaScript. The site has no account system, analytics, external fonts or persistent browser preferences.
 
 Action cards are examples, not the total Action count. Product copy follows the Current product and integration documents. Date extraction depends on per-action DeepSeek processing; it is not promised as an AI-free feature. Jev can send draft text before Enter; accepted local feedback has no retention limit or clear UI.
 

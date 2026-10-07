@@ -123,6 +123,8 @@ def main():
     layout = (SITE / 'src/layout.html').read_text()
     published = metadata['status'] == 'published'
     common = {'home_cta': 'Download Jotway' if published else 'Check availability',
+              'download_url': escape(metadata['downloadURL'], quote=True) if published else '/download/',
+              'nav_cta': 'Download' if published else 'Check availability',
               'release_summary': f"{metadata['version']} · macOS {metadata['minimumMacOS']}+ · {metadata['architecture']}" if published else ('Local preview · Not publicly released' if artifact else 'No public release yet · Source builds available'),
               'release_content': release_content(metadata),
               'signing_guidance': ('The current packaging process uses ad-hoc signing without Apple notarization. ' if metadata['status'] == 'unpublished'
@@ -135,7 +137,7 @@ def main():
         content = (SITE / 'src' / f'{source}.html').read_text()
         content = re.sub(r'\{\{(\w+)\}\}', lambda match: common[match[1]], content)
         site_prefix = './' if not route else '../'
-        values = {'content': content, 'title': title, 'description': description,
+        values = {**common, 'content': content, 'title': title, 'description': description,
                   'site_prefix': site_prefix,
                   'asset_revision': hashlib.sha256((SITE / 'src/site.css').read_bytes() + (SITE / 'src/site.js').read_bytes()).hexdigest()[:12],
                   'privacy_current': 'aria-current="page"' if route == 'privacy' else '',

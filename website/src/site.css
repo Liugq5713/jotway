@@ -215,11 +215,14 @@ kbd { display: inline-block; font: inherit; font-size: .85em; line-height: 1.5; 
     .release-facts { grid-template-columns: 1fr; }
     .release-facts .wide { grid-column: auto; }
 }
+@media (max-width: 600px) {
+    .site-header { flex-wrap: wrap; padding-block: 16px; gap: 14px; }
+    .site-header nav { flex-wrap: wrap; gap: 12px; width: 100%; justify-content: space-between; }
+}
 @media (max-width: 420px) {
     .wrap { width: calc(100% - 32px); }
-    .site-header { flex-wrap: wrap; padding-block: 16px; gap: 14px; }
     .site-header .brand img { width: 26px; }
-    .site-header nav { gap: 16px; width: 100%; justify-content: space-between; }
+    .site-header nav { gap: 8px; }
     .site-header .nav-download { padding: 6px 10px; }
     .hero { padding-top: 20px; }
     .hero h1 { font-size: 2.8rem; }
