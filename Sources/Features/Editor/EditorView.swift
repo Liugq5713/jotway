@@ -106,6 +106,7 @@ struct EditorView: View {
     /// placeholder 单点定义（EditorTextView 的默认值也引用这里）。
     static var placeholderText: String { L10n.text("launcher.placeholder") }
 
+    @State private var actionRowWidth: CGFloat = LauncherMetrics.panelWidth - 2 * LauncherMetrics.cardPaddingH
     @State private var editorTextHeight: CGFloat = LauncherMetrics.editorMinHeight
     @State private var reportedTotalHeight: CGFloat = 0
     @State private var reportedCardHeight: CGFloat = 0
@@ -198,8 +199,7 @@ struct EditorView: View {
     }
 
     private var hasPlanResult: Bool {
-        !state.isReadingGettingStarted && (state.planSummary != nil || state.timeIssue != nil
-            || state.preparationFailure != nil || state.isCheckingActionPlan)
+        !state.isReadingGettingStarted && state.reservesPlanResultSpace
     }
 
     var minimumInputCardHeight: CGFloat {
@@ -276,6 +276,7 @@ struct EditorView: View {
         }
         // 下端对齐：动作标签贴着动作行下缘，视觉更沉稳。
         .frame(height: LauncherMetrics.actionRowHeight, alignment: .bottom)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { actionRowWidth = $0 }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -293,8 +294,9 @@ struct EditorView: View {
 
     @ViewBuilder
     private var explicitTargetMark: some View {
-        if state.hasExplicitTarget {
+        if hasDraftContent || state.hasExplicitTarget {
             Circle().fill(accent).frame(width: 5, height: 5)
+                .opacity(state.hasExplicitTarget ? 1 : 0)
                 .accessibilityHidden(true)
         }
     }
@@ -311,13 +313,16 @@ struct EditorView: View {
                 Text(state.displayedActionTitle ?? L10n.text("launcher.choose_target"))
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
-                    .frame(maxWidth: hasDraftContent ? 220 : 260, alignment: .leading)
-                if hasDraftContent, state.displayedActionTitle != nil {
+                    // 45 pt reserves marker, keycap, gaps and horizontal padding.
+                    .frame(width: hasDraftContent ? min(220, max(0, actionRowWidth - 45)) : nil, alignment: .leading)
+                    .frame(maxWidth: hasDraftContent ? nil : 260, alignment: .leading)
+                if hasDraftContent {
                     Image(systemName: "return")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(accent)
                         .frame(width: 16, height: 16, alignment: .center)
                         .background(Color(nsColor: EditorPalette.keycap), in: RoundedRectangle(cornerRadius: 3))
+                        .opacity(state.displayedActionTitle == nil ? 0 : 1)
                         .accessibilityHidden(true)
                 }
             }
@@ -341,7 +346,7 @@ struct EditorView: View {
         .accessibilityIdentifier("launcher-choose-target")
         .accessibilityLabel(L10n.text("launcher.choose_target"))
         .accessibilityValue(targetSelectorValue)
-        .help(L10n.text("launcher.choose_target_help"))
+        .help(targetSelectorValue + "\n" + L10n.text("launcher.choose_target_help"))
         .onKeyPress(keys: [.return, .space, .upArrow, .downArrow, .escape, .tab], phases: .down) { key in
             handleTargetSelectorKey(key)
         }
@@ -720,6 +725,7 @@ final class EditorTextView: NSTextView {
     private var suppressesIntentReturnRepeats = false
     private var observesUndo = false
     private var lastReportedText = ""
+    private var reportedComposition = false
 
     enum ReplacementReason {
         case synchronize
@@ -800,6 +806,8 @@ final class EditorTextView: NSTextView {
 
     /// 输入卡自动长高：上报当前排版高度（不含卡片内边距，由 SwiftUI 侧加回）。
     func reportContentHeight() {
+        let timing = InputPerformance.begin()
+        defer { InputPerformance.end("height", timing) }
         guard let onContentHeightChange, let textLayoutManager else { return }
         textLayoutManager.ensureLayout(for: textLayoutManager.documentRange)
         let layoutHeight = textLayoutManager.usageBoundsForTextContainer.height
@@ -833,20 +841,26 @@ final class EditorTextView: NSTextView {
     override func insertText(_ insertString: Any, replacementRange: NSRange) {
         super.insertText(insertString, replacementRange: replacementRange)
         updatePlaceholderVisibility()
-        send(.compositionChanged(hasMarkedText()))
+        reportComposition(hasMarkedText())
     }
 
     override func unmarkText() {
         super.unmarkText()
         updatePlaceholderVisibility()
-        send(.compositionChanged(hasMarkedText()))
+        reportComposition(hasMarkedText())
     }
 
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
-        send(.compositionChanged(true))
+        reportComposition(true)
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
         updatePlaceholderVisibility()
-        send(.compositionChanged(hasMarkedText()))
+        reportComposition(hasMarkedText())
+    }
+
+    private func reportComposition(_ composing: Bool) {
+        guard composing != reportedComposition else { return }
+        reportedComposition = composing
+        send(.compositionChanged(composing))
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -916,6 +930,8 @@ final class EditorTextView: NSTextView {
     }
 
     override func didChangeText() {
+        let timing = InputPerformance.begin()
+        defer { InputPerformance.end("edit", timing) }
         super.didChangeText()
         observeUndoChangesIfNeeded()
         lastReportedText = string

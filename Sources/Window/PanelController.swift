@@ -19,6 +19,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     private let editorFocusTarget: EditorFocusTarget
     private var hotkeyInstalled = false
     private var workspaceObserver: NSObjectProtocol?
+    private var availabilityObservers: [NSObjectProtocol] = []
     private var intentObservers: [NSObjectProtocol] = []
     private var pendingGettingStarted: (() -> Void)?
     private var preservesEditorAfterGettingStarted = false
@@ -61,6 +62,16 @@ final class PanelController: NSObject, NSWindowDelegate {
             guard let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
                   application.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
             MainActor.assumeIsolated { appState?.shortcutTrialLeftJotway() }
+        }
+        // Launch/termination and volume changes are known external invalidations. Missed
+        // installation changes are covered on presentation and again on confirmation.
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification,
+                     NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
+            availabilityObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak session] _ in
+                MainActor.assumeIsolated { session?.send(.externalAvailabilityChanged) }
+            })
         }
         startPasteboardMonitor()
     }
@@ -152,6 +163,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         actionSetupWindow?.contentView = nil
         actionSetupWindow?.close()
         pasteboardMonitor?.invalidate()
+        for observer in availabilityObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         if let workspaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(workspaceObserver) }
         for observer in intentObservers { NotificationCenter.default.removeObserver(observer) }
     }

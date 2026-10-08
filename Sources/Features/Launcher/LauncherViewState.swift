@@ -34,6 +34,8 @@ final class LauncherViewState {
     var intentCandidates: [IntentCandidate] = []
     /// 动作行显示的执行或配置标题；与按 Enter 的行为共用同一解析结果。
     var displayedActionTitle: String?
+    /// Space only: never retains a plan, its text, or its presentation receipt.
+    var reservesPlanResultSpace = false
     var planSummary: ActionPlanSummary?
     var planContext: ScheduleContext?
     var currentPlanID: UUID?

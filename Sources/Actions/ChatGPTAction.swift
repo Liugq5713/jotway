@@ -21,6 +21,8 @@ final class ChatGPTModule: ActionModule {
     private let isCompatible: ChatGPTAction.CheckCompatibility
     private let open: ChatGPTAction.Open
     private(set) var isAvailable: Bool
+    @ObservationIgnored private var availabilityTask: Task<Void, Never>?
+    @ObservationIgnored private var availabilityGeneration = 0
 
     init(locate: @escaping ChatGPTAction.Locate = {
             NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex")
@@ -42,7 +44,8 @@ final class ChatGPTModule: ActionModule {
         self.locate = locate
         self.isCompatible = isCompatible
         self.open = open
-        isAvailable = locate().map(isCompatible) ?? false
+        isAvailable = false
+        requestAvailabilityRefresh(invalidate: false)
     }
 
     var state: ActionModuleState {
@@ -54,8 +57,34 @@ final class ChatGPTModule: ActionModule {
 
     var settings: ActionSettings? { nil }
 
+    isolated deinit { availabilityTask?.cancel() }
+
+    func requestAvailabilityRefresh(invalidate: Bool = false) {
+        if availabilityTask != nil, !invalidate { return }
+        availabilityGeneration &+= 1
+        let generation = availabilityGeneration
+        availabilityTask?.cancel()
+        let locate = locate, check = isCompatible
+        availabilityTask = Task { [weak self] in
+            // NSWorkspace stays on MainActor; file IO and plist parsing do not.
+            let application = locate()
+            let probe = Task.detached(priority: .utility) { application.map(check) ?? false }
+            let next = await withTaskCancellationHandler { await probe.value } onCancel: { probe.cancel() }
+            guard !Task.isCancelled, let self, self.availabilityGeneration == generation else { return }
+            self.availabilityTask = nil
+            self.publishAvailability(next)
+        }
+    }
+
     func refreshAvailability() {
-        let next = locate().map(isCompatible) ?? false
+        // Confirmation supersedes any in-flight display probe.
+        availabilityGeneration &+= 1
+        availabilityTask?.cancel()
+        availabilityTask = nil
+        publishAvailability(locate().map(isCompatible) ?? false)
+    }
+
+    private func publishAvailability(_ next: Bool) {
         guard next != isAvailable else { return }
         isAvailable = next
         onChange?()
@@ -69,7 +98,7 @@ final class ChatGPTModule: ActionModule {
 /// Preparation freezes the full prompt; only confirmation opens the destination application.
 struct ChatGPTAction: LauncherAction {
     typealias Locate = @MainActor @Sendable () -> URL?
-    typealias CheckCompatibility = @MainActor @Sendable (URL) -> Bool
+    typealias CheckCompatibility = @Sendable (URL) -> Bool
     typealias Open = @MainActor @Sendable (URL, URL, NSWorkspace.OpenConfiguration) async throws -> Void
 
     let descriptor = ChatGPTModule.moduleDescriptor

@@ -16,6 +16,7 @@ enum LauncherEvent {
     case readingGettingStartedChanged(Bool)
     case externalFocusChanged
     case refreshConfiguration
+    case externalAvailabilityChanged
     case preserveDraft
     case captureBeforeTermination
     case cancel
@@ -222,6 +223,7 @@ final class LauncherSession {
             if reading { suspend() } else { refresh() }
         case .externalFocusChanged: suspend()
         case .refreshConfiguration: refresh()
+        case .externalAvailabilityChanged: registry.requestAvailabilityRefresh(invalidate: true)
         case .preserveDraft:
             cancelPendingConfirmation()
             state.lastEventSucceeded = preserveDraft()
@@ -242,7 +244,13 @@ final class LauncherSession {
     }
 
     func updateInput(_ text: String) {
+        let timing = InputPerformance.begin()
+        defer { InputPerformance.end("input", timing) }
         guard !isReplacingEditor else { return }
+        // NSTextView supplies a bridged NSString. Materialize it once so the draft,
+        // operation state and observable view state reuse the same UTF-8 storage.
+        var text = text
+        text.makeContiguousUTF8()
         if draft.content != text {
             invalidatePreparation()
             invalidateSetup()
@@ -259,6 +267,8 @@ final class LauncherSession {
     func prepare(quote: String? = nil) -> Bool {
         guard !state.isComposingText else { return false }
         invalidatePreparation()
+        state.reservesPlanResultSpace = false
+        registry.requestAvailabilityRefresh()
         state.panelSessionID = UUID()
         invalidateSetup()
         var content = draft.content
@@ -281,6 +291,8 @@ final class LauncherSession {
 
     func resumePresentation() {
         invalidatePreparation()
+        state.reservesPlanResultSpace = false
+        registry.requestAvailabilityRefresh()
         state.panelSessionID = UUID()
         invalidateSetup()
         panelSession += 1
@@ -305,6 +317,7 @@ final class LauncherSession {
 
     func panelClosed() {
         recordPanelVisibility(false)
+        state.reservesPlanResultSpace = false
         invalidateSetup()
         suspend()
         actionExecutor.reset()
@@ -348,8 +361,9 @@ final class LauncherSession {
     }
 
     func refresh() {
+        let timing = InputPerformance.begin()
+        defer { InputPerformance.end("refresh", timing) }
         guard !isReplacingEditor else { return }
-        registry.refreshAvailability()
         if let pending = pendingActionConfirmation,
            pending.configuration != configuration().revision
             || registry.executionSnapshot(for: pending.snapshot.id)?.configurationIdentity != pending.snapshot.configurationIdentity {
@@ -606,6 +620,8 @@ final class LauncherSession {
             return
         }
         if pendingActionConfirmation != nil { return }
+        let enteredDecision = renderedDecision
+        let enteredIdentity = renderedInputIdentity
         let enteredPlanID = state.currentPlanID
         let enteredSessionID = state.panelSessionID
         guard hasPreparedDraft, acceptsIntentSuggestions, !isSubmitting,
@@ -626,6 +642,16 @@ final class LauncherSession {
         let contextChanged = checkPreparationContext()
         guard let intentSnapshot = currentIntentSnapshot else { return }
         let resolved = routeDecision
+        // Refresh can synchronously publish registry changes and render a fallback. Keep the
+        // destination the user confirmed before probing, including its action/setup kind.
+        guard enteredIdentity == actionInput().identity,
+              let enteredDecision, sameDestination(enteredDecision, resolved) else {
+            invalidatePreparation()
+            refresh()
+            state.message = L10n.text("launcher.target_unavailable")
+            recordBlockedConfirmation("target_changed")
+            return
+        }
         switch resolved {
         case .setup(let id, _):
             guard let snapshot = registry.setupSnapshot(for: id) else { return }
@@ -659,6 +685,17 @@ final class LauncherSession {
         case .unavailable(.noDefaultAction, _), .empty:
             state.message = L10n.text("launcher.no_default_action")
             recordBlockedConfirmation("no_default_action")
+        }
+    }
+
+    private func sameDestination(_ lhs: RouteDecision, _ rhs: RouteDecision) -> Bool {
+        switch (lhs, rhs) {
+        case (.action(let a, _), .action(let b, _)),
+             (.setup(let a, _), .setup(let b, _)),
+             (.application(let a, _), .application(let b, _)):
+            return a == b
+        case (.unavailable, .unavailable): return lhs == rhs
+        default: return false
         }
     }
 
@@ -785,6 +822,7 @@ final class LauncherSession {
             state.message = message
             return
         }
+        state.reservesPlanResultSpace = false
         draft.id = submitted.id
         restoreRoutingSelection(selection)
         restoreOperationInput(operation?.token.input, generation: operation?.token.generation,
@@ -907,6 +945,7 @@ final class LauncherSession {
         resetOperationLineage(text: "")
         clearExplicitTarget()
         correctionTargetID = nil
+        state.reservesPlanResultSpace = false
         draft = RecordDraft()
         draftRoutingStartRevision = routingInteractionRevision
         committedDraftHasContent = false
@@ -960,6 +999,11 @@ final class LauncherSession {
     }
 
     private func preparationChanged(_ preparation: ActionExecutor.Preparation?) {
+        defer {
+            if state.planSummary != nil || state.timeIssue != nil || state.preparationFailure != nil {
+                state.reservesPlanResultSpace = true
+            }
+        }
         if let preparation {
             let date = now(), zone = timeZone()
             let valid = preparation.status.plan?.isCurrent(at: date, timeZone: zone)
@@ -1268,6 +1312,7 @@ final class LauncherSession {
             recordPresentedRoute(token: token)
         } else {
             invalidatePreparation()
+            state.reservesPlanResultSpace = false
             state.panelSessionID = UUID()
             let token = clearedVisibleToken ?? captureOperation(.hide) ?? lastVisibleToken
             if let token {
@@ -1497,6 +1542,7 @@ final class LauncherSession {
             if let token { recordEvent(.draftCleared, token: token, details: .clear(.init())) }
             clearExplicitTarget()
             correctionTargetID = nil
+            state.reservesPlanResultSpace = false
             draft.id = UUID()
             draftRoutingStartRevision = routingInteractionRevision
             draftEditingStartRevision = revision
@@ -1514,6 +1560,7 @@ final class LauncherSession {
         let content = hasContent ? draft.content + "\n\n" + failedSubmission.draft.content : failedSubmission.draft.content
         guard replaceText(content, reason: .restoreDraft) else { return false }
         if !merged {
+            state.reservesPlanResultSpace = false
             draft.id = failedSubmission.draft.id
             restoreRoutingSelection(failedSubmission.selection)
         }

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 启动器界面的尺寸与动效常量（launcher-ui.md §3、§6 P2）。
+/// 启动器界面的尺寸与动效常量。
 ///
 /// 此前所有尺寸内联在使用处（圆角七种、内边距四种），改一处漏一片。
 /// 双卡结构落地时一并收敛到这里——输入卡 / 悬浮层的几何关系只看这一个文件。
@@ -25,7 +25,7 @@ enum LauncherMetrics {
     static let cardInnerGap: CGFloat = 12
     /// 动作行始终占位；空闲时只隐藏标签。
     static let actionRowHeight: CGFloat = 22
-    /// Time results get at most two lines; the editor gives up this budget before scrolling.
+    /// Reserved after the first time result until the draft or presentation ends.
     static let planResultMaxHeight: CGFloat = 36
     static let editorFontSize: CGFloat = 16
     /// 普通中英文基线间距；用额外行距实现，保留字形与光标的自然行框。

@@ -42,7 +42,6 @@ These describe active or candidate changes. Their contents do not override Curre
 
 | Document | State |
 |---|---|
-| [Launcher UI](development/launcher-ui.md) | Active design brief |
 | [Submission receipt](product/submission-receipt.md) | P1 implementation brief: immediate non-activating completion feedback and grouped results |
 | [Editor cursor alignment](development/editor-cursor-alignment.md) | Confirmed follow-up: integrate, verify, and deliver the existing caret alignment fix |
 | [Personal routing memory](development/personal-routing-memory.md) | Paused candidate; automatic learning and its previous storage assumptions require reassessment |
