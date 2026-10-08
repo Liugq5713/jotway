@@ -7,7 +7,8 @@ struct ActionPlanResultRow: View {
     let send: (LauncherEvent) -> Void
 
     var body: some View {
-        Group {
+        ZStack(alignment: .topLeading) {
+            Color.clear.accessibilityHidden(true)
             if let summary = state.planSummary, let context = state.planContext,
                let planID = state.currentPlanID {
                 let value = ActionPlanSummaryFormatter(summary: summary, context: context)
@@ -56,7 +57,10 @@ struct ActionPlanResultRow: View {
         }
         .font(.system(size: 12))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(maxHeight: LauncherMetrics.planResultMaxHeight, alignment: .topLeading)
+        .frame(height: LauncherMetrics.planResultMaxHeight, alignment: .topLeading)
+        .allowsHitTesting(state.planSummary != nil || state.timeIssue != nil || state.preparationFailure != nil)
+        .accessibilityHidden(state.planSummary == nil && state.timeIssue == nil
+            && state.preparationFailure == nil && !state.isCheckingActionPlan)
     }
 
     private func issueText(_ message: String) -> some View {

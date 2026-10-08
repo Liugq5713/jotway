@@ -43,7 +43,7 @@ struct ActionSettingsView: View {
             selectedActionID = nil
             notice = L10n.text("actions.removed_notice")
         }
-        .onAppear { configuration.registry.refreshAvailability() }
+        .onAppear { configuration.registry.requestAvailabilityRefresh() }
     }
 
     private var entries: [ActionSettingsEntry] { configuration.registry.settingsEntries() }

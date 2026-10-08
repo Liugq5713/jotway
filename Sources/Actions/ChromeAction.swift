@@ -19,6 +19,8 @@ final class ChromeModule: ActionModule {
     private let locate: @MainActor @Sendable () -> URL?
     private let open: ChromeConnector.Open
     private(set) var chromeIsAvailable: Bool
+    @ObservationIgnored private var availabilityTask: Task<Void, Never>?
+    @ObservationIgnored private var availabilityGeneration = 0
 
     init(locate: @escaping @MainActor @Sendable () -> URL? = {
             NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome")
@@ -38,8 +40,28 @@ final class ChromeModule: ActionModule {
               hasSavedConfiguration: false)
     }
     var settings: ActionSettings? { nil }
+    isolated deinit { availabilityTask?.cancel() }
+
+    func requestAvailabilityRefresh(invalidate: Bool = false) {
+        if availabilityTask != nil, !invalidate { return }
+        availabilityGeneration &+= 1
+        let generation = availabilityGeneration
+        availabilityTask?.cancel()
+        availabilityTask = Task { [weak self] in
+            guard !Task.isCancelled, let self, self.availabilityGeneration == generation else { return }
+            self.availabilityTask = nil
+            self.publishAvailability(self.locate() != nil)
+        }
+    }
+
     func refreshAvailability() {
-        let next = locate() != nil
+        availabilityGeneration &+= 1
+        availabilityTask?.cancel()
+        availabilityTask = nil
+        publishAvailability(locate() != nil)
+    }
+
+    private func publishAvailability(_ next: Bool) {
         guard next != chromeIsAvailable else { return }
         chromeIsAvailable = next
         onChange?()

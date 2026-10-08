@@ -57,3 +57,9 @@ Records include full unsubmitted text when enabled. App Suggestions settings pro
 Runtime diagnostics keep request IDs, rule/model identifiers, bounded scores/reasons, routing source, and timing. They exclude draft text, keys, and full provider responses. Exported logs include the active rule definition for later interpretation.
 
 External API details and remaining uncertainty are kept in [Jev API reference](jev-api-research.md).
+
+## Input and confirmation stability
+
+Target labels continue to reflect the current valid route immediately, including fallback while an obsolete model suggestion is discarded. A fixed label slot and reserved Return/explicit-marker slots prevent that name change from moving the controls. A time result reserves space after its first appearance; editing and composition clear the old plan and its presentation receipt while retaining that space until the draft or panel presentation resets.
+
+Input and recognition updates consume cached module availability. External probes run on separate presentation/configuration/workspace triggers. Confirmation captures the rendered destination before its live availability check and blocks if that check changes the target or changes an action into a setup route. The same Enter cannot silently execute the fallback. Existing routing priority, 500 ms recognition debounce, and 600 ms delayed recognition hint remain unchanged.

@@ -31,7 +31,12 @@ final class ActionRegistry {
         } else {
             registered.append(entry)
         }
-        module.onChange = { [weak self] in self?.moduleDidChange(id: id) }
+        let instanceID = entry.instanceID
+        module.onChange = { [weak self] in
+            guard let self, self.registered.contains(where: { $0.instanceID == instanceID }) else { return }
+            self.moduleDidChange(id: id)
+        }
+        module.requestAvailabilityRefresh(invalidate: false)
         publishChange()
     }
 
@@ -67,6 +72,10 @@ final class ActionRegistry {
 
     func refreshAvailability() {
         for entry in registered { entry.module.refreshAvailability() }
+    }
+
+    func requestAvailabilityRefresh(invalidate: Bool = false) {
+        for entry in registered { entry.module.requestAvailabilityRefresh(invalidate: invalidate) }
     }
 
     func executionSnapshots() -> [ActionExecutionSnapshot] {
@@ -122,7 +131,10 @@ final class ActionRegistry {
     func setEnabled(_ enabled: Bool, id: String) {
         guard case .userToggle = descriptor(for: id)?.enablementPolicy else { return }
         let changed = enabled ? disabledIDs.remove(id) != nil : disabledIDs.insert(id).inserted
-        if changed { publishChange() }
+        if changed {
+            registered.first { $0.module.descriptor.id == id }?.module.requestAvailabilityRefresh(invalidate: true)
+            publishChange()
+        }
     }
 
     func setUserRules(_ rules: [IntentRule]) {

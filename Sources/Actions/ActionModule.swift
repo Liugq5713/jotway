@@ -69,12 +69,16 @@ protocol ActionModule: AnyObject {
     var setup: ActionSetup? { get }
     var onChange: (@MainActor () -> Void)? { get set }
 
+    /// Synchronous confirmation recheck; never called by ordinary input refresh.
     func refreshAvailability()
+    /// Display refresh requests coalesce inside each external module.
+    func requestAvailabilityRefresh(invalidate: Bool)
     func makeAction() -> any LauncherAction
 }
 
 extension ActionModule {
     var setup: ActionSetup? { nil }
+    func requestAvailabilityRefresh(invalidate: Bool = false) { refreshAvailability() }
 }
 
 struct ActionConfigurationIdentity: Hashable, Sendable {
