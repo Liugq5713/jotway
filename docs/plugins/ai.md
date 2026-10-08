@@ -15,7 +15,7 @@ Storage actions use DeepSeek independently of the general provider selected in A
 - Reminders uses `AITextProcessor` to clean reminder wording.
 - Calendar uses `AITextProcessor` to clean event wording.
 
-Each action keeps its independent enable preference. Notes reuses its existing on/off value but stores supplement preferences separately from legacy rewrite styles, which remain stored and inactive. The default remains enabled when no value exists. Notes preserves original text, title source, blank lines, spacing, tabs, indentation and literal text syntax regardless of model output. Fixed tags and enabled AI tags are deduplicated only in the appended area; AI tags share the supplement request and are disabled when supplements are off.
+Each action keeps its independent enable preference. Notes reuses its existing on/off value but stores supplement preferences separately from legacy rewrite styles, which remain stored and inactive. The default remains enabled when no value exists. Notes preserves original text, first line, blank lines, spacing, tabs, indentation and literal text syntax regardless of model output. Fixed tags and enabled AI tags are deduplicated only in the appended area; AI tags share the supplement request and are disabled when supplements are off.
 
 Reminder and Calendar body-style settings and fallback behavior remain unchanged. Their schedules always come from the original draft through the local deterministic resolver; model output and style instructions cannot change those frozen times.
 

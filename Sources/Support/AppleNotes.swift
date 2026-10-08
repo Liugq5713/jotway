@@ -88,22 +88,17 @@ enum AppleNotes {
         }
     }
 
-    /// Title and original body are separate: deriving a title never consumes an original line.
+    /// Preserve the original once; Notes determines its title from the supplied body.
     /// A span inside pre prevents HTML's special handling of a newline immediately after <pre>.
     static func content(fromPlainText text: String, supplement: NotesSupplement = .empty,
                         tags: [String] = []) -> Content {
         let original = normalizedLines(text)
-        let title = original.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { String($0).trimmingCharacters(in: .whitespaces) }
-            .first { !$0.isEmpty } ?? "Jotway"
         func preservedBlock(_ value: String, region: String,
                             fontFamily: String = "-apple-system, Helvetica, sans-serif") -> String {
             "<pre data-jotway-region=\"\(region)\" style=\"font-family: \(fontFamily); font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0;\"><span>\(escapedHTML(value))</span></pre>"
         }
-        // Native HTML import coalesces a block boundary with the body's first newline.
-        // An explicit separator prevents that boundary from consuming an original blank line.
-        var html = "<div>\(escapedHTML(title))</div><div><br></div>" + preservedBlock(original, region: "original")
-        var plaintext = title + "\n\n" + original
+        var html = preservedBlock(original, region: "original")
+        var plaintext = original
         let items = supplement.items.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         if !items.isEmpty {
             let heading = L10n.text("action.notes.supplement.heading")

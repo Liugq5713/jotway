@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import Jotway
 
@@ -61,8 +62,10 @@ final class LauncherActionTests: XCTestCase {
 
     func testAppleNotesActionCreatesNoteFromPlainText() async throws {
         var captured: AppleNotes.Request?
+        var createCount = 0
         let action = AppleNotesAction(destination: destination) { request in
             captured = request
+            createCount += 1
             return .init(version: 1, requestID: request.requestID, status: "ok",
                          noteID: "note-1", folderID: request.folderID,
                          plaintext: nil)
@@ -71,10 +74,57 @@ final class LauncherActionTests: XCTestCase {
             identity: .init(draftID: UUID(), revision: 0), text: "明天要买牛奶"))
         let outcome = try await prepared.execute()
         XCTAssertEqual(outcome.localizedMessage, "Saved to Notes")
+        XCTAssertEqual(createCount, 1)
         XCTAssertEqual(captured?.operation, "create")
         XCTAssertEqual(captured?.folderID, destination.id)
-        // 标题独立展示，原文首行仍完整保留在正文。
-        XCTAssertTrue(captured?.html?.contains("明天要买牛奶") == true)
+        let html = try XCTUnwrap(captured?.html)
+        XCTAssertEqual(try renderedNotesText(html), "明天要买牛奶\n")
+    }
+
+    func testAppleNotesContentPreservesOriginalWithoutDuplicatingFirstLine() throws {
+        let fixtures: [(input: String, expected: String)] = [
+            ("甲", "甲"),
+            ("第一行\n第二行", "第一行\n第二行"),
+            ("重复\n重复", "重复\n重复"),
+            ("\n\n  第一行  \n\t第二行\n\n", "\n\n  第一行  \n\t第二行\n\n"),
+            ("<alpha>&beta", "<alpha>&beta"),
+            ("# 标题\n```swift\nlet value = 1\n```", "# 标题\n```swift\nlet value = 1\n```"),
+            ("第一行\r\n第二行\r第三行", "第一行\n第二行\n第三行"),
+        ]
+        for fixture in fixtures {
+            let content = AppleNotes.content(fromPlainText: fixture.input)
+            XCTAssertEqual(content.plaintext, fixture.expected + "\n", fixture.input.debugDescription)
+            // Native HTML import adds a final newline only when the original has none.
+            let rendered = fixture.expected.hasSuffix("\n") ? fixture.expected : fixture.expected + "\n"
+            XCTAssertEqual(try renderedNotesText(content.html), rendered,
+                           fixture.input.debugDescription)
+        }
+    }
+
+    func testAppleNotesContentAppendsSupplementAndTagsWithoutDuplicatingOriginal() throws {
+        let original = "第一行\n第二行 #已有 #已有"
+        let supplement = NotesSupplement(items: [.init(kind: .question, text: "需要确认哪些细节？")],
+                                         tags: ["新增", "已有"])
+        let content = AppleNotes.content(fromPlainText: original, supplement: supplement,
+                                         tags: ["已有", "固定", "固定"])
+        let heading = L10n.text("action.notes.supplement.heading")
+        let label = L10n.text("action.notes.supplement.question")
+        XCTAssertEqual(content.plaintext,
+                       original + "\n\n" + heading + "\n" + label + ": 需要确认哪些细节？\n\n#固定 #新增\n")
+        let rendered = try renderedNotesText(content.html)
+        XCTAssertTrue(rendered.hasPrefix(original + "\n"))
+        XCTAssertEqual(rendered.components(separatedBy: "第一行").count - 1, 1)
+        XCTAssertEqual(rendered.components(separatedBy: "第二行").count - 1, 1)
+        XCTAssertEqual(rendered.components(separatedBy: "#已有").count - 1, 2)
+        XCTAssertEqual(rendered.components(separatedBy: "需要确认哪些细节？").count - 1, 1)
+        XCTAssertTrue(rendered.hasSuffix("#固定 #新增\n"))
+    }
+
+    private func renderedNotesText(_ html: String) throws -> String {
+        try NSAttributedString(data: Data(html.utf8), options: [
+            .documentType: NSAttributedString.DocumentType.html,
+            .characterEncoding: String.Encoding.utf8.rawValue,
+        ], documentAttributes: nil).string
     }
 
     func testAppleNotesActionUnavailableWithoutDestination() async {
