@@ -72,6 +72,8 @@ The panel clears and hides optimistically after it has created the execution tas
 
 ## Application composition
 
+`ApplicationCatalog` preloads at startup and refreshes in the background when the quick record panel is presented, at most once every 30 seconds after the last successful snapshot. Input events do not start scans. File enumeration, bundle reads, and search-term preparation run off the main actor; the previous snapshot stays searchable until its replacement is published. Requests during a scan are coalesced, cancellation permits a retry after the old worker exits, and obsolete results cannot replace a newer snapshot. Catalog notifications reuse the session's composition and explicit-selection guards without replacing editor text or submitting a draft. The scan locations and matching rules are unchanged.
+
 `AppState` connects the common module list, registry, and top-level services but does not expose concrete action destinations or service-call forwarding properties. `ActionConfiguration`, `ShortcutTrial`, `UpdateManager`, `OnboardingState`, and `ApplicationUsageStore` each contain their own state transitions and persistence seams. `JotwayApp` creates the store and app state, then constructs launcher sessions from those dependencies. Onboarding receives one registry-aggregated “saved action configuration exists” signal, so loading default modules does not make a fresh install look previously configured.
 
 ## Optional AI

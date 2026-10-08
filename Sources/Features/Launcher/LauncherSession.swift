@@ -192,7 +192,9 @@ final class LauncherSession {
         switch event {
         case .inputChanged(let text): updateInput(text)
         case .panelPrepared(let quote): state.lastEventSucceeded = prepare(quote: quote)
-        case .panelPresented: activate()
+        case .panelPresented:
+            catalog.refreshIfNeeded()
+            activate()
         case .panelDismissed: panelClosed()
         case .panelVisibilityChanged(let visible): recordPanelVisibility(visible)
         case .compositionChanged(let composing):
@@ -361,10 +363,6 @@ final class LauncherSession {
             invalidateSetup()
         }
         state.isIntentRecognitionEnabled = true
-        if configuration().hasAPIKey, acceptsIntentSuggestions, hasPreparedDraft,
-           catalog.applications == nil, !catalog.isLoading {
-            catalog.preload()
-        }
         recognition.update(currentIntentSnapshot)
         renderIntentSuggestion()
         updateRecognizingHint()

@@ -1,6 +1,6 @@
 import Foundation
 
-/// 已安装应用的共享目录。扫描只运行一次，本地意图识别消费这份应用身份。
+/// 已安装应用的共享目录。后台刷新期间，本地意图识别继续消费上一份快照。
 @MainActor
 final class ApplicationCatalog {
     private(set) var applications: [InstalledApplication]?
@@ -9,15 +9,35 @@ final class ApplicationCatalog {
     private var task: Task<Void, Never>?
     private var generation = UUID()
     private let scan: @Sendable () -> [InstalledApplication]
+    private let minimumRefreshInterval: TimeInterval
+    private let now: () -> TimeInterval
+    private var lastRefresh: TimeInterval?
+    private var refreshAfterCancellation = false
 
     init(applications: [InstalledApplication]? = nil,
+         minimumRefreshInterval: TimeInterval = 30,
+         now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          scan: @escaping @Sendable () -> [InstalledApplication] = { ApplicationCatalog.load() }) {
         self.applications = applications
+        self.minimumRefreshInterval = minimumRefreshInterval
+        self.now = now
+        self.lastRefresh = applications == nil ? nil : now()
         self.scan = scan
     }
 
     func preload() {
-        guard applications == nil, !isLoading else { return }
+        guard applications == nil else { return }
+        refreshIfNeeded()
+    }
+
+    /// 面板展示时请求刷新；不等待扫描，也不在每次输入时调用。
+    func refreshIfNeeded() {
+        if task != nil {
+            // 取消并不保证同步文件读取已退出；合并重试，避免两个扫描并发。
+            if !isLoading { refreshAfterCancellation = true }
+            return
+        }
+        if let lastRefresh, now() - lastRefresh < minimumRefreshInterval { return }
         isLoading = true
         let token = UUID()
         generation = token
@@ -27,24 +47,35 @@ final class ApplicationCatalog {
             let applications = await withTaskCancellationHandler {
                 await load.value
             } onCancel: { load.cancel() }
-            guard !Task.isCancelled, let self, self.generation == token else { return }
-            self.replaceApplications(applications)
+            guard let self else { return }
+            self.task = nil
+            self.isLoading = false
+            if !Task.isCancelled, self.generation == token {
+                self.applications = applications
+                self.lastRefresh = self.now()
+                self.changed()
+            }
+            if self.refreshAfterCancellation {
+                self.refreshAfterCancellation = false
+                self.refreshIfNeeded()
+            }
         }
-        changed()
     }
 
     /// 扫描完成或外部目录快照更新时原子替换，旧扫描结果不再有效。
     func replaceApplications(_ applications: [InstalledApplication]) {
         cancelLoading()
         self.applications = applications
+        lastRefresh = now()
         changed()
     }
 
     func cancelLoading() {
         generation = UUID()
         task?.cancel()
-        task = nil
         isLoading = false
+        lastRefresh = nil
+        refreshAfterCancellation = false
     }
 
     isolated deinit { task?.cancel() }
