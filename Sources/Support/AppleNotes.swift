@@ -96,8 +96,9 @@ enum AppleNotes {
         let title = original.split(separator: "\n", omittingEmptySubsequences: false)
             .map { String($0).trimmingCharacters(in: .whitespaces) }
             .first { !$0.isEmpty } ?? "Jotway"
-        func preservedBlock(_ value: String, region: String) -> String {
-            "<pre data-jotway-region=\"\(region)\" style=\"font-family: -apple-system, Helvetica, sans-serif; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0;\"><span>\(escapedHTML(value))</span></pre>"
+        func preservedBlock(_ value: String, region: String,
+                            fontFamily: String = "-apple-system, Helvetica, sans-serif") -> String {
+            "<pre data-jotway-region=\"\(region)\" style=\"font-family: \(fontFamily); font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0;\"><span>\(escapedHTML(value))</span></pre>"
         }
         // Native HTML import coalesces a block boundary with the body's first newline.
         // An explicit separator prevents that boundary from consuming an original blank line.
@@ -110,7 +111,8 @@ enum AppleNotes {
                 let label = L10n.text("action.notes.supplement.\(item.kind.rawValue)")
                 return label + ": " + normalizedLines(item.text)
             }.joined(separator: "\n\n")
-            html += "<hr><div><b>\(escapedHTML(heading))</b></div>" + preservedBlock(additions, region: "supplement")
+            html += "<hr><div><b>\(escapedHTML(heading))</b></div>"
+                + preservedBlock(additions, region: "supplement", fontFamily: "Menlo, monospace")
             plaintext += "\n\n" + heading + "\n" + additions
         }
         // Existing original tags remain untouched. Only the appended collection is normalized/deduplicated.
