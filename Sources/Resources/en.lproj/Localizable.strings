@@ -55,7 +55,8 @@
 "settings.page.intent" = "App Suggestions";
 "settings.page.getting_started" = "Quick Guide";
 "settings.page.about" = "About";
-"settings.subtitle.general" = "Choose how Jotway looks and opens.";
+"settings.subtitle.general" = "Choose how Jotway opens and responds.";
+"settings.subtitle.appearance" = "Choose light, dark, or your Mac's setting.";
 "settings.subtitle.ai" = "Connect a service for writing help.";
 "settings.subtitle.intent" = "Get app suggestions as you type. You choose what runs.";
 "settings.subtitle.actions" = "Choose where to save, search, or chat.";
@@ -72,10 +73,15 @@
 "settings.instructions.unavailable" = "Writing Help Unavailable";
 "settings.instructions.unavailable.detail" = "This version doesn't include writing help. Your settings are kept.";
 "settings.general.appearance" = "Appearance";
+"settings.general.app_icon" = "App Icon";
 "settings.general.theme" = "Color Theme";
 "settings.general.theme.system" = "Follow System";
 "settings.general.theme.light" = "Light";
 "settings.general.theme.dark" = "Dark";
+"settings.appearance.system.help" = "Match your Mac.";
+"settings.appearance.light.help" = "Always use light colors.";
+"settings.appearance.dark.help" = "Always use dark colors.";
+"settings.appearance.saved_help" = "Applies right away to all Jotway windows. Your choice is saved.";
 "settings.general.show_in_dock" = "Show Dock Icon";
 "settings.general.quick_record" = "Quick Entry";
 "settings.general.global_shortcut" = "Keyboard Shortcut";

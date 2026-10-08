@@ -5,8 +5,19 @@ extension KeyboardShortcuts.Name {
     static let recordNote = Self("recordNote", default: .init(.space, modifiers: [.command, .shift]))
 }
 
-enum ThemeMode: String {
+enum ThemeMode: String, CaseIterable {
     case system, light, dark
+
+    var title: String { L10n.text("settings.general.theme.\(rawValue)") }
+    var detail: String { L10n.text("settings.appearance.\(rawValue).help") }
+
+    var symbol: String {
+        switch self {
+        case .system: "circle.lefthalf.filled"
+        case .light: "sun.max.fill"
+        case .dark: "moon.fill"
+        }
+    }
 
     @MainActor
     func apply() {

@@ -28,6 +28,7 @@ func settingRow<Control: View>(_ caption: String?,
 struct SettingsView: View {
     enum Page: Hashable {
         case general
+        case appearance
         case ai
         case intent
         case actions
@@ -38,6 +39,7 @@ struct SettingsView: View {
         var title: String {
             switch self {
             case .general: L10n.text("settings.page.general")
+            case .appearance: L10n.text("settings.general.appearance")
             case .ai: L10n.text("settings.page.ai")
             case .intent: L10n.text("settings.page.intent")
             case .actions: L10n.text("settings.page.actions")
@@ -50,6 +52,7 @@ struct SettingsView: View {
         var subtitle: String {
             switch self {
             case .general: L10n.text("settings.subtitle.general")
+            case .appearance: L10n.text("settings.subtitle.appearance")
             case .ai: L10n.text("settings.subtitle.ai")
             case .intent: L10n.text("settings.subtitle.intent")
             case .actions: L10n.text("settings.subtitle.actions")
@@ -62,6 +65,7 @@ struct SettingsView: View {
         var symbol: String {
             switch self {
             case .general: "gearshape"
+            case .appearance: "circle.lefthalf.filled"
             case .ai: "sparkles"
             case .intent: "arrow.triangle.branch"
             case .actions: "bolt.horizontal"
@@ -120,6 +124,7 @@ struct SettingsView: View {
                 Group {
                     switch selectedPage {
                     case .general: generalPage
+                    case .appearance: AppearanceSettingsView(themeMode: $themeMode)
                     case .ai: aiPage
                     case .intent: intentPage
                     case .actions: actionsPage
@@ -173,7 +178,7 @@ struct SettingsView: View {
 
             List(selection: $selectedPage) {
                 Section(L10n.text("settings.sidebar.configuration")) {
-                    ForEach([Page.general, .intent, .ai, .actions, .instructions], id: \.self) { page in
+                    ForEach([Page.general, .appearance, .intent, .ai, .actions, .instructions], id: \.self) { page in
                         sidebarLabel(page)
                     }
                 }
@@ -279,17 +284,7 @@ struct SettingsView: View {
     }
     private var generalPage: some View {
         Form {
-            Section(L10n.text("settings.general.appearance")) {
-                LabeledContent(L10n.text("settings.general.theme")) {
-                    Picker(L10n.text("settings.general.theme"), selection: $themeMode) {
-                        Text(L10n.text("settings.general.theme.system")).tag(ThemeMode.system)
-                        Text(L10n.text("settings.general.theme.light")).tag(ThemeMode.light)
-                        Text(L10n.text("settings.general.theme.dark")).tag(ThemeMode.dark)
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 260)
-                }
+            Section(L10n.text("settings.general.app_icon")) {
                 settingRow(appState.dockPreferenceIssue) {
                     Toggle(L10n.text("settings.general.show_in_dock"), isOn: Binding(
                         get: { appState.showsInDock }, set: { appState.setShowsInDock($0) }))

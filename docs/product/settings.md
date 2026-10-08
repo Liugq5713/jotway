@@ -6,7 +6,8 @@ Settings are organized by the user's decision, not by implementation module.
 
 ## Navigation
 
-- **General**: appearance, panel placement, submission effect, global shortcut, launch at login, Dock visibility, and runtime logs.
+- **General**: panel placement, submission effect, global shortcut, launch at login, Dock visibility, and runtime logs.
+- **Appearance**: Follow System, Light, or Dark, with all three choices visible and the current choice marked.
 - **App Suggestions**: Jev key, connection test, local phrase rules, and local operation records.
 - **Writing Help**: AI source, model, key, connection test, and provider-specific fields.
 - **Apps**: destination setup for Apple Notes, Reminders, and Calendar, plus Chrome and ChatGPT enablement.
@@ -18,7 +19,9 @@ Labels use one to four familiar words. Ordinary descriptions stay within 20 word
 
 The sidebar groups configuration separately from help. Every page has a title and short description above a scrollable, grouped form. The window opens at 820 × 640 points, supports resizing down to 760 × 560, and limits form width on larger windows. Controls and surfaces follow the selected light, dark, or system appearance.
 
-General settings group appearance, quick record behavior, startup, and diagnostics. Runtime-log controls are available in a collapsed disclosure group. Instruction editors keep restore-default on the left and cancel/save on the right; changes still require an explicit save.
+Appearance applies immediately to the settings window, quick record panel, native editor, and other Jotway windows. Follow System remains the default and tracks the Mac's appearance; Light and Dark override it for Jotway. The existing `themeMode` preference preserves the choice across launches and keeps previously saved selections. Choices support keyboard focus and activation, and expose their selected state to assistive technology.
+
+General settings group the Dock icon, quick record behavior, startup, and diagnostics. Runtime-log controls are available in a collapsed disclosure group. Instruction editors keep restore-default on the left and cancel/save on the right; changes still require an explicit save.
 
 App Suggestions presents Jev in a compact service card with a saved-key badge, full-width masked key input, and an inline save or replace control. Connection testing and key removal sit below the input. The card keeps draft sharing and billing visible, with storage, test scope, and confirmation details in a collapsed disclosure. A saved-key badge confirms storage only; connection results appear separately. Key errors remain visible, and typing a replacement invalidates any previous connection result without replacing the saved key until Save or Replace is pressed.
 
