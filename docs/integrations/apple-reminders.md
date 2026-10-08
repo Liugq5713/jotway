@@ -2,13 +2,13 @@
 
 > Role: **Current**
 
-Apple Reminders handles task-like input. It becomes available after authorization and destination setup in Settings → Actions.
+Apple Reminders handles task-like input. It becomes available after authorization and destination setup in Settings → Apps.
 
 ## Authorization and destination
 
-Clicking Authorize requests macOS access to Reminders. Opening the action settings page, typing, and action prewarming do not request permission. After authorization, Jotway keeps an available writable saved list; otherwise, it selects the system default reminder list, falling back to the first writable list if needed. Change… lets the user optionally choose another list. No test reminder or verification step is required.
+Clicking Allow Access requests macOS access to Reminders. Opening the action settings page, typing, and action prewarming do not request permission. After authorization, Jotway keeps an available writable saved list; otherwise, it selects the system default reminder list, falling back to the first writable list if needed. Change… lets the user optionally choose another list. No test reminder or verification step is required.
 
-Denied or revoked authorization preserves the saved list. When authorization or the destination needs repair, the page offers a link to System Settings plus Authorize Again. Successful authorization restores availability when a writable destination exists. Reminders has no launcher setup entry; authorization and destination changes use Settings → Actions.
+Denied or revoked authorization preserves the saved list. When authorization or the destination needs repair, the page offers a link to System Settings plus Allow Access Again. Successful authorization restores availability when a writable destination exists. Reminders has no launcher setup entry; authorization and destination changes use Settings → Apps.
 
 ## Routing
 

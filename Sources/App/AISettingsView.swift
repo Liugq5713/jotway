@@ -23,7 +23,7 @@ struct AISettingsView: View {
                     } else if let source = appState.selectedAISource {
                         if !source.models.isEmpty { modelPicker(source) }
                         if let keyURL = source.keyURL {
-                            ServiceKeyField(accessibilityTitle: "\(source.title) API Key", keyURL: keyURL,
+                            ServiceKeyField(accessibilityTitle: L10n.text("settings.key.accessibility", source.title), keyURL: keyURL,
                                             hasKey: hasAPIKey, text: Binding(
                                                 get: { apiKey },
                                                 set: { apiKey = $0; appState.invalidateAIConnectionTest() }

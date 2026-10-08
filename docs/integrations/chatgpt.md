@@ -8,7 +8,7 @@ ChatGPT opens a new local desktop conversation with the submitted draft in the c
 
 The action locates the official desktop application by bundle identifier `com.openai.codex` and checks its installed metadata for the `codex` URL scheme. The application name or installation path is not hard-coded. Declaring the scheme establishes local availability, not version compatibility or login status.
 
-Settings show ChatGPT under **Conversations**, with an enable switch that defaults to on and persists as `actionEnabled.chatgpt`. Missing or incompatible installations remain visible in settings but are excluded from executable candidates. The action has no detail page, destination, model, login, or AI rewrite settings. Its labels and safe messages use the current English resource bundle.
+Settings show ChatGPT under **Chats**, with an enable switch that defaults to on and persists as `actionEnabled.chatgpt`. Missing or incompatible installations remain visible in settings but are excluded from executable candidates. The action has no detail page, destination, model, login, or AI rewrite settings. Its labels and safe messages use the current English resource bundle.
 
 ## Routing
 

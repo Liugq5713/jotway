@@ -54,7 +54,7 @@ struct JevServiceSettingsView: View {
     }
 
     private var keyInput: some View {
-        ServiceKeyField(accessibilityTitle: "Jev API Key", keyURL: URL(string: "https://console.typesafe.ai/")!,
+        ServiceKeyField(accessibilityTitle: L10n.text("settings.key.accessibility", "Jev"), keyURL: URL(string: "https://console.typesafe.ai/")!,
                         hasKey: settings.hasAPIKey, text: Binding(
                             get: { apiKey },
                             set: { apiKey = $0; settings.beginEditingAPIKey() }

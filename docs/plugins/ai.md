@@ -25,7 +25,7 @@ Notes uses one prepared result and one create request per accepted confirmation.
 
 ## General provider configuration
 
-All builds register DeepSeek and Moonshot through the shared provider installation. Settings save the source/model choice, key, manual Instructions, and prompt configuration; a connection test uses fixed sample content.
+All builds register DeepSeek and Moonshot through the shared provider installation. Settings save the source/model choice, key, manual Writing Preferences, and prompt configuration; a connection test uses fixed sample content.
 
 Configuration is frozen before a logical request enters the queue. Changing settings affects new requests, not one already queued or running.
 

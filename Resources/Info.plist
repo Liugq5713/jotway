@@ -51,10 +51,10 @@
     <key>SUVerifyUpdateBeforeExtraction</key>
     <true/>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Jotway saves the text you confirm to the selected Notes folder.</string>
+    <string>Allow Jotway to save notes in your chosen folder when you confirm.</string>
     <key>NSRemindersFullAccessUsageDescription</key>
-    <string>Jotway saves the reminder text you confirm to the selected Reminders list.</string>
+    <string>Allow Jotway to save reminders in your chosen list when you confirm.</string>
     <key>NSCalendarsFullAccessUsageDescription</key>
-    <string>Jotway creates events from the schedule text you confirm in the selected calendar.</string>
+    <string>Allow Jotway to add events to your chosen calendar when you confirm.</string>
 </dict>
 </plist>

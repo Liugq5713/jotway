@@ -206,7 +206,7 @@ final class JevPanelTests: XCTestCase {
             manual.controller.session.send(.confirm(.button))
             let unavailableQueries = await manual.actions.chromeQueries
             XCTAssertTrue(unavailableQueries.isEmpty)
-            XCTAssertEqual(manual.controller.session.state.message, "Target unavailable")
+            XCTAssertEqual(manual.controller.session.state.message, "App Unavailable")
             manual.app.setActionEnabled(true, for: ChromeModule.moduleDescriptor.id)
             manual.controller.session.send(.confirm(.button))
             try await until { await manual.actions.chromeQueries.count == 1 }
@@ -277,7 +277,7 @@ final class JevPanelTests: XCTestCase {
         defer { value.close() }
         let editor = value.editor
         _ = try XCTUnwrap(editor.focusTarget)
-        try await until { value.classifier.calls.count == 1 && value.controller.session.state.intentStatus == "Recognizing…" }
+        try await until { value.classifier.calls.count == 1 && value.controller.session.state.intentStatus == "Finding an App…" }
 
         // ⇧⏎ 永远换行，不再取决于提交方式偏好。
         editor.keyDown(with: key([.shift]))
@@ -379,7 +379,7 @@ final class JevPanelTests: XCTestCase {
             XCTAssertEqual(value.editor.string, test.clears ? "" : body)
             if !test.succeeds {
                 XCTAssertNotNil(value.controller.prepareRecordPanel())
-                XCTAssertTrue(value.controller.session.state.message?.contains("preserved") == true)
+                XCTAssertTrue(value.controller.session.state.message?.contains("kept") == true)
                 XCTAssertEqual(value.opener.urls.count, 1)
             }
             XCTAssertFalse(value.panel.isVisible)
@@ -577,7 +577,7 @@ final class JevPanelTests: XCTestCase {
         try value.classifier.fail(1, error: Jev.Failure.invalidResponse)
         try await until { value.controller.session.state.intentIssue != nil }
         XCTAssertNil(value.controller.session.state.intentStatus); XCTAssertEqual(value.controller.session.state.intentTitle, "Set Up Notes")
-        XCTAssertEqual(value.controller.session.state.intentIssue, "The Jev response could not be understood. Try again later.")
+        XCTAssertEqual(value.controller.session.state.intentIssue, "Couldn't read Jev's reply. Try again later.")
         try await preview("request-error")
         value.panel.setContentSize(NSSize(width: 360, height: 160))
         try await preview("request-error-compact")

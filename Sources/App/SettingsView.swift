@@ -38,10 +38,10 @@ struct SettingsView: View {
         var title: String {
             switch self {
             case .general: L10n.text("settings.page.general")
-            case .ai: "AI"
+            case .ai: L10n.text("settings.page.ai")
             case .intent: L10n.text("settings.page.intent")
-            case .actions: "Actions"
-            case .instructions: "Instructions"
+            case .actions: L10n.text("settings.page.actions")
+            case .instructions: L10n.text("settings.page.instructions")
             case .gettingStarted: L10n.text("settings.page.getting_started")
             case .about: L10n.text("settings.page.about")
             }

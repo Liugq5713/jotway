@@ -58,7 +58,7 @@ Each action has its own switch and customizable writing instructions. This proce
 ## Get started
 
 1. Open Jotway and follow the welcome guide to set a global shortcut.
-2. In **Settings → Actions**, choose a Notes folder, Reminders list, or calendar, and grant the required permissions.
+2. In **Settings → Apps**, choose a Notes folder, Reminders list, or calendar, and grant the required permissions.
 3. Open the panel, type `My first idea`, check the destination, and press Enter.
 
 Add Jev intent recognition or DeepSeek text processing whenever you want those capabilities. See the [first-use guide](docs/product/first-use.md) and [settings guide](docs/product/settings.md) for details.
