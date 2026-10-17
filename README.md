@@ -1,73 +1,58 @@
-<p align="center">
-  <img src="Resources/Icons/AppIcon.png" width="96" alt="Jotway icon">
-</p>
+<p align="center"><img src="Resources/Icons/AppIcon.png" width="96" alt="Jotway icon"></p>
 
 # Jotway
 
-**Think it. Type it. Done.**
+**Quick notes, straight to Apple Notes.**
 
-Jotway is a native macOS launcher. Press a shortcut, type a sentence, and turn a thought into a note, a task into a reminder, or a plan into a calendar event. Search the web and open apps from the same place.
-
-![Jotway quick record flow: type, confirm the Action, press Enter](Resources/Screenshots/README-flow.png)
-
-Example flow with synthetic text: the current panel rendered in isolation, followed by a cropped Chrome search page. These are separate steps, not a browsable history view.
+Jotway gives you a small panel to write a note from anywhere on your Mac. Capture an idea, a reminder, or a few lines from a meeting, then get back to what you were doing. Your notes live in Apple Notes.
 
 **English** · [简体中文](README.zh-CN.md)
 
-Requires macOS 15 or later. Release packages currently target Apple Silicon.
+Requires macOS 15 or later. This README describes the current source build; release downloads may differ.
 
-## One sentence, straight to your everyday tools
+## Write a note
 
-Start with what you want to do. Check the destination Jotway shows, then press Enter—without first opening the destination app and finding where to type.
+1. Press your global shortcut to open the panel.
+2. Write what you want to remember.
+3. Check **Save to Notes** and press **Enter**.
 
-| What you want to do | Try typing | After confirmation |
-| --- | --- | --- |
-| Keep an idea | `Note this: visit Kyoto on my next trip` | Create a note in Apple Notes |
-| Remember a task | `Remind me to reply to the client` | Create a reminder in Apple Reminders |
-| Schedule some time | `Add to calendar: design discussion tomorrow from 3 to 4 pm` | Create an event in Apple Calendar |
-| Find information | `Google search macOS keyboard shortcuts` | Open a Google search in Chrome |
-| Open an app | `WeChat` | Open WeChat, if installed on your Mac |
+Jotway handles the save in the background. View the saved text in your chosen Apple Notes folder. Your full original text is preserved, whether saved as a new note or added to a related note with daily grouping enabled.
 
-Notes, Reminders, and Calendar require a destination and the relevant permissions to be set up first. Natural-language date and time extraction requires DeepSeek configuration and AI text processing enabled for that action. When disabled or extraction fails, reminders default to the current time, and calendar events default to one hour starting now.
+## Start faster with templates
 
-## Fewer switches, fewer interruptions
+Use a template when you want a starting point for an idea or a problem.
 
-- **Open it from anywhere.** Set a global shortcut, or open the quick record panel from the menu bar or Dock.
-- **Stay on the keyboard.** Enter confirms; Shift+Enter adds a new line. When multiple destinations are available, use `⌥↑` / `⌥↓` to switch, or click to select one.
-- **Open apps quickly.** Type an installed app's name to match it locally, check the suggested destination, then press Enter to open it.
-- **Pick up where you left off.** Hide the panel and return to your draft during the same app session.
-- **Retry when something fails.** Failed actions preserve your text and show a message so you can make a correction or choose another destination.
-- **Feel at home on macOS.** Built with SwiftUI and AppKit, with support for system light and dark appearances, Reduce Transparency, and Increase Contrast.
+1. Type `@` in an empty quick-input panel and choose a template.
+2. Fill in the fields. **Tab** moves forward; **Shift+Tab** moves back.
+3. Check **Save to Notes** and press **Enter** when you're ready.
 
-## Suggested destinations. Your decision.
+The built-in templates start as **记录想法** (Capture an idea) and **梳理问题** (Work through a problem). Choosing a template fills your draft; saving still needs your confirmation.
 
-Jotway uses local rules to match explicit phrases such as “提醒我” (remind me) or “记一下” (note this). Configure optional **Jev intent recognition** to get destination suggestions from more natural phrasing.
+For example, Capture an idea guides you through three prompts: the idea, why it's worth doing, and the next step.
 
-The destination appears before execution, and you can change it at any time. Your choice takes priority over the suggestion; Enter confirms the action. Without Jev, or when recognition is unavailable, local matching and a configured default action remain available. Jotway prefers Apple Notes as the default.
+Edit the built-ins or add your own in **Settings → Templates**. Reuse a format for meeting notes, daily reflections, or anything you write often.
 
-## Shape your words for where they belong
+## Set up once
 
-Optional **AI text processing** helps each of the three storage actions:
+1. Choose a global shortcut in the welcome guide.
+2. Open **Set Up Notes**, click **Allow Access**, and grant macOS Automation access to Apple Notes.
+3. Return to your draft and press **Enter** again to save.
 
-- **Notes:** tidy up wording and create a concise title. Add a fixed tag line, or generate related tags when AI processing is enabled.
-- **Reminders:** clean up task text and extract a due date.
-- **Calendar:** clean up event text and extract start and end times.
+Jotway selects a default Notes folder during setup. Change it in **Settings → Apps → Apple Notes**. See the [first-use guide](docs/product/first-use.md) for details.
 
-Each action has its own switch and customizable writing instructions. This processing path currently uses DeepSeek and requires its API key. If AI is unavailable, Jotway falls back to the original text. Basic saving, web search, and app launching work without AI.
+## While writing
 
-## Get started
+Switch to a **temporary sticky note** to keep your draft visible above other windows while you work. Both modes share the same text. Return to quick input when you're ready to save.
 
-1. Open Jotway and follow the welcome guide to set a global shortcut.
-2. In **Settings → Actions**, choose a Notes folder, Reminders list, or calendar, and grant the required permissions.
-3. Open the panel, type `My first idea`, check the destination, and press Enter.
+- **Shift+Enter** adds a line.
+- Hide the panel and reopen it to continue your draft.
+- Drafts stay in memory while Jotway runs. Quitting, crashing, or restarting clears unsent drafts.
 
-Add Jev intent recognition or DeepSeek text processing whenever you want those capabilities. See the [first-use guide](docs/product/first-use.md) and [settings guide](docs/product/settings.md) for details.
+## Your text and privacy
 
-## Your content and privacy
+Typing does not request an AI model. Notes title generation uses configured AI providers; grouping, writing help, and related history can also send relevant text. A configured fallback may send the same input to a second provider, with separate billing.
 
-Content goes to the app you choose. Jotway has no browsable inbox or content history. The editor accepts multi-line plain text; unsubmitted drafts stay in memory and are cleared when the app exits or restarts.
-
-When Jev or AI text processing is enabled, the relevant text is sent to the corresponding service. Confirming a destination may save full-text intent-feedback samples locally. Corrections are limited to the latest 200 and can be cleared in Settings; accepted suggestion samples currently have no retention limit or clear control. See [intent recognition](docs/integrations/jev-intent-research.md) for details.
+When Local Records is enabled, it can store unsent drafts on your Mac, with a default retention of 90 days. Review capture, export, and deletion controls in [settings](docs/product/settings.md).
 
 ## Build from source
 
@@ -79,10 +64,8 @@ swift test
 ./scripts/build-app.sh
 ```
 
-Explore the [documentation](docs/jotway.md), [development environment](docs/development/environment.md), and [release workflow](docs/product/updates.md) for more.
-
-See [Third-party notices](THIRD_PARTY_NOTICES.md) for dependency sources and licenses.
+See the [documentation](docs/jotway.md), [development environment](docs/development/environment.md), and [third-party notices](THIRD_PARTY_NOTICES.md).
 
 ## License
 
-Jotway is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE).
+GNU General Public License v3.0. See [LICENSE](LICENSE).

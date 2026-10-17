@@ -11,7 +11,6 @@ final class ActionExecutor {
     }
 
     enum Status {
-        case needsInput(TimeInputIssue)
         case preparing(ActionPlan)
         case ready(ActionPlan, PreparedAction)
         case failed(ActionFailure)
@@ -19,7 +18,7 @@ final class ActionExecutor {
         var plan: ActionPlan? {
             switch self {
             case .preparing(let plan), .ready(let plan, _): plan
-            case .needsInput, .failed: nil
+            case .failed: nil
             }
         }
     }
@@ -27,7 +26,6 @@ final class ActionExecutor {
     struct Preparation {
         let identity: Identity
         let generation: UUID
-        let context: ScheduleContext
         var status: Status
     }
 
@@ -39,58 +37,81 @@ final class ActionExecutor {
     isolated deinit { building?.cancel() }
 
     func schedule(snapshot: ActionExecutionSnapshot, input: ActionInput,
-                  context: ScheduleContext? = nil, panelSessionID: UUID? = nil,
-                  debounce: Duration = .milliseconds(500)) {
+                  panelSessionID: UUID? = nil,
+                  debounce: Duration = .milliseconds(500), confirmed: Bool = false) {
         let identity = Identity(actionID: snapshot.id, inputIdentity: input.identity,
             configurationIdentity: snapshot.configurationIdentity,
             panelSessionID: panelSessionID ?? compatibilitySessionID)
-        if current?.identity == identity { return }
+        if let current, current.identity == identity {
+            if confirmed, snapshot.descriptor.preparationTiming == .beforeSubmission,
+               case .preparing(let plan) = current.status, building == nil {
+                startBuilding(plan: plan, identity: identity, generation: current.generation, debounce: .zero)
+            }
+            return
+        }
         reset()
-        let context = context ?? ScheduleContext(referenceDate: Date(), timeZone: .current)
         let generation = UUID()
         do {
-            switch try snapshot.action.preparation(for: input, context: context) {
-            case .needsInput(let issue):
-                current = Preparation(identity: identity, generation: generation, context: context, status: .needsInput(issue))
-                changed?(current)
-            case .ready(let plan):
-                guard plan.actionID == identity.actionID, plan.inputIdentity == identity.inputIdentity,
-                      plan.context == context, plan.hasConsistentSummary else {
-                    throw ActionFailure(localized: "schedule.issue.preparation_failed", code: .validation)
-                }
-                current = Preparation(identity: identity, generation: generation, context: context, status: .preparing(plan))
-                let task = Task {
-                    try await Task.sleep(for: debounce)
+            let plan = try snapshot.action.preparation(for: input)
+            guard plan.actionID == identity.actionID, plan.inputIdentity == identity.inputIdentity else {
+                throw ActionFailure(localized: "action.preparation_failed", code: .validation)
+            }
+            if snapshot.descriptor.preparationTiming == .afterConfirmation {
+                // Freeze the plan now; optional body work starts only after Session accepts
+                // the submission and hides the panel. It must not depend on this executor's lifetime.
+                let deferred = PreparedAction(actionID: identity.actionID, inputIdentity: identity.inputIdentity,
+                                              planID: plan.id) {
                     try Task.checkCancellation()
                     let value = try await plan.build()
                     try Task.checkCancellation()
                     guard value.actionID == identity.actionID, value.inputIdentity == identity.inputIdentity,
                           value.planID == plan.id else { throw CancellationError() }
-                    return value
+                    return try await value.execute()
                 }
-                building = task
+                current = Preparation(identity: identity, generation: generation,
+                                      status: .ready(plan, deferred))
                 changed?(current)
-                Task { [weak self] in
-                    do {
-                        let value = try await task.value
-                        guard let self, self.current?.generation == generation,
-                              self.current?.identity == identity else { return }
-                        self.building = nil
-                        self.current?.status = .ready(plan, value)
-                        self.changed?(self.current)
-                    } catch {
-                        guard let self, self.current?.generation == generation,
-                              self.current?.identity == identity else { return }
-                        self.building = nil
-                        self.current?.status = .failed(ActionFailure.presentation(for: error))
-                        self.changed?(self.current)
-                    }
-                }
+                return
+            }
+            current = Preparation(identity: identity, generation: generation, status: .preparing(plan))
+            changed?(current)
+            if snapshot.descriptor.preparationTiming != .beforeSubmission || confirmed {
+                startBuilding(plan: plan, identity: identity, generation: generation,
+                              debounce: snapshot.descriptor.preparationTiming == .beforeSubmission ? .zero : debounce)
             }
         } catch {
-            current = Preparation(identity: identity, generation: generation, context: context,
+            current = Preparation(identity: identity, generation: generation,
                                   status: .failed(ActionFailure.presentation(for: error)))
             changed?(current)
+        }
+    }
+
+    private func startBuilding(plan: ActionPlan, identity: Identity, generation: UUID, debounce: Duration) {
+        let task = Task {
+            try await Task.sleep(for: debounce)
+            try Task.checkCancellation()
+            let value = try await plan.build()
+            try Task.checkCancellation()
+            guard value.actionID == identity.actionID, value.inputIdentity == identity.inputIdentity,
+                  value.planID == plan.id else { throw CancellationError() }
+            return value
+        }
+        building = task
+        Task { [weak self] in
+            do {
+                let value = try await task.value
+                guard let self, self.current?.generation == generation,
+                      self.current?.identity == identity else { return }
+                self.building = nil
+                self.current?.status = .ready(plan, value)
+                self.changed?(self.current)
+            } catch {
+                guard let self, self.current?.generation == generation,
+                      self.current?.identity == identity else { return }
+                self.building = nil
+                self.current?.status = .failed(ActionFailure.presentation(for: error))
+                self.changed?(self.current)
+            }
         }
     }
 
@@ -113,10 +134,10 @@ final class ActionExecutor {
         }
     }
 
-    /// Retained for callers exercising summary-free actions directly; never bypasses a time summary.
+    /// Direct callers share the identified preparation and cancellation path.
     func executionTask(snapshot: ActionExecutionSnapshot, input: ActionInput) -> Task<ActionOutcome, Error> {
-        schedule(snapshot: snapshot, input: input, debounce: .zero)
-        guard let current, let plan = current.status.plan, plan.summary == nil else {
+        schedule(snapshot: snapshot, input: input, debounce: .zero, confirmed: true)
+        guard let current, let plan = current.status.plan else {
             return Task { throw CancellationError() }
         }
         let task = building

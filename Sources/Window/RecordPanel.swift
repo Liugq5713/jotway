@@ -3,12 +3,24 @@ import QuartzCore
 import SwiftUI
 
 enum SubmissionEffect: String, CaseIterable {
+    /// 极简收拢：快照整体缩放 + 淡出，安静不抢注意力，是默认的"跟手"收尾。
+    case quick
     case wind, ufo
 
     var title: String {
-        self == .wind ? L10n.text("submission_effect.wind") : L10n.text("submission_effect.ufo")
+        switch self {
+        case .quick: return L10n.text("submission_effect.quick")
+        case .wind: return L10n.text("submission_effect.wind")
+        case .ufo: return L10n.text("submission_effect.ufo")
+        }
     }
-    var duration: TimeInterval { self == .wind ? 0.50 : 0.32 }
+    var duration: TimeInterval {
+        switch self {
+        case .quick: return 0.18
+        case .wind: return 0.42
+        case .ufo: return 0.30
+        }
+    }
 }
 
 /// 记录面板：非激活闪现窗口。
@@ -40,6 +52,17 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
     private var dragStartOrigin: CGPoint?
     private var draggedFrame: CGRect?
     private var dragEndMonitor: Any?
+    private var mode: LauncherMode = .quickInput
+    private struct GeometrySnapshot {
+        let frame: NSRect
+        let screenID: String?
+        let manualHeight: CGFloat?
+        let overlayHeight: CGFloat
+        let inputHeight: CGFloat
+    }
+    private var quickInputGeometry: GeometrySnapshot?
+    private var stickyGeometry: GeometrySnapshot?
+    private var stickyLowerAreaBaseFrame: NSRect?
 
     override var canBecomeKey: Bool { true }
 
@@ -62,13 +85,15 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
             defer: false
         )
         contentMinSize = NSSize(width: 360, height: LauncherMetrics.inputCardMinHeight)
-        contentMaxSize = NSSize(width: 1200, height: LauncherMetrics.inputCardMaxHeight + LauncherMetrics.cardGap + 280)
+        contentMaxSize = NSSize(width: 1200, height: LauncherMetrics.inputCardMaxHeight + LauncherMetrics.cardGap + 300)
         delegate = self
         level = .floating
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = false // 卡片圆角外保持透明，不叠加系统窗口阴影。
+        // 系统按卡片圆角 alpha 画阴影，是唯一能画在窗口外沿的柔和阴影；
+        // 让卡片在深浅背景上都像"浮起"的独立对象，深色面板落在浅色网页上也不生硬。
+        hasShadow = true
         isMovableByWindowBackground = true
         isReleasedWhenClosed = false
         hidesOnDeactivate = false
@@ -80,10 +105,11 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
                 focusTarget: focusTarget,
                 state: state,
                 send: send,
-                onContentSizeChange: { [weak self] totalHeight, cardHeight in
+                onContentSizeChange: { [weak self] totalHeight, cardHeight, generation in
                     // 等本轮 SwiftUI 布局完成再缩放，否则按键事件中内容可能重复伸缩。
                     DispatchQueue.main.async { [weak self] in
-                        self?.contentSizeDidChange(totalHeight: totalHeight, inputCardHeight: cardHeight)
+                        guard let self, self.state.modeGeneration == generation else { return }
+                        self.contentSizeDidChange(totalHeight: totalHeight, inputCardHeight: cardHeight)
                     }
                 }
             )
@@ -92,15 +118,14 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
         editorHostingView = hostingView
         // 双卡结构（§3.1）：窗口透明无材质，输入卡与悬浮层各自持有玻璃/回退材质。
         // contentView 用独立容器而非 hostingView 本体：NSHostingView 会把渲染子视图
-        // 插到最上层，直接当 contentView 会把 edgeGlow 压在 SwiftUI 内容下面。
+        // 由卡片绘制静态边框；容器保留现有内容与窗口几何。
         let container = NSView(frame: NSRect(
             x: 0, y: 0, width: LauncherMetrics.panelWidth, height: LauncherMetrics.inputCardMinHeight))
         hostingView.frame = container.bounds
         hostingView.autoresizingMask = [.width, .height]
         container.addSubview(hostingView)
-        edgeGlow.frame = container.bounds
-        edgeGlow.autoresizingMask = [.width, .height]
-        container.addSubview(edgeGlow, positioned: .above, relativeTo: nil)
+        // 聚焦辉光贴在输入卡内沿，盖在卡片不透明背景之上才可见；不吃鼠标/键盘（hitTest 返回 nil）。
+        container.addSubview(edgeGlow)
         contentView = container
         installKeyMonitor()
         NotificationCenter.default.addObserver(
@@ -162,7 +187,8 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
     override func becomeKey() {
         super.becomeKey()
         send(.panelPresented)
-        if isVisible { edgeGlow.start(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion) }
+        // 取得键盘焦点即点亮聚焦光（切走到别的 app 由 resignKey 熄灭）；start 幂等不重播。
+        edgeGlow.start(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
     }
 
     /// 切走到别的 app → 面板失焦：自动暂存草稿（§10.1），但**不关闭**面板（键盘流约定）。
@@ -175,19 +201,25 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
 
     /// 每次唤起先选屏，再恢复该屏位置；显示期间不再跟随鼠标。
     func showPanel() {
-        manualInputCardHeight = nil // 重新唤起恢复自动长高（§3.3）
+        if mode == .quickInput { manualInputCardHeight = nil }
         if !isVisible {
             // 离屏先完成一轮布局：草稿文本、卡片高度上报与改高都在显示前落地，
             // 避免面板出现后再被看见长个（appear 期间的残留尺寸变化由下方 alpha 门槛兜住）。
             contentView?.layoutSubtreeIfNeeded()
-            positionForPresentation(in: RecordPanelPlacement.screens, cursor: NSEvent.mouseLocation,
-                fallbackID: NSScreen.main.map { RecordPanelPlacement.snapshot($0).id })
+            if mode == .sticky {
+                restoreStickyGeometry(in: RecordPanelPlacement.screens)
+            } else {
+                positionForPresentation(in: RecordPanelPlacement.screens, cursor: NSEvent.mouseLocation,
+                    fallbackID: NSScreen.main.map { RecordPanelPlacement.snapshot($0).id })
+            }
         }
         orderFrontRegardless()
         makeKey()
         animateIn()
         contentView?.layoutSubtreeIfNeeded()
+        layoutEdgeGlow()
         focusTextEditor()
+        edgeGlow.start(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
         // 仅在编辑器尚未创建或尚未取得焦点时重试，避免再次移动刚设置的光标。
         if focusTarget.textView == nil || firstResponder !== focusTarget.textView {
             DispatchQueue.main.async { [weak self] in
@@ -201,6 +233,7 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
     /// 与真实唤起共用，允许用合成显示器离屏验证选屏和偏好恢复。
     func positionForPresentation(in screens: [RecordPanelPlacement.Screen], cursor: CGPoint, fallbackID: String? = nil) {
         guard !isVisible else { return }
+        if mode == .sticky { restoreStickyGeometry(in: screens); return }
         guard let target = RecordPanelPlacement.targetScreen(in: screens, cursor: cursor,
             followsCursor: appState?.recordPanelFollowsCursor ?? true, fallbackID: fallbackID) else { return }
         presentationScreen = target
@@ -209,6 +242,69 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
             setFrameOrigin(RecordPanelPlacement.origin(for: frame.size, on: target,
                 savedOffset: appState?.recordPanelOffset(on: target.id)))
         }
+    }
+
+    private func snapshotGeometry() -> GeometrySnapshot {
+        var savedFrame = frame
+        if let preFadeOrigin { savedFrame.origin = preFadeOrigin }
+        // A document detail or thinking prompt is temporary; sticky mode remembers the writing card's size.
+        if mode == .sticky, let stickyLowerAreaBaseFrame {
+            savedFrame = stickyLowerAreaBaseFrame
+        } else if mode == .sticky {
+            savedFrame.origin.y += lastOverlayHeight
+            savedFrame.size.height = max(0, savedFrame.height - lastOverlayHeight)
+        }
+        return GeometrySnapshot(frame: savedFrame, screenID: presentationScreen?.id,
+                                manualHeight: manualInputCardHeight,
+                                overlayHeight: mode == .sticky ? 0 : lastOverlayHeight,
+                                inputHeight: lastInputCardHeight)
+    }
+
+    /// Validate the destination screen before changing any frame or size limits.
+    @discardableResult
+    func changeMode(to newMode: LauncherMode,
+                    in screens: [RecordPanelPlacement.Screen] = RecordPanelPlacement.screens) -> Bool {
+        guard newMode != mode else { return true }
+        let saved = newMode == .sticky ? stickyGeometry : quickInputGeometry
+        // A mode switch changes the shape on the current display, not the display itself.
+        guard let target = RecordPanelPlacement.screen(containing: frame, in: screens)
+            ?? screens.first(where: { $0.id == presentationScreen?.id })
+            ?? screens.first(where: { $0.id == saved?.screenID })
+            ?? screens.first,
+              target.visibleFrame.width >= 1, target.visibleFrame.height >= 1,
+              [target.visibleFrame.minX, target.visibleFrame.minY, target.visibleFrame.width,
+               target.visibleFrame.height].allSatisfy(\.isFinite) else { return false }
+        if mode == .quickInput { quickInputGeometry = snapshotGeometry() }
+        else { stickyGeometry = snapshotGeometry() }
+        stickyLowerAreaBaseFrame = nil
+        cancelUserDrag()
+        mode = newMode
+        presentationScreen = target
+        let size = saved?.frame.size ?? NSSize(width: LauncherMetrics.stickyWidth,
+                                               height: LauncherMetrics.stickyHeight)
+        let anchored = NSRect(x: frame.minX, y: frame.maxY - size.height,
+                              width: size.width, height: size.height)
+        // Positions belong to their screen; carry only the saved size across screens.
+        let destination = saved.flatMap { $0.screenID == target.id ? $0.frame : nil } ?? anchored
+        lastOverlayHeight = saved?.overlayHeight ?? 0
+        lastInputCardHeight = saved?.inputHeight ?? LauncherMetrics.stickyHeight
+        manualInputCardHeight = newMode == .sticky ? destination.height : saved?.manualHeight
+        constrainSize(to: target.visibleFrame, proposedFrame: destination)
+        if mode == .sticky { stickyGeometry = snapshotGeometry() }
+        return true
+    }
+
+    private func restoreStickyGeometry(in screens: [RecordPanelPlacement.Screen]) {
+        let saved = stickyGeometry ?? snapshotGeometry()
+        guard let target = screens.first(where: { $0.id == saved.screenID })
+            ?? RecordPanelPlacement.screen(containing: saved.frame, in: screens)
+            ?? screens.first else { return }
+        presentationScreen = target
+        stickyLowerAreaBaseFrame = nil
+        lastOverlayHeight = 0
+        manualInputCardHeight = saved.frame.height
+        constrainSize(to: target.visibleFrame, proposedFrame: saved.frame)
+        stickyGeometry = snapshotGeometry()
     }
 
     private func adjustingFrame(_ update: () -> Void) {
@@ -224,9 +320,10 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
               [visibleFrame.minX, visibleFrame.minY, visibleFrame.width, visibleFrame.height].allSatisfy(\.isFinite) else { return }
         let margin = min(16, max(0, (visibleFrame.width - 44) / 2))
         let maximumWidth = min(1200, visibleFrame.width - margin * 2)
-        let minimumWidth = min(360, maximumWidth)
-        let maximumHeight = min(LauncherMetrics.inputCardMaxHeight + LauncherMetrics.cardGap + 280, visibleFrame.height)
-        let minimumHeight = min(LauncherMetrics.inputCardMinHeight, maximumHeight)
+        let minimumWidth = min(mode == .sticky ? LauncherMetrics.stickyMinWidth : 360, maximumWidth)
+        let maximumHeight = min(LauncherMetrics.inputCardMaxHeight + LauncherMetrics.cardGap + 300, visibleFrame.height)
+        let minimumHeight = editorHostingView?.rootView.minimumInputCardHeight(for: maximumHeight)
+            ?? min(mode == .sticky ? LauncherMetrics.stickyMinHeight : LauncherMetrics.inputCardMinHeight, maximumHeight)
         var constrained = proposedFrame ?? frame
         constrained.size.width = min(max(constrained.width, minimumWidth), maximumWidth)
         constrained.size.height = min(max(constrained.height, minimumHeight), maximumHeight)
@@ -240,15 +337,30 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
             contentMinSize = NSSize(width: minimumWidth, height: minimumHeight)
             if constrained != frame { setFrame(constrained, display: true) }
         }
+        editorHostingView?.rootView.maximumContentHeight = maximumHeight
         if manualInputCardHeight != nil { updateManualInputCardHeight() }
     }
 
     /// 双卡内容尺寸变化：锚定输入卡顶边改窗高，瞬时完成（不做 resize 动画，用户明确不要画面抖动）。
     /// 手动拖拽优先：本会话内用户拖过高度后按手动值，重新唤起恢复自动（§3.3）。
     private func contentSizeDidChange(totalHeight: CGFloat, inputCardHeight: CGFloat) {
+        guard mode == state.mode else { return }
+        let previousOverlayHeight = lastOverlayHeight
         if inputCardHeight > 0 { lastInputCardHeight = inputCardHeight }
         lastOverlayHeight = max(0, totalHeight - inputCardHeight)
         guard totalHeight > 0, !inLiveResize else { return }
+        if mode == .sticky {
+            if previousOverlayHeight == 0, lastOverlayHeight > 0 {
+                stickyLowerAreaBaseFrame = frame
+            } else if previousOverlayHeight > 0, lastOverlayHeight == 0,
+                      let base = stickyLowerAreaBaseFrame,
+                      let target = presentationScreen ?? screen.map(RecordPanelPlacement.snapshot) {
+                stickyLowerAreaBaseFrame = nil
+                constrainSize(to: target.visibleFrame, proposedFrame: base)
+                stickyGeometry = snapshotGeometry()
+                return
+            }
+        }
         if let manualInputCardHeight, totalHeight > contentMaxSize.height,
            manualInputCardHeight > contentMaxSize.height - lastOverlayHeight {
             self.manualInputCardHeight = max(
@@ -269,6 +381,15 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
         adjustingFrame {
             setFrame(resized, display: true, animate: false)
         }
+        layoutEdgeGlow()
+    }
+
+    /// 聚焦辉光锚在输入卡：输入卡恒定贴窗口顶部，故在容器坐标（y 轴朝上）里取顶部那段。
+    private func layoutEdgeGlow() {
+        guard let container = contentView else { return }
+        let height = min(lastInputCardHeight, container.bounds.height)
+        edgeGlow.frame = NSRect(x: 0, y: container.bounds.height - height,
+                                width: container.bounds.width, height: height)
     }
 
     override func animationResizeTime(_ newFrame: NSRect) -> TimeInterval {
@@ -285,8 +406,11 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
     }
 
     func windowDidResize(_ notification: Notification) {
+        layoutEdgeGlow() // 辉光无 autoresizingMask，窗口尺寸变化时统一重算（含兜底 resize 动画路径）。
         guard !isAdjustingFrame, manualInputCardHeight != nil else { return }
+        stickyLowerAreaBaseFrame = nil
         updateManualInputCardHeight()
+        if mode == .sticky { stickyGeometry = snapshotGeometry() }
     }
 
     private func updateManualInputCardHeight() {
@@ -323,6 +447,7 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
 
     func windowDidMove(_ notification: Notification) {
         guard dragStartOrigin != nil, !isAdjustingFrame, !inLiveResize else { return }
+        if frame.origin != dragStartOrigin { stickyLowerAreaBaseFrame = nil }
         draggedFrame = frame
         if NSEvent.pressedMouseButtons & 1 == 0 { endUserDrag() }
     }
@@ -340,6 +465,7 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
     /// 自有把手明确标记每次移动；不依赖鼠标松开后可能延迟到达的窗口通知。
     func moveForUserDrag(to origin: CGPoint) {
         guard dragStartOrigin != nil else { return }
+        if origin != frame.origin { stickyLowerAreaBaseFrame = nil }
         adjustingFrame { setFrameOrigin(origin) }
         draggedFrame = frame
     }
@@ -350,9 +476,12 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
         cancelUserDrag()
         guard let moved, moved.origin != start,
               let target = RecordPanelPlacement.screen(containing: moved, in: screens) else { return }
-        appState?.saveRecordPanelOffset(RecordPanelPlacement.offset(for: moved, on: target), on: target.id)
+        if mode == .quickInput {
+            appState?.saveRecordPanelOffset(RecordPanelPlacement.offset(for: moved, on: target), on: target.id)
+        }
         presentationScreen = target
         constrainSize(to: target.visibleFrame)
+        if mode == .sticky { stickyGeometry = snapshotGeometry() }
     }
 
     private func cancelUserDrag() {
@@ -360,14 +489,6 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
         draggedFrame = nil
         if let dragEndMonitor { NSEvent.removeMonitor(dragEndMonitor) }
         dragEndMonitor = nil
-    }
-
-    func windowDidChangeOcclusionState(_ notification: Notification) {
-        if isVisible && isKeyWindow && occlusionState.contains(.visible) && preFadeOrigin == nil {
-            edgeGlow.start(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
-        } else {
-            edgeGlow.stop()
-        }
     }
 
     @objc private func reduceMotionChanged(_ notification: Notification) {
@@ -386,6 +507,7 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
         presentationScreen = target
         constrainSize(to: target.visibleFrame)
         if preFadeOrigin != nil { preFadeOrigin = frame.origin }
+        if mode == .sticky { stickyGeometry = snapshotGeometry() }
     }
 
     // MARK: - 动效（Spotlight/Raycast 唤出配方：淡入 + 轻微位移）
@@ -401,7 +523,6 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
         cancelSubmissionAnimation()
         let finalOrigin = preFadeOrigin ?? frame.origin
         preFadeOrigin = nil
-        if isVisible && isKeyWindow { edgeGlow.start(reduceMotion: reduceMotion) }
         if !reduceMotion { setFrameOrigin(NSPoint(x: finalOrigin.x, y: finalOrigin.y - 10)) }
         alphaValue = 0
         NSAnimationContext.runAnimationGroup { ctx in
@@ -415,6 +536,7 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
     /// 关闭：淡出 + 上飘 8pt，0.12s，结束后 orderOut 并复位透明度
     func animateOut(reduceMotion: Bool = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
                     completion: @escaping @MainActor () -> Void) {
+        if mode == .sticky { stickyGeometry = snapshotGeometry() }
         cancelUserDrag()
         hideGeneration += 1
         let generation = hideGeneration
@@ -471,7 +593,7 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
         }
         context.clip()
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            context.setFillColor(NSColor.windowBackgroundColor.cgColor)
+            context.setFillColor(EditorPalette.surface.cgColor)
         }
         context.fill(bounds)
         context.draw(captured, in: bounds)
@@ -532,6 +654,7 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
             addSubmissionAnimations([("opacity", [1.0, 0.0])], keyTimes: [0, 1], duration: duration, to: snapshot)
         } else {
             switch effect {
+            case .quick: animateQuick(snapshot, duration: duration)
             case .wind: animateWind(snapshot, duration: duration)
             case .ufo: animateUFO(snapshot, duration: duration)
             }
@@ -553,6 +676,16 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
         hideAnimationTask = nil
         submissionAnimationWindow?.close()
         submissionAnimationWindow = nil
+    }
+
+    /// 极简收尾：整张快照围绕中心轻微缩放并淡出（0.18s），不碎裂、不扫光，最跟手。
+    private func animateQuick(_ snapshot: CALayer, duration: TimeInterval) {
+        let steps = 8
+        let progress = (0...steps).map { Double($0) / Double(steps) }
+        let scale = progress.map { NSNumber(value: 1 - submissionSmooth($0) * 0.04) }
+        let opacity = progress.map { NSNumber(value: 1 - submissionSmooth($0)) }
+        addSubmissionAnimations([("transform.scale", scale), ("opacity", opacity)],
+            keyTimes: progress.map { NSNumber(value: $0) }, duration: duration, to: snapshot)
     }
 
     // 对照 docs/assets/jotway-motion-directions.html 的 windPaper / ufoPaper。
@@ -719,7 +852,7 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
               attachedSheet == nil, NSApp.modalWindow == nil,
               let textView = focusTarget.textView,
               !textView.hasMarkedText() else { return event }
-        _ = textView
+
         // 历史翻阅（↑/↓）与处理面板（⌘O）已随沉淀层退场；编辑器保留原生按键行为。
         return event
     }
@@ -833,13 +966,17 @@ final class RecordPanelGlowView: NSView {
     }
 
     private var palette: [NSColor] {
-        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        // 与品牌图标一致的冷蓝色域；浅色外观使用更深的蓝色保持边缘对比。
-        let rgb: [(CGFloat, CGFloat, CGFloat)] = dark
-            ? [(0.26, 0.54, 1.0), (0.36, 0.77, 1.0), (0.60, 0.86, 1.0), (0.34, 0.49, 0.90)]
+        // 深色使用低饱和灰雾蓝；浅色保留原有蓝色和对比度。
+        let rgb: [(CGFloat, CGFloat, CGFloat)] = isDark
+            ? [(0.42, 0.58, 0.72), (0.48, 0.66, 0.78), (0.58, 0.74, 0.84), (0.44, 0.54, 0.68)]
             : [(0.12, 0.36, 0.72), (0.12, 0.49, 0.70), (0.25, 0.57, 0.78), (0.22, 0.35, 0.70)]
         return rgb.map { NSColor(srgbRed: $0.0, green: $0.1, blue: $0.2, alpha: 1) }
     }
+
+    private var isDark: Bool { effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
+    private var steadyOpacity: Float { isDark ? 0.40 : 0.72 }
+    private var haloOpacity: Float { isDark ? 0.18 : 0.38 }
+    private var bloomValues: [Double] { isDark ? [0, 0.18, 0.18] : [0, 0.68, 0.38] }
 
     private func colors(_ index: Int) -> [CGColor] {
         let colors = palette
@@ -851,6 +988,11 @@ final class RecordPanelGlowView: NSView {
     private func updateColors() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        // Old entrance endpoints must not brighten the new theme or restart its motion.
+        layer?.removeAnimation(forKey: "appearance")
+        halo.removeAnimation(forKey: "appearance")
+        layer?.opacity = isActive ? steadyOpacity : 0
+        halo.opacity = haloOpacity
         let colors = palette
         for base in bases {
             base.colors = [0, 1, 2, 3, 2, 1, 0].map { colors[$0].withAlphaComponent(0.10).cgColor }
@@ -872,20 +1014,20 @@ final class RecordPanelGlowView: NSView {
         let from = layer?.presentation()?.opacity ?? layer?.opacity ?? 0
         layer?.removeAllAnimations()
         halo.removeAllAnimations()
-        layer?.opacity = 0.72
-        halo.opacity = 0.38
+        layer?.opacity = steadyOpacity
+        halo.opacity = haloOpacity
         if !reduceMotion {
             if motionEpoch == nil { motionEpoch = CACurrentMediaTime() }
             animateFields()
             let bloom = CAKeyframeAnimation(keyPath: "opacity")
-            bloom.values = [0, 0.68, 0.38]
+            bloom.values = bloomValues
             bloom.keyTimes = [0, 0.42, 1]
             bloom.duration = 0.42
             halo.add(bloom, forKey: "appearance")
         }
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = from
-        fade.toValue = 0.72
+        fade.toValue = steadyOpacity
         fade.duration = reduceMotion ? 0.10 : 0.20
         layer?.add(fade, forKey: "appearance")
         CATransaction.commit()
@@ -926,6 +1068,10 @@ final class RecordPanelGlowView: NSView {
         layer?.removeAllAnimations()
         halo.removeAllAnimations()
         freezeFields()
+        if isActive {
+            layer?.opacity = steadyOpacity
+            halo.opacity = haloOpacity
+        }
         if isActive && !reduced { animateFields() }
         CATransaction.commit()
     }

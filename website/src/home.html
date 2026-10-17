@@ -1,59 +1,40 @@
 <section class="hero wrap">
     <div class="hero-copy">
-        <p class="eyebrow"><span aria-hidden="true">⌘</span> A native macOS launcher</p>
-        <h1>One thought.<br><em>The right place.</em></h1>
-        <p class="lede">Open Jotway. Type a sentence.<br><strong>Check the Action, then press Enter.</strong><br>Your everyday apps take it from there.</p>
-        <div class="hero-links">
-            <a class="button primary" href="{{download_url}}">{{home_cta}} <span aria-hidden="true">↓</span></a>
-            <a class="text-link" href="/download/">Installation &amp; details <span aria-hidden="true">↗</span></a>
-        </div>
+        <p class="eyebrow">Your ideas. One quick starting point.</p>
+        <h1>Catch the thought. <em>Keep it in Notes.</em></h1>
+        <p class="lede">Capture original ideas in Apple Notes from one quick panel. Review your words and confirm when ready.</p>
+        <div class="hero-links"><a class="button primary" href="{{download_url}}">{{home_cta}} <span aria-hidden="true">↓</span></a><a class="text-link" href="/download/">Installation &amp; details ↗</a></div>
         <p class="release-note">{{release_summary}}</p>
+        <p class="section-note">Choose a Notes folder and grant the relevant macOS permission. AI assistance is optional and needs separate configuration.</p>
     </div>
-    <div class="demo" id="product-demo" role="group" tabindex="0" aria-label="Jotway interactive demo" aria-describedby="demo-description" data-playback="paused">
-        <div class="demo-panel" id="demo-panel">
-            <div class="demo-body" id="demo-body">
-                <div class="demo-draft" id="demo-draft">
-                    <span id="demo-text"></span><span class="demo-placeholder" id="demo-placeholder">What would you like to do?</span><span class="demo-caret" id="demo-caret" aria-hidden="true"></span>
-                </div>
-                <div class="demo-action-row">
-                    <span class="demo-intent" id="demo-intent" aria-hidden="true"></span>
-                    <div class="demo-target" id="demo-target" aria-label="Suggested Action" hidden>
-                        <span id="demo-action-title"></span>
-                        <span class="demo-return" id="demo-return" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M15 4v7H5m4-4-4 4 4 4"/></svg></span>
-                    </div>
-                </div>
-            </div>
+    <div class="demo" id="product-demo" role="group" aria-label="Apple Notes example" data-playback="paused">
+        <p class="eyebrow">Illustrative demo · Fictional content</p>
+        <p class="demo-disclosure">Development preview · Requires an unreleased source build. The examples below do not describe the current download.</p>
+        <div class="demo-controls" id="demo-controls" hidden aria-label="Notes example playback">
+            <button type="button" id="demo-play">Play example</button>
         </div>
-        <canvas class="demo-wind" id="demo-wind" aria-hidden="true" hidden></canvas>
-        <svg class="demo-pointer" id="demo-pointer" viewBox="0 0 28 34" aria-hidden="true"><path d="m4 3 19 15-9 1-4 9Z"/></svg>
-        <div class="demo-click" id="demo-click" aria-hidden="true"></div>
-        <p class="visually-hidden" id="demo-description">A simulated Jotway walkthrough: type a thought, see its automatically suggested Action, then press Enter to submit. Two examples show an idea going to Notes and a task going to Reminders. No apps open and no data is sent. Click the panel or press Space to pause or resume. Escape pauses. Enter confirms a ready example. Reduced motion shows a complete, static example. Submission is not a confirmation of saving.</p>
-        <p class="visually-hidden" id="demo-status" role="status" aria-live="polite"></p>
+
+        <article class="demo-scene" id="scene-notes" data-name="notes" aria-labelledby="notes-title">
+            <h2 id="notes-title">Apple Notes</h2>
+            <div class="demo-input"><p class="stage-label">1 · Input</p><p>For the design review: make the first step clearer.</p></div>
+            <div class="demo-preview"><p class="stage-label">2 · Review before confirming</p><p>Review the original · Save to Notes</p><p class="confirmation">Press Enter to confirm · Nothing saved yet</p></div>
+            <div class="demo-result"><p class="stage-label">3 · Illustrative result after confirmation</p><h3>Design ideas</h3><p>For the design review: make the first step clearer.</p></div>
+            <p class="demo-note">Optional, separate additions: related notes need an enabled Notes index and a relevant match; AI insights need assistance enabled and configured. Neither is guaranteed.</p>
+        </article>
+        <p id="demo-status" class="visually-hidden" role="status" aria-live="polite"></p>
+        <p class="demo-disclosure">No apps open, no personal data is read, and no model requests are sent.</p>
     </div>
 </section>
 <section class="workflow section wrap" id="workflow" aria-labelledby="workflow-title">
-    <div class="section-heading"><p class="eyebrow">Fewer switches. More follow-through.</p><h2 id="workflow-title">From a thought to its next step.</h2><p>No need to open an app and find a place to type first.</p></div>
+    <div class="section-heading"><p class="eyebrow">From a thought to a place you already use</p><h2 id="workflow-title">Write. Review. Confirm.</h2><p>Choose the destination before your words leave the panel.</p></div>
     <ol class="steps">
-        <li><span class="step-number">01</span><h3>Open</h3><p>Use your global shortcut, the menu bar, the Dock, or the app itself to open the quick record panel.</p></li>
-        <li><span class="step-number">02</span><h3>Write</h3><p>Type a sentence or a few lines of plain text. <kbd>Shift</kbd> + <kbd>Enter</kbd> adds a new line. Organize it later.</p></li>
-        <li><span class="step-number">03</span><h3>Check, then confirm</h3><p>Review the suggested Action. Switch with <kbd>⌥↑</kbd> / <kbd>⌥↓</kbd> if needed, then press <kbd>Enter</kbd> to execute.</p></li>
+        <li><span class="step-number">01</span><h3>Keep the idea in Apple Notes</h3><p>Save to your chosen folder. In the development preview, your original stays separate from optional related history and AI insights.</p></li>
+        <li><span class="step-number">02</span><h3>Open an app locally</h3><p>Type an installed application name, review the single local match, then confirm. Matching sends no draft to an intent service.</p></li>
+        <li><span class="step-number">03</span><h3>Choose an explicit tool</h3><p>Use Codex for a background task, or Clipboard to find a previous copy. Ordinary text stays on the Notes path.</p></li>
     </ol>
-    <aside class="recovery"><span aria-hidden="true">↶</span><div><h3>A failed Action doesn't take your words with it.</h3><p>Jotway restores the draft so you can retry or choose another Action. If you've already started a new draft, the failed submission waits separately for you to restore it.</p></div></aside>
+    <p class="section-note">These examples describe the current source build. The downloadable release may have different actions and behavior; its verified version and download path are shown separately.</p>
+    <aside class="recovery"><span aria-hidden="true">↶</span><div><h3>A failed save keeps your words within reach.</h3><p>Jotway restores the draft for another try. If you have started a new draft, the failed submission waits separately for you to restore it.</p></div></aside>
 </section>
-<section class="destinations section" aria-labelledby="actions-title"><div class="wrap">
-    <div class="section-heading"><p class="eyebrow">Your tools, one starting point</p><h2 id="actions-title">A place for every kind of thought.</h2><p>Start with these built-in Actions.</p></div>
-    <div class="action-grid">
-        <article><span class="action-symbol notes" aria-hidden="true">≡</span><p class="action-name">Apple Notes</p><h3>Keep an idea</h3><p>“Save to notes: a quiet weekend in Kyoto”</p><a href="https://github.com/Liugq5713/jotway/blob/main/docs/integrations/apple-notes.md">Create a note <span aria-hidden="true">↗</span></a></article>
-        <article><span class="action-symbol reminders" aria-hidden="true">☑</span><p class="action-name">Apple Reminders</p><h3>Remember a task</h3><p>“Remind me to send the design draft”</p><a href="https://github.com/Liugq5713/jotway/blob/main/docs/integrations/apple-reminders.md">Create a reminder <span aria-hidden="true">↗</span></a></article>
-        <article><span class="action-symbol calendar" aria-hidden="true">□</span><p class="action-name">Apple Calendar</p><h3>Make some time</h3><p>“Add to calendar: design discussion”</p><a href="https://github.com/Liugq5713/jotway/blob/main/docs/integrations/apple-calendar.md">Create an event <span aria-hidden="true">↗</span></a></article>
-        <article><span class="action-symbol chrome" aria-hidden="true">⌕</span><p class="action-name">Chrome</p><h3>Find an answer</h3><p>“Google search macOS keyboard shortcuts”</p><a href="https://github.com/Liugq5713/jotway/blob/main/docs/integrations/chrome.md">Search Google <span aria-hidden="true">↗</span></a></article>
-    </div>
-    <p class="section-note">Storage Actions need a configured destination and the relevant permissions. Chrome needs to be installed. Natural-language date extraction requires DeepSeek processing. Without it, reminders are due now and calendar events last one hour, starting now.</p>
-    <p class="section-note">Jotway also matches installed apps locally. These are examples, not the full Action list. See the <a href="https://github.com/Liugq5713/jotway/blob/main/docs/product/overview.md">current product guide</a> for all capabilities.</p>
-</div></section>
-<section class="optional section wrap" aria-labelledby="optional-title">
-    <div><p class="eyebrow">AI, when you want it</p><h2 id="optional-title">A little help.<br>Your decision.</h2></div>
-    <div class="optional-copy"><p>Saving, Google search, and app launching work without AI. Optional Jev intent recognition can suggest an Action. It never executes one for you.</p><p>Notes, Reminders, and Calendar can each use optional DeepSeek processing to tidy text or extract dates. Providers require separate configuration and may charge your account. If processing fails, Jotway uses your original text.</p><a class="text-link" href="/privacy/#providers">See what providers receive <span aria-hidden="true">↗</span></a></div>
-</section>
-<section class="privacy-summary wrap"><div><p class="eyebrow">Clear about privacy</p><h2>Your words go where you choose.</h2><p>Unsubmitted drafts live in memory during the app session. There's no browsable inbox or content history. Confirming an Action may still retain full-text feedback samples locally.</p></div><a class="button secondary" href="/privacy/">Read the data policy <span aria-hidden="true">↗</span></a></section>
-<section class="closing wrap"><h2>Give your next thought<br>a place to go.</h2><a class="button primary" href="{{download_url}}">{{home_cta}} <span aria-hidden="true">↓</span></a><p>{{release_summary}}</p></section>
+
+<section class="wrap privacy-summary"><div><p class="eyebrow">Clear boundaries</p><h2>Your apps stay in your hands.</h2><p>macOS permissions control app access. Optional AI and indexing can send text to configured services. Typing and local application matching do not call an intent model. Local operation records may include unsent drafts; closing the panel does not erase archives.</p></div><a class="button secondary" href="/privacy/">Read the privacy guide ↗</a></section>
+<section class="closing wrap"><h2>A quicker start for everyday work.</h2><p>Start a draft with <code>@</code> to choose a reusable input template, then use Tab to fill its fields. Jotway keeps Notes, Codex and Clipboard in the target menu alongside local app launching. <a href="https://github.com/Liugq5713/jotway/blob/main/docs/product/overview.md">Explore the product guide</a>.</p><a class="button primary" href="{{download_url}}">{{home_cta}} ↓</a><p>{{release_summary}} · <a href="/download/">Installation &amp; details</a></p></section>

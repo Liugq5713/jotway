@@ -44,7 +44,7 @@ def validate(metadata, *, allow_local=False):
         raise ValueError('Invalid artifact size.')
     if not re.fullmatch('[a-f0-9]{64}', metadata['sha256']):
         raise ValueError('Invalid SHA-256.')
-    if metadata['codeSigning'] not in ('ad-hoc', 'developer-id', 'unsigned') or type(metadata['notarized']) is not bool:
+    if metadata['codeSigning'] not in ('ad-hoc', 'developer-id', 'certificate', 'unsigned') or type(metadata['notarized']) is not bool:
         raise ValueError('Unknown signing/notarization state.')
     date = datetime.fromisoformat(metadata['releaseDate'].replace('Z', '+00:00'))
     if date.tzinfo is None:

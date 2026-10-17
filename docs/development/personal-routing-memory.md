@@ -1,7 +1,7 @@
 # 个人路由记忆实施方案
 
 > Role: **Work**
-> 状态：暂停的候选方案；尚未实现或派发。当前行为以 [Jev intent recognition](../integrations/jev-intent-research.md) 为准。
+> 状态：暂停的候选方案；尚未实现或派发。当前行为以 [current routing](../product/overview.md) 为准。
 >
 > 当前推进范围是[当前本地操作记录](data-model.md)：用户手工维护 Local Rules，操作记录仅用于本机复盘和导出。下文自动学习、独立案例表以及保留旧反馈表的设计均未获实施，本轮不执行；恢复此方案前须按统一记录重新评审，不能直接沿用旧采样/存储章节。
 
@@ -30,7 +30,7 @@
 | `IntentCorrection` / `IntentFeedback` | 纠正与采用诊断，缺少完整选择来源和重试身份 | 保留语义；不直接用作学习样本，不自动回填 |
 | `ChatGPTModule` | `modelBinding == .conversation`，Jev 可建议普通对话请求 | 个人建议从 registry 的可执行 action 选择，独立于 Jev 的候选协议 |
 
-相关实现：[LauncherSession](../../Sources/Features/Launcher/LauncherSession.swift)、[RouteResolver](../../Sources/Features/Launcher/RouteResolver.swift)、[IntentRecognition](../../Sources/Features/Launcher/IntentRecognition.swift)、[IntentFeedbackMapping](../../Sources/Features/Launcher/IntentFeedbackMapping.swift)。
+相关实现：[LauncherSession](../../Sources/Features/Launcher/LauncherSession.swift)、[RouteResolver](../../Sources/Features/Launcher/RouteResolver.swift)、[IntentRecognition](../../Sources/Features/Launcher/IntentRecognition.swift)、`IntentFeedbackMapping`（历史实现，已移除）。
 
 ## A：可信样本与精确表达记忆
 

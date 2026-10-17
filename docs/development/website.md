@@ -6,27 +6,21 @@ The repository contains a static English-language website at `website/`. It is p
 
 ## Pages and behavior
 
-- `/`: quick record flow, four example Actions, recovery, optional AI, and privacy summary. The primary call to action says “Download Jotway” and downloads the verified public DMG directly. “Installation & details” opens the download page; an unpublished build says “Check availability” and opens that page instead.
+- `/`: Apple Notes capture and local application launching, confirmation and illustrative destination results, recovery and privacy. The primary call to action says “Download Jotway” and downloads the verified public DMG directly. “Installation & details” opens the download page; an unpublished build says “Check availability” and opens that page instead.
 - `/download/`: verified artifact facts, a DMG download, installation instructions, and source-build guidance. An unpublished build shows an availability message instead. Directory routes also resolve from `/download` on a directory-index static host.
 - `/privacy/`: draft lifetime, Action transfer, optional provider requests, full-text local feedback, retention and clearing boundaries. `/privacy` resolves in the same way.
 
 Pages share `website/src/layout.html`, local styles, navigation and footer. The top navigation includes the GitHub repository and a direct download using the same verified release URL as the home page, with “Check availability” as the fallback when no public artifact is available. The footer's “Install guide” keeps release details and installation instructions accessible. A small dependency-free script drives the interactive product demo and copies an available checksum. Reading, navigation and downloads work without JavaScript. The site has no account system, analytics, external fonts or persistent browser preferences.
 
-Action cards are examples, not the total Action count. Product copy follows the Current product and integration documents. Date extraction depends on per-action DeepSeek processing; it is not promised as an AI-free feature. Jev can send draft text before Enter; accepted local feedback has no retention limit or clear UI.
+The home page leads with Apple workflows. Other actions remain discoverable through the product guide. Enhanced examples are visibly labeled development previews requiring an unreleased source build; the download metadata is not evidence that a newer workspace feature is released. Privacy copy distinguishes local routing from optional Notes AI, Notes indexing, primary/fallback model disclosure and local records.
 
 ## Interactive product demo
 
-The home page contains a silent, 14-second walkthrough directly on the page's white background. A white panel takes a natural-language thought, shows its automatically suggested Action, illustrates Enter confirmation, and dissolves into particles. Black-and-white components use the existing blue accent. The locally bundled Geist font makes no third-party requests; its license and source are in `website/src/fonts/`.
+The complete Notes HTML scene uses fictional content and shows input, review before confirmation, and an explicitly illustrative result. The original stays separate from optional indexed history and configured AI assistance. No retired action scene or synthetic time preview remains.
 
-Two seven-second examples show the automatic path: `An idea for the next design review` suggests Notes, and `Remind me to send the design draft` suggests Reminders. The Action label is a read-only indicator: there is no candidate menu, manual selection, explicit-selection dot, or cursor click on the Action. The website performs no real recognition and never executes an Action, opens an application, sends text, or persists a visitor choice. The native app still supports manual target selection.
+Without JavaScript the complete scene remains readable and controls stay hidden. With JavaScript the completed static scene is initially visible. One native button explicitly starts, pauses or resumes its six-second timeline: input at zero seconds, review at two and result at four. No automatic rotation occurs. `window.jotwayDemo.seek(seconds)` clamps time and pauses. Focus stays on the button; live status announces explicit interactions and completion.
 
-Each example types on beats 2–6, reveals its suggestion on beat 7, illustrates Enter on beat 10, starts its 500 ms particle exit on beat 11, and returns to an empty panel on beat 13. The full loop uses a 120 BPM grid (28 beats). A deterministic `window.jotwayDemo.seek(seconds)` renders any frame independently, including the typing cursor, pointer, click feedback, content blur, panel geometry, and exit. Closed-form critically damped spring responses are summed for repeated target changes. Text stays at native layout resolution; no scaled layer or `will-change` is applied. The first and last frames coincide, including pointer position.
-
-Enter shows submission acceptance, not successful saving. The particle exit carries the panel background, border, text, and Action label from right to left, drifting upward and right. Its texture is generated from each example's fixed pre-exit frame and actual DOM text wrapping, so seeking directly into the effect works without playing earlier frames. Particles stay inside the demo canvas. There is no success checkmark or receipt.
-
-Clicking the demo or pressing Space while it has focus pauses or resumes. Escape pauses playback. Enter confirms a ready example without opening a selection menu. Keyboard focus remains on the demo during the exit. Screen-reader status messages describe explicit interactions without announcing every animated character or beat.
-
-Playback uses one animation-frame callback and stops while paused, offscreen, or on a hidden page. Returning resumes without replaying hidden time. Reduced-motion mode shows a complete, static example and supports Enter without typing, particles, or automatic rotation. Without JavaScript, the empty panel and all other page content remain readable, and the Action indicator stays hidden.
+Reduced motion keeps the full static scene and disables playback. Escape, page hiding and leaving the viewport pause it; returning never starts it automatically. The demo reads no personal data, opens no app, calls no model and persists no state. Download checksum copying stays independent.
 
 ## Build and preview
 
@@ -85,12 +79,6 @@ This copies the matching DMG into the ignored site's `downloads/` directory and 
 
 ## Canonical usage images
 
-`Resources/Screenshots/` supplies both READMEs. These images are independent of the website’s DOM demo and are not copied into the website build:
-
-- `launcher-light.png` and `launcher-dark.png` render the production `EditorView` at 2× with synthetic text and the actual English labels.
-- Empty-state captures provide the first walkthrough frame.
-- `chrome-search.png` is a cropped real Chrome page for the same synthetic search, excluding account controls and personal information.
-- `README-flow.png` composes those captures into three numbered steps with annotations outside the application UI. It is a walkthrough, not an end-to-end execution recording or a history view.
-- `provenance.json` records the UI source hashes. See the [capture reference](../../Resources/Screenshots/README.md) for reproduction.
+Both READMEs currently omit screenshots. The retired Chrome-search captures have been removed. The website uses its independent synthetic HTML demonstration. [Capture tools](../../Resources/Screenshots/README.md) can regenerate offscreen production EditorView images with fictional Notes text and a two-stage pre-confirmation composite; they do not access Notes or a browser.
 
 The renderer links the debug product objects and supplies its own entry point. It does not invoke `JotwayApp`, instantiate `AppState`, read user storage, enumerate installed apps or execute an Action. Source build and current UI screenshots can be reviewed before any public release exists. A future release must be checked against these UI source hashes and product claims before publication; regenerate images when relevant UI changes.

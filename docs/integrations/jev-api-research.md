@@ -1,8 +1,9 @@
 # Jev API reference
 
 > Role: **Reference**
+> Historical protocol reference only. Jotway no longer calls Jev, configures its credentials, or exports a current Jev rule definition. Retained log encodings remain readable.
 
-This document records the external contract Jotway relies on. Current product behavior lives in [Jev intent recognition](jev-intent-research.md); source code defines the exact active rule.
+This document records the retired external protocol for interpreting historical diagnostics. Current product routing lives in [the product overview](../product/overview.md); there is no active Jev rule or service.
 
 ## Provider
 

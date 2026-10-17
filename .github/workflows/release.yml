@@ -55,8 +55,12 @@ jobs:
             --repository "$GITHUB_REPOSITORY" \
             --output "$RUNNER_TEMP/previous-release.json"
 
-      - name: Build and package DMG
+      - name: Build and verify public distribution DMG
         env:
+          # The runner must already have this Developer ID and notary profile provisioned.
+          # Missing credentials fail closed; an ad-hoc package must never reach publication.
+          JOTWAY_SIGNING_IDENTITY: ${{ secrets.JOTWAY_SIGNING_IDENTITY }}
+          JOTWAY_NOTARY_PROFILE: ${{ secrets.JOTWAY_NOTARY_PROFILE }}
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           ./scripts/release.py "${{ steps.version.outputs.version }}" \
@@ -86,6 +90,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          python3 - "$RELEASE_DIR/release.json" <<'PY'
+          import json, sys
+          record = json.load(open(sys.argv[1]))
+          assert record.get('codeSigning') == 'developer-id'
+          assert all(record.get(key) is True for key in ('notarized', 'distributionVerified', 'stapled', 'gatekeeperAccepted'))
+          PY
           gh release create "${{ github.ref_name }}" \
             "$RELEASE_DIR"/*.dmg \
             "$RELEASE_DIR/release.json" \

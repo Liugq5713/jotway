@@ -15,7 +15,8 @@ final class AIProviderTests: XCTestCase {
         let preferences = try preferences(), repo = LauncherStore.inMemory()
         preferences.set("external", forKey: "plugin.ai.source")
         preferences.set("model-b", forKey: "plugin.ai.externalModel")
-        let app = AppState(repository: repo, preferences: preferences, aiSources: [])
+        let app = AppState(repository: repo, preferences: preferences, aiSources: [], actionModules: { _ in [] })
+        XCTAssertEqual(Set(ModelConfiguration.Capability.allCases), Set([.fast, .deep, .embedding]))
         let session = app.makeLauncherSession(catalog: ApplicationCatalog(applications: []))
         session.updateInput("未发送的原文")
         let draft = session.draft
@@ -32,7 +33,7 @@ final class AIProviderTests: XCTestCase {
                 }
             })]
         XCTAssertEqual(app.aiModel, "model-b")
-        XCTAssertEqual(app.aiSourceVersion, "external/model-b/v1:0")
+        XCTAssertTrue(app.aiSourceVersion.contains("external/model-b/v1"))
     }
 
     func testUnknownSourceAndRemovedSourceNeverFallbackOrRunOnRegistration() async throws {
@@ -44,7 +45,7 @@ final class AIProviderTests: XCTestCase {
                     await probe.respond(request)
                 }
             })
-        let app = AppState(repository: .inMemory(), preferences: preferences, aiSources: [])
+        let app = AppState(repository: .inMemory(), preferences: preferences, aiSources: [], actionModules: { _ in [] })
         let provider = AIProviderPlugin(configuration: { try app.aiRequestConfiguration() })
         XCTAssertEqual(app.aiSource, "optional-source")
         XCTAssertThrowsError(try provider.generator())

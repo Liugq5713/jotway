@@ -1,16 +1,6 @@
 import Foundation
 import GRDB
 
-/// App 数据落盘位置。
-enum StorageLocation {
-    /// Sandbox 容器内 Application Support/Jotway
-    static var appSupport: URL {
-        FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Jotway", isDirectory: true)
-    }
-}
-
 /// Jotway 的独立数据库定义；后续 schema 变更追加迁移。
 enum Database {
     static func makeQueue(inMemory: Bool = false) throws -> DatabaseQueue {

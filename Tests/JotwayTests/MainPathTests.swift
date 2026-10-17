@@ -130,7 +130,7 @@ final class MainPathTests: XCTestCase {
 
 @MainActor
 extension MainPathTests {
-    func testRemovedActionPreferencesAndRulesAreCleanedAtLaunch() throws {
+    func testRemovedActionPreferencesAndRetiredRulesRemainUnchanged() throws {
         let suite = "JotwayTests.RemovedAction.\(UUID().uuidString)"
         let preferences = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { preferences.removePersistentDomain(forName: suite) }
@@ -138,21 +138,25 @@ extension MainPathTests {
         preferences.set(false, forKey: "actionEnabled.chrome")
         preferences.set(false, forKey: "actionEnabled.apple-notes")
         preferences.set("保留", forKey: "example.actionEnabled.removed-action")
-        let rules = [IntentRule(phrase: "旧目标", actionID: "removed-action"),
-                     IntentRule(phrase: "搜一下", actionID: "chrome")]
-        preferences.set(try JSONEncoder().encode(rules), forKey: "intentRules")
+        let rules = Data(#"[{"id":"00000000-0000-0000-0000-000000000001","phrase":"旧目标","actionID":"removed-action"},{"id":"00000000-0000-0000-0000-000000000002","phrase":"搜一下","actionID":"chrome"}]"#.utf8)
+        preferences.set(rules, forKey: "intentRules")
+        let retiredOnly = ActionConfiguration(preferences: preferences, modules: [])
+        XCTAssertFalse(retiredOnly.hasSavedActionConfiguration)
+        // Retired switches remain inert when the full registry is restored.
+        preferences.set(false, forKey: "actionEnabled.removed-action")
+        preferences.set(false, forKey: "actionEnabled.chrome")
+        preferences.set(false, forKey: "actionEnabled.apple-notes")
 
         let state = AppState(repository: .inMemory(), preferences: preferences)
 
-        XCTAssertNil(preferences.object(forKey: "actionEnabled.removed-action"))
+        XCTAssertEqual(preferences.object(forKey: "actionEnabled.removed-action") as? Bool, false)
         XCTAssertEqual(preferences.string(forKey: "example.actionEnabled.removed-action"), "保留")
-        XCTAssertFalse(preferences.bool(forKey: "actionEnabled.chrome"), "已注册但关闭的 action 配置必须保留")
+        XCTAssertFalse(preferences.bool(forKey: "actionEnabled.chrome"), "退休 action 偏好仅忽略，不删除")
         XCTAssertFalse(preferences.bool(forKey: "actionEnabled.apple-notes"), "已注册但暂不可用的 action 配置必须保留")
-        XCTAssertEqual(state.intentRules.map(\.actionID), ["chrome"])
         let stored = try XCTUnwrap(preferences.data(forKey: "intentRules"))
-        XCTAssertEqual(try JSONDecoder().decode([IntentRule].self, from: stored).map(\.actionID), ["chrome"])
+        XCTAssertEqual(stored, rules, "退役规则偏好必须逐字节保留")
         XCTAssertEqual(Set(state.actionRegistry.allDescriptors.map(\.id)),
-                       ["apple-notes", "apple-reminders", "apple-calendar", "chrome", "chatgpt"])
+                       ["apple-notes", "codex", "clipboard"])
         XCTAssertFalse(state.actionRegistry.isEnabled("chrome"))
     }
 
@@ -212,10 +216,32 @@ extension MainPathTests {
             editor.setMarkedText("拼", selectedRange: NSRange(location: 1, length: 0),
                 replacementRange: NSRange(location: NSNotFound, length: 0))
             XCTAssertTrue(editor.hasMarkedText())
+            let markedText = editor.string, markedSelection = editor.selectedRange()
+            let expansion = try! TemplateExpansion.parse(InputTemplate.builtIns[0].body)
+            XCTAssertFalse(editor.insertTemplate(expansion))
+            XCTAssertEqual(editor.string, markedText)
+            XCTAssertEqual(editor.selectedRange(), markedSelection)
             editor.keyDown(with: returnEvent(modifiers: modifiers))
             XCTAssertEqual(saves, 0)
             editor.unmarkText()
         }
+        state.templateCandidates = InputTemplate.builtIns
+        var cancellations = 0
+        editor.send = { event in
+            if case .cancel = event { cancellations += 1 }
+            if case .templateFillingChanged(let active) = event { state.isFillingTemplate = active }
+        }
+        let escape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false, keyCode: 0x35)!
+        XCTAssertTrue(editor.insertTemplate(try! TemplateExpansion.parse(InputTemplate.builtIns[0].body)))
+        let filledText = editor.string
+        editor.keyDown(with: escape)
+        XCTAssertNil(editor.templateEditing)
+        XCTAssertEqual(editor.string, filledText)
+        XCTAssertEqual(cancellations, 0, "Filling Esc must preserve the draft")
+        editor.keyDown(with: escape)
+        XCTAssertEqual(cancellations, 0, "Outside filling, Esc dismisses the template menu first")
     }
 
     /// 使用生产的准备与回调路径，窗口始终隐藏；不占用用户的焦点或全局剪贴板。
@@ -300,14 +326,28 @@ extension MainPathTests {
         var completion: (@MainActor (Result<NSRunningApplication, Error>) -> Void)?
         var inspectBeforeOpen: (() -> Void)?
         let notes = MainPathNotesProbe()
-        var dependencies = BundledActionDependencies()
-        dependencies.notesRun = { await notes.record($0) }
         try await withPreparedRecordEditor(draft: "/TestLaunch", applications: [local.application],
             actionModules: { preferences in
-                let modules = BundledActions.modules(preferences: preferences, dependencies: dependencies)
-                let notesModule = modules.compactMap { $0 as? AppleNotesModule }.first!
+                // This routing scenario exercises ordinary Notes creation. Keep its
+                // provider, history and persistence independent of the user's setup.
+                preferences.set(false, forKey: "notesDailyGroupingEnabled")
+                preferences.set(false, forKey: "aiRewriteEnabled.apple-notes")
+                preferences.set(false, forKey: "notesHistory.enabled")
+                let index = NotesIndex(url: local.directory.appendingPathComponent("notes-index.sqlite"))
+                let history = NotesHistory(preferences: preferences,
+                    keys: APIKeyStore(directory: local.directory.appendingPathComponent("keys")),
+                    index: index, reader: .init(run: { await notes.record($0) }),
+                    checkPermission: { false }, embeddingTransport: { _ in
+                        XCTFail("Routing must not request embeddings")
+                        throw NotesHistoryError.unavailable
+                    })
+                let source = AIProviderPlugin.Source(id: "fixture", title: "Fixture", detail: "Unavailable",
+                    version: { _ in "1" }, configure: { _ in throw NotesHistoryError.unavailable })
+                let notesModule = AppleNotesModule(preferences: preferences, models: ModelConfiguration(preferences: preferences, sources: [source], fastSource: source),
+                    groupingStore: NotesDailyGroupingStore(url: local.directory.appendingPathComponent("daily.sqlite")),
+                    history: history, run: { await notes.record($0) })
                 try! notesModule.setDestination(.init(id: "folder-1", name: "测试 / Jotway"))
-                return modules
+                return [notesModule]
             }, openApplication: { url, configuration, reply in
             inspectBeforeOpen?()
             XCTAssertTrue(configuration.activates)
@@ -338,6 +378,41 @@ extension MainPathTests {
             editor.undoManager?.undo()
             XCTAssertEqual(editor.string, "/TestLaunch")
             XCTAssertEqual(controller.session.draft.content, "/TestLaunch")
+
+            // Template insertion shares the native edit/undo boundary without submitting.
+            controller.session.send(.selectTarget("apple-notes"))
+            editor.insertText("@记录", replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
+            editor.setSelectedRange(NSRange(location: 1, length: 1))
+            // Typing the query and choosing a row are separate native input events.
+            try await Task.sleep(for: .milliseconds(20))
+            let querySelection = editor.selectedRange()
+            let identity = controller.session.draft.id
+            let expansion = try TemplateExpansion.parse(InputTemplate.builtIns[0].body)
+            XCTAssertTrue(controller.session.state.isTemplateMenuVisible)
+            controller.session.send(.selectTemplate(InputTemplate.builtIns[0]))
+            XCTAssertEqual(editor.string, expansion.text)
+            XCTAssertEqual(editor.selectedRange(), expansion.firstSelection)
+            XCTAssertEqual(controller.session.draft.id, identity)
+            XCTAssertTrue(controller.session.state.intentDeviated)
+            XCTAssertNotNil(editor.templateEditing)
+            editor.undoManager?.undo()
+            XCTAssertEqual(editor.string, "@记录")
+            XCTAssertEqual(editor.selectedRange(), querySelection)
+            XCTAssertNil(editor.templateEditing)
+            editor.undoManager?.redo()
+            XCTAssertEqual(editor.string, expansion.text)
+            XCTAssertNil(editor.templateEditing, "Redo restores text only, never field anchors")
+            editor.undoManager?.undo()
+            XCTAssertEqual(editor.string, "@记录")
+            XCTAssertEqual(editor.selectedRange(), querySelection)
+            editor.undoManager?.redo()
+            XCTAssertEqual(editor.string, expansion.text)
+            XCTAssertNil(editor.templateEditing)
+            XCTAssertTrue(attempts.isEmpty)
+            let noteCount = await notes.count
+            XCTAssertEqual(noteCount, 0)
+            editor.insertText("/TestLaunch", replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
+            controller.session.send(.useAutomatic())
 
             editor.keyDown(with: returnEvent())
             XCTAssertTrue(attempts.isEmpty, "前导斜杠必须走普通 action，不能打开同名应用")
@@ -408,6 +483,7 @@ private actor MainPathNotesProbe {
     func record(_ request: AppleNotes.Request) -> AppleNotes.Response {
         requests.append(request)
         return .init(version: 1, requestID: request.requestID, status: "ok",
-                     noteID: "note-\(requests.count)", folderID: request.folderID)
+                     noteID: "note-\(requests.count)", folderID: request.folderID,
+                     plaintext: NotesOriginalText.readableText(.init(text: "", html: request.html ?? "", attachments: 0)))
     }
 }

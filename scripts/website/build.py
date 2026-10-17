@@ -24,7 +24,8 @@ def release_content(record):
 <p>There is no public release to download yet. Once a verified artifact is published, this page will show its version, build, macOS requirement, architecture, size, SHA-256, signing, notarization, and release date.</p>
 <a class="text-link" href="https://github.com/Liugq5713/jotway/releases">View GitHub releases ↗</a></section>'''
     local = record['status'] == 'local'
-    sign = {'ad-hoc': 'Ad-hoc signing', 'developer-id': 'Developer ID signing', 'unsigned': 'Unsigned'}[record['codeSigning']]
+    sign = {'ad-hoc': 'Ad-hoc signing', 'developer-id': 'Developer ID signing',
+            'certificate': 'Certificate signing (not Developer ID)', 'unsigned': 'Unsigned'}[record['codeSigning']]
     fields = [('Version', record['version']), ('Build', record['build']),
               ('Minimum macOS', record['minimumMacOS']), ('CPU architecture', record['architecture']),
               ('File', record['file']), ('File size', f"{record['bytes'] / 1024 / 1024:.2f} MiB · {record['bytes']:,} bytes"),
@@ -130,11 +131,17 @@ def main():
               'signing_guidance': ('The current packaging process uses ad-hoc signing without Apple notarization. ' if metadata['status'] == 'unpublished'
                                    else 'See the artifact details above for signing and notarization status. ')
                                   + 'On first launch, macOS may ask you to allow the app in System Settings → Privacy & Security. Verify the source and checksum first.'}
-    routes = [('home', '', 'Jotway — One thought. The right place.', 'Open Jotway, type a thought, check the Action, and press Enter. A native macOS launcher for your everyday tools.'),
+    routes = [('home', '', 'Jotway — Catch the thought. Keep it in Notes.', 'Capture original ideas in Apple Notes from one quick panel. Review your words and confirm when ready.'),
               ('download', 'download', 'Download Jotway — Releases and installation', 'Verified release details, checksums, signing and notarization status, and installation instructions for Jotway.'),
               ('privacy', 'privacy', 'Jotway — Privacy and data flow', 'Understand Jotway drafts, optional AI requests, full-text local feedback, retention, and available clearing controls.')]
     for source, route, title, description in routes:
         content = (SITE / 'src' / f'{source}.html').read_text()
+        if source == 'home':
+            if content.count('class="demo-scene"') != 1 or 'id="scene-notes"' not in content:
+                raise ValueError('Home must contain one complete Notes example.')
+            for marker in ('demo-input', 'demo-preview', 'demo-result', 'demo-play', 'demo-status'):
+                if marker not in content:
+                    raise ValueError(f'Home is missing {marker}.')
         content = re.sub(r'\{\{(\w+)\}\}', lambda match: common[match[1]], content)
         site_prefix = './' if not route else '../'
         values = {**common, 'content': content, 'title': title, 'description': description,

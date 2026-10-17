@@ -3,248 +3,155 @@ import SwiftUI
 struct AISettingsView: View {
     let appState: AppState
     var checkAPIKey: (() throws -> Bool)?
-    @State private var apiKey = ""
-    @State private var hasAPIKey = false
-    @State private var keyIssue: String?
-    @State private var showsDetails = false
-    @FocusState private var isEditingKey: Bool
-
-    private var isAvailable: Bool { appState.onTestAIConnection != nil }
 
     var body: some View {
         Form {
-            Section {
-                VStack(alignment: .leading, spacing: 18) {
-                    header
-                    sourceChoices
-                    if !isAvailable {
-                        Text(L10n.text("settings.ai.unavailable"))
-                            .font(.callout).foregroundStyle(.secondary)
-                    } else if let source = appState.selectedAISource {
-                        if !source.models.isEmpty { modelPicker(source) }
-                        if let keyURL = source.keyURL {
-                            ServiceKeyField(accessibilityTitle: "\(source.title) API Key", keyURL: keyURL,
-                                            hasKey: hasAPIKey, text: Binding(
-                                                get: { apiKey },
-                                                set: { apiKey = $0; appState.invalidateAIConnectionTest() }
-                                            ), isFocused: $isEditingKey, save: saveKey)
-                        }
-                        if let keyIssue {
-                            Label(keyIssue, systemImage: "exclamationmark.circle")
-                                .font(.callout).foregroundStyle(.red)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .accessibilityAddTraits(.updatesFrequently)
-                        }
-                        connectionActions(source)
-                        if let message = appState.aiConnectionMessage {
-                            Text(message)
-                                .font(.callout).foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .accessibilityAddTraits(.updatesFrequently)
-                        }
-                        details(source)
-                    } else {
-                        Text(L10n.text("settings.ai.source_unregistered", appState.aiSource))
-                            .font(.callout).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+            Section(L10n.text("thinking.settings.title")) {
+                Toggle(L10n.text("thinking.settings.automatic"), isOn: Binding(
+                    get: { appState.automaticDraftThinkingPromptsEnabled },
+                    set: { appState.automaticDraftThinkingPromptsEnabled = $0 }))
+                Text(L10n.text("thinking.settings.help")).font(.caption).foregroundStyle(.secondary)
+            }
+            ModelCapabilitySettingsView(models: appState.models, capability: .fast)
+            ModelCapabilitySettingsView(models: appState.models, capability: .deep)
+            ModelServiceSettingsView(models: appState.models)
+            Section(L10n.text("settings.ai.embedding")) {
+                if let status = appState.models.statuses.first(where: { $0.id == .embedding }) {
+                    LabeledContent(status.title, value: L10n.text(status.ready ? "settings.ai.ready" : "settings.ai.not_ready"))
+                    Text(status.detail).font(.caption).foregroundStyle(.secondary)
                 }
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .formStyle(.grouped)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear(perform: refreshKeyStatus)
-        .onChange(of: appState.selectedAISource?.id) {
-            apiKey = ""
-            isEditingKey = false
-            refreshKeyStatus()
-        }
-        .onChange(of: isEditingKey) { if isEditingKey { appState.invalidateAIConnectionTest() } }
-        .onDisappear { apiKey = "" }
     }
+}
 
-    private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 36, height: 36)
-                .background(Color.accentColor.opacity(0.09), in: RoundedRectangle(cornerRadius: 10))
-                .accessibilityHidden(true)
-            Text(L10n.text("settings.ai.source"))
-                .font(.headline)
-                .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 8)
-            if isAvailable, appState.selectedAISource?.keyURL != nil {
-                ServiceKeyStatus(hasKey: hasAPIKey)
+struct ModelCapabilitySettingsView: View {
+    let models: ModelConfiguration
+    let capability: ModelConfiguration.Capability
+    @State private var messages: [ModelConfiguration.TextModel: String] = [:]
+    @State private var testing: ModelConfiguration.TextModel?
+    @State private var testTask: Task<Void, Never>?
+
+    private var binding: ModelConfiguration.TextBinding { models.binding(capability) }
+    var body: some View {
+        Section(L10n.text(capability == .fast ? "settings.ai.fast" : "settings.ai.deep")) {
+            Picker(L10n.text("settings.ai.primary"), selection: Binding(
+                get: { binding.primary }, set: { selected in
+                    var next = binding
+                    if next.fallback == selected { next.fallback = next.primary }
+                    next.primary = selected
+                    models.setBinding(next, for: capability)
+                })) {
+                choices(includeSaved: binding.primary)
             }
-        }
-    }
-
-    private var sourceChoices: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 10)], spacing: 10) {
-            ForEach(appState.aiSources) { source in
-                Button {
-                    appState.setAISource(source.id)
-                } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(source.title).font(.callout.weight(.semibold))
-                            if let model = fixedModelTitle(source) {
-                                Text(model).font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                        .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
-                        Image(systemName: appState.aiSource == source.id ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(appState.aiSource == source.id ? Color.accentColor : .secondary.opacity(0.35))
-                            .accessibilityHidden(true)
-                    }
-                    .padding(12)
-                    .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-                    .background(appState.aiSource == source.id ? Color.accentColor.opacity(0.06) : .primary.opacity(0.025),
-                                in: RoundedRectangle(cornerRadius: 12))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(appState.aiSource == source.id ? Color.accentColor.opacity(0.45) : .primary.opacity(0.08))
-                    }
-                    .contentShape(RoundedRectangle(cornerRadius: 12))
+            Picker(L10n.text("settings.ai.fallback"), selection: Binding(
+                get: { binding.fallback }, set: { selected in
+                    var next = binding; next.fallback = selected
+                    models.setBinding(next, for: capability)
+                })) {
+                Text(L10n.text("settings.ai.none")).tag(Optional<ModelConfiguration.TextModel>.none)
+                ForEach(models.choices(capability).filter { $0 != binding.primary }, id: \.self) { model in
+                    Text(models.title(model, capability: capability)).tag(Optional(model))
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(L10n.text("settings.ai.provider") + ": " + source.title)
-                .accessibilityAddTraits(appState.aiSource == source.id ? .isSelected : [])
+                if let saved = binding.fallback, !models.choices(capability).contains(saved) {
+                    Text(models.title(saved, capability: capability)).tag(Optional(saved))
+                }
             }
+            Button(L10n.text("settings.ai.swap")) { models.swap(capability) }
+                .disabled(binding.fallback == nil)
+            if let issue = models.bindingIssue { Text(issue).foregroundStyle(.red) }
+            modelStatus(binding.primary, role: "settings.ai.primary")
+            if let fallback = binding.fallback { modelStatus(fallback, role: "settings.ai.fallback") }
+            Text(L10n.text(capability == .fast ? "settings.ai.fast_help" : "settings.ai.deep_help"))
+                .font(.caption).foregroundStyle(.secondary)
         }
-        .disabled(!isAvailable)
-        .opacity(isAvailable ? 1 : 0.5)
+        .onChange(of: models.version(capability)) { invalidate() }
+        .onDisappear { invalidate() }
     }
+    @ViewBuilder private func choices(includeSaved saved: ModelConfiguration.TextModel) -> some View {
+        ForEach(models.choices(capability), id: \.self) { model in
+            Text(models.title(model, capability: capability)).tag(model)
+        }
+        if !models.choices(capability).contains(saved) { Text(models.title(saved, capability: capability)).tag(saved) }
+    }
+    private func modelStatus(_ model: ModelConfiguration.TextModel, role: String) -> some View {
+        let ready = (try? models.configuration(model, capability: capability)) != nil
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(L10n.text(role) + ": " + models.title(model, capability: capability))
+                Spacer()
+                Text(L10n.text(ready ? "settings.ai.ready" : "settings.ai.not_ready"))
+                    .foregroundStyle(.secondary)
+                Button(L10n.text(testing == model ? "settings.connection.testing" : "settings.connection.test")) { test(model) }
+                    .disabled(!ready || testing != nil)
+            }
+            if let message = messages[model] { Text(message).font(.caption).foregroundStyle(.secondary) }
+        }
+    }
+    private func invalidate() { testTask?.cancel(); testTask = nil; testing = nil; messages = [:] }
+    private func test(_ model: ModelConfiguration.TextModel) {
+        let version = models.version(capability)
+        testing = model; messages[model] = nil
+        testTask = Task { @MainActor in
+            let message: String
+            do {
+                let invocation = try ModelTextInvocation.direct(models.configuration(model, capability: capability))
+                var request = invocation.request("Reply with OK.", "This is a connection test. Reply briefly.")
+                request.maximumTokens = 32; request.maximumTokensForThinkingModel = 16_384; request.timeout = 30
+                request.streaming = capability == .deep
+                let frozen = request
+                _ = try await ModelDeadline.run(until: .now.advanced(by: .seconds(30))) {
+                    try await invocation.call(frozen, loggingPurpose: .connectionTest)
+                }
+                message = L10n.text("settings.ai.connection.succeeded_title", models.title(model, capability: capability))
+            } catch { message = error.localizedDescription }
+            guard !Task.isCancelled, version == models.version(capability) else { return }
+            messages[model] = message; testing = nil; testTask = nil
+        }
+    }
+}
 
-    private func modelPicker(_ source: AIProviderPlugin.Source) -> some View {
+struct ModelServiceSettingsView: View {
+    let models: ModelConfiguration
+    var body: some View {
+        Section(L10n.text("settings.ai.services")) {
+            ModelServiceKeyView(models: models, provider: .deepSeek, title: "DeepSeek",
+                                keyURL: URL(string: "https://platform.deepseek.com/api_keys")!)
+            ModelServiceKeyView(models: models, provider: .moonshot, title: "Moonshot",
+                                keyURL: URL(string: "https://platform.moonshot.cn/console/api-keys")!)
+            Text(L10n.text("settings.ai.fallback_privacy")).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct ModelServiceKeyView: View {
+    let models: ModelConfiguration
+    let provider: APIKeyStore.Provider
+    let title: String
+    let keyURL: URL
+    @State private var key = ""
+    @State private var issue: String?
+    @FocusState private var focused: Bool
+    var body: some View {
+        let _ = models.revision
         VStack(alignment: .leading, spacing: 8) {
-            Text(L10n.text("settings.ai.model")).font(.callout.weight(.medium))
-            Menu {
-                Picker(L10n.text("settings.ai.model"), selection: Binding(
-                    get: { appState.aiModel ?? "" }, set: { appState.setAIModel($0) }
-                )) {
-                    ForEach(source.models, id: \.id) { model in
-                        Text(model.title).tag(model.id)
-                    }
-                }
-                .pickerStyle(.inline)
-            } label: {
-                HStack(spacing: 12) {
-                    Text(source.models.first { $0.id == appState.aiModel }?.title ?? L10n.text("settings.ai.model"))
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
-                }
-                .padding(12)
-                .background(.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 12))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 12).strokeBorder(.primary.opacity(0.1))
+            Text(title).font(.headline)
+            ServiceKeyField(accessibilityTitle: title, keyURL: keyURL,
+                hasKey: (try? models.loadKey(provider)) != nil, text: $key, isFocused: $focused, save: save)
+            if (try? models.loadKey(provider)) != nil {
+                Button(L10n.text("settings.key.remove"), role: .destructive) {
+                    do { try models.removeKey(for: provider); issue = nil; key = "" }
+                    catch { issue = error.localizedDescription }
                 }
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .accessibilityLabel(L10n.text("settings.ai.model"))
-            .accessibilityValue(source.models.first { $0.id == appState.aiModel }?.title ?? "")
+            if let issue { Text(issue).foregroundStyle(.red) }
         }
+        .onDisappear { key = "" }
     }
-
-    private func connectionActions(_ source: AIProviderPlugin.Source) -> some View {
-        HStack(spacing: 12) {
-            Button {
-                isEditingKey = false
-                Task { await appState.testAIConnection() }
-            } label: {
-                HStack(spacing: 7) {
-                    if appState.isTestingAIConnection {
-                        ProgressView().controlSize(.mini)
-                    } else {
-                        Image(systemName: "bolt.horizontal")
-                    }
-                    Text(L10n.text(appState.isTestingAIConnection ? "settings.connection.testing" : "settings.connection.test"))
-                }
-            }
-            .buttonStyle(ServiceSettingsButtonStyle())
-            .disabled(appState.isTestingAIConnection || (source.keyURL != nil && (!hasAPIKey || !apiKey.isEmpty)))
-            Spacer(minLength: 0)
-            if source.keyURL != nil, hasAPIKey {
-                Button(L10n.text("settings.key.remove"), role: .destructive, action: removeKey)
-                    .buttonStyle(.plain)
-                    .font(.caption).foregroundStyle(.secondary)
-                    .padding(.vertical, 6)
-            }
-        }
-    }
-
-    private func details(_ source: AIProviderPlugin.Source) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(sourceDetail(source)).fixedSize(horizontal: false, vertical: true)
-            DisclosureGroup(isExpanded: $showsDetails) {
-                VStack(alignment: .leading, spacing: 8) {
-                    if source.keyURL != nil { Text(L10n.text("settings.key.storage_help")) }
-                    Text(L10n.text("settings.ai.connection.help"))
-                }
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 6)
-            } label: {
-                Text(L10n.text("settings.service.details"))
-            }
-        }
-        .font(.caption).foregroundStyle(.secondary)
-    }
-
-    private func fixedModelTitle(_ source: AIProviderPlugin.Source) -> String? {
-        guard source.models.isEmpty else { return nil }
-        switch source.id {
-        case "deepSeek": return "deepseek-flash"
-        case "moonshot": return "kimi-k2"
-        default: return nil
-        }
-    }
-
-    private func sourceDetail(_ source: AIProviderPlugin.Source) -> String {
-        switch source.id {
-        case "deepSeek": L10n.text("settings.ai.detail.deepseek")
-        case "moonshot": L10n.text("settings.ai.detail.moonshot")
-        default: source.detail
-        }
-    }
-
-    private func refreshKeyStatus() {
-        hasAPIKey = false
-        keyIssue = nil
-        guard isAvailable, let hasKey = appState.selectedAISource?.hasKey else { return }
-        do { hasAPIKey = try (checkAPIKey ?? hasKey)() }
-        catch { keyIssue = error.localizedDescription }
-    }
-
-    private func saveKey() {
-        let value = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty, let save = appState.selectedAISource?.saveKey else { return }
-        appState.invalidateAIConnectionTest()
-        do {
-            try save(value)
-            apiKey = ""
-            isEditingKey = false
-            hasAPIKey = true
-            keyIssue = nil
-        } catch { keyIssue = error.localizedDescription }
-    }
-
-    private func removeKey() {
-        guard let remove = appState.selectedAISource?.removeKey else { return }
-        appState.invalidateAIConnectionTest()
-        do {
-            try remove()
-            apiKey = ""
-            isEditingKey = false
-            hasAPIKey = false
-            keyIssue = nil
-        } catch { keyIssue = error.localizedDescription }
+    private func save() {
+        do { try models.saveKey(key, for: provider); key = ""; issue = nil; focused = false }
+        catch { issue = error.localizedDescription }
     }
 }

@@ -1,43 +1,92 @@
-# Launcher UI: fixed action rows
+# 输入流畅度调整开发方案
 
 > Role: **Work**
-> Status: active design brief; current behavior remains authoritative in code and [Architecture](architecture.md).
+> Status: 可用性缓存与输入性能工作仍为开发草案；底栏布局已纳入 Current，真实窗口体验仍待人工验收。
 
-![Fixed two-row concept](../assets/launcher/d2-fixed-two-row-concept.png)
+目标是让快速记录面板在连续输入、中文组词和意图识别更新时保持跟手、位置稳定。底栏布局遵循 Current；剩余工作是减少每次输入的同步工作并验证真实输入体验。本方案收敛原 Launcher UI 草案，供开发与验收使用；当前行为仍以 [Product overview](../product/overview.md) 和 [Architecture](architecture.md) 为准。
 
-## Problem
+## 当前基础与具体差距
 
-The panel's lower area changes height and hierarchy as recognition, preview, fallback, and errors arrive. The selected destination can be visually separated from the Enter action, making the interface feel like a suggestion system rather than a launcher.
+原生 `NSTextView`、组词期间拒绝程序化替换正文、原生光标与独立行距、占位文字立即让位、窗口固定顶边向下增长都已存在。模型识别默认停输 500 ms 后开始，识别中提示再延后 600 ms 显示；这些机制继续保留。
 
-## Target
+| 场景 | 源码中已确认的行为 | 本轮处理 |
+|---|---|---|
+| 自动目标仅由模型命中，用户继续输入 | 旧建议失效；没有显式选择、用户短语或本地规则命中时，回到默认 action，随后可能再切回模型目标 | 保持路由语义，保持目标按钮右侧锚点 |
+| 时间预览出现后继续编辑或开始中文组词 | 旧计划立即失效；摘要与目标入口共享固定底栏 | 遵循 Current 布局，真实窗口体验仍待验收 |
+| 普通正文变化 | `updateInput → refresh → refreshAvailability`；ChatGPT 模块定位到应用后，在主线程读取并解析其 `Info.plist` | 把外部可用性探测移出逐次输入路径 |
+| 正文或编辑区尺寸变化 | 高度测量请求整个文档范围的布局并枚举布局片段 | 先测调用次数与耗时，再消除重复测量 |
 
-Keep a stable two-row action area below the editor:
+以上是代码路径事实。标题切换的实际频率、布局变化的体感和键入延迟仍待实测；`ensureLayout(documentRange)` 也不等于每次完整重排全文，TextKit 可能复用已有布局。
 
-1. **Action row**: icon, selected action title, and the Enter affordance.
-2. **Detail row**: one-line prepared result or destination detail; hidden without leaving an empty row when no detail exists.
+## 底栏布局依据
 
-The editor and action row keep a stable vertical relationship. Recognition or preview updates content in place instead of growing a second card.
+目标按钮、固定 22 pt 底栏、左侧单行时间摘要及详情、空草稿和展示确认规则统一遵循 [Product overview](../product/overview.md#quick-record-panel-appearance)。时间精度及失败反馈见 [当前准备和确认流程](architecture.md)。这里不再定义另一套预览占位规则。
 
-## Interaction
+该布局不改变路由优先级或计划有效性；真实窗口中的输入、焦点、菜单、详情和确认行为仍需与后续性能工作一起验收。
 
-- Enter executes the target currently shown in the action row.
-- Shift+Enter inserts a newline.
-- Option-up/down cycles available actions without a new network request.
-- Clicking the action row opens an explicit candidate list; ordinary recognition does not expand it automatically.
-- The candidate list remains inside the same panel and yields keyboard handling to Chinese input composition first.
-- Errors replace the summary line with a bounded message; details may expand only on deliberate user action.
+## 调整二 减少逐次输入的同步工作
 
-## State rules
+### 缓存供展示使用的应用可用性
 
-- Explicit selection outranks local keywords, which outrank Jev, which outranks the default action.
-- A late preview for an old draft/action is discarded.
-- Image-bearing drafts show only actions that accept images.
-- Pending recognition never blocks immediate execution through the current safe target.
-- Send/search actions never appear as an implicit fallback.
+普通输入读取模块已有的可用性状态；正文变化、组词结束和普通重渲染不重新定位外部应用或读取其元数据。复用现有模块与 registry 的状态边界，避免另建一套持久化缓存。
 
-## Acceptance
+| 时机 | 处理 |
+|---|---|
+| 模块初始化、面板准备展示 | 请求刷新可用性；已有状态可先供展示，未知状态不假定可执行 |
+| 相关配置变化或已知外部应用安装状态变化 | 使相应模块缓存失效并请求刷新；面板再次展示和执行前复核覆盖未收到通知的变化 |
+| 输入、组词、识别响应或显示刷新 | 只消费当前缓存；不发起外部探测 |
+| 用户确认及外部 action 实际执行前 | 保留现有实时可用性和兼容性复核；失效时保留草稿并报告问题，不静默执行另一个目标 |
 
-- Typing, recognition, preview completion, and error display do not move the editor vertically.
-- The displayed action always matches what Enter will execute.
-- Rapid typing and repeated Enter produce at most one submission.
-- Candidate selection, input-method composition, focus return, light/dark appearance, and narrow-screen placement are checked in the packaged app.
+为“重算显示”和“请求外部探测”区分触发原因。不能直接把探测移到通用 `.refreshConfiguration`：当前 `PanelController` 在组词结束同步后也会发送该事件，registry 自身变化也可能触发它。
+
+需要 AppKit 的定位调用遵守其线程要求；独立文件读取和解析移出输入主线程。按模块合并重复请求，并以 generation、模块实例和配置身份校验异步结果。旧任务的迟到结果不能覆盖新状态；只有可用性实际变化才通知 registry，避免通知回环。后台完成不重新打开面板或恢复过期草稿状态。
+
+### 用测量决定排版优化范围
+
+先记录 `didChangeText`、会话输入刷新和 `reportContentHeight` 的分段耗时与每次编辑触发次数，并区分正文变化、宽度变化和重复上报。优先合并同一次编辑的重复高度测量，减少尺寸未变化时的重复上报。
+
+保留 TextKit 对折行、尾部空行、emoji 和组合字符末行边界的处理。仅在测量证明必要时改变遍历或布局范围；优化后仍须保证光标可见、选区正确和末行不裁切。不要为了等待测量而延迟文字写入、输入法处理或原生光标更新。
+
+应用候选的去重、名称规范化和 ID 计算可作为后续计时点；只有其占比值得优化时，才按应用目录版本缓存。使用频次变化仍须参与排序。本轮不预先重写候选搜索或路由模块。
+
+## 开发顺序与完成条件
+
+1. **建立基线。** 核对当前源码与已有改动，记录固定样本下的分段耗时、调用次数和辅助区域几何。结束条件是能区分哪些开销已测量、哪些只有源码假设。
+2. **核对 Current 布局。** 以 Current 的固定底栏为性能测量基线；确认正文、宽度不变时辅助内容不改高，目标右侧锚点稳定，展示目标与确认目标一致。
+3. **移出外部探测。** 分离展示刷新与可用性探测，保留确认和执行前复核。结束条件是连续输入不触发应用定位或 plist 读取，应用被移除或替换后仍不能沿用旧状态执行。
+4. **按基线优化并验证。** 必要时合并排版测量，运行受影响的现有检查，比较同条件数据。结束条件是能够提供前后结果，且输入、时间计划和失败恢复没有回归；未测实机体验单独列为待验收。
+
+## 验收
+
+### 显示与执行
+
+| 用例 | 通过条件 |
+|---|---|
+| 模型单独命中 Calendar，继续输入，再返回模型结果 | 名称始终反映当前路由；按钮右边缘、Return 和显式标记位置不随名称长度变化；旧模型结果被丢弃 |
+| 已有时间预览后进入中文组词，再提交组词 | 旧计划立即不可用，底栏高度保持；空白不承认计划已展示；候选窗和按键交给输入法 |
+| 同一底栏先后展示单行摘要、单行问题、空白和新摘要 | 底栏及间距恒定；正文、窗口宽度不变时不因这些内容替换而改高 |
+| 360 pt 与 560 pt 宽、自动与手动高度、长文滚动 | 按钮可操作、状态合理截断、末行可滚入视野；窗口遵守屏幕边界，保留选区和焦点 |
+| 清空、撤销清空、隐藏重开、接受提交及失败恢复 | 底栏遵循 Current 的固定高度，旧内容及时清空；过期草稿、旧时间计划和旧展示回执不复活 |
+
+### 可用性与性能
+
+1. 在面板已准备完成后连续输入 100 次，应用定位及 plist 读取因普通输入新增的调用数为 0；确认执行和明确的外部失效事件单独计数。无密钥、识别失败和离线不阻断当前可用默认 action。
+2. 用现有隔离验证入口或临时本地检查覆盖应用被移除、替换、不兼容，以及异步探测先后乱序。执行前重新复核；失败保留正文，迟到结果不覆盖新状态、不改变已经隐藏的面板。
+3. 在相同设备、release 构建、560 pt 与 360 pt 宽度下，分别测量约 100、1,000、10,000 字符的固定中英文混排样本；长段落与多行样本分开。每组预热后采集至少 200 次编辑，以插入删除交替保持样本长度近似固定，重复 3 轮，记录中位数、P95、最大值和调用次数。冷启动另记，大段粘贴单独测量。
+4. 一次原生编辑回调从进入到返回的主线程同步处理总耗时，以 P95 不超过 5 ms 为本轮工程目标；包含同步会话刷新和高度测量，嵌套区间不重复计数，分段只用于定位开销。排队后的主线程回调另记耗时、等待时间和来源编辑版本，合并多次编辑的回调按独立批次统计。不能只把开销推迟到同一主线程就宣称改善，也不能延后显示正文来达标。5 ms 是拟定目标，不是已测结果或按键到屏幕总延迟；前后对比须使用相同边界，保留样本长度和构建信息。
+5. 按 [AGENTS.md](../../AGENTS.md) 运行 `swift build` 和受影响的现有测试，不新增测试。离屏测量不能替代真实输入法、焦点或首字上屏验收；真实窗口检查由人工完成，自动启动或驱动安装版需用户明确要求。数据和验证回执留在任务交接或提交中。
+
+人工检查用同一段混排文字依次完成：面板唤起后立即输入、中文选词、连续删除、Shift+Enter、自动折行、粘贴和撤销。观察首字、候选窗、光标、底栏和滚动位置；没有这项结果时，只能报告代码与隔离检查完成。
+
+## 范围与文档收尾
+
+保留现有原生编辑器、字体与行距、纯文字草稿、路由优先级、显式选择生命周期、识别防抖、提交确认和失败恢复规则。正文及光标不增加动画；不引入富文本、图片草稿、持久化草稿或新的动效选项。已有 [光标对齐方案](editor-cursor-alignment.md) 继续负责其独立验收与交付，本方案不重复实施该修复。
+
+| 实现入口 | 本轮关注 |
+|---|---|
+| [EditorView.swift](../../Sources/Features/Editor/EditorView.swift)、[ActionPlanResultRow.swift](../../Sources/Features/Editor/ActionPlanResultRow.swift) | Current 底栏布局、TextKit 高度测量与真实展示回执 |
+| [LauncherSession.swift](../../Sources/Features/Launcher/LauncherSession.swift)、[IntentRecognition.swift](../../Sources/Features/Launcher/IntentRecognition.swift) | 输入刷新原因、路由有效性、计划失效和草稿生命周期 |
+| [ActionRegistry.swift](../../Sources/Actions/ActionRegistry.swift)、`ChatGPTAction.swift`（已退休）、`ChromeAction.swift`（已退休） | 可用性缓存、异步探测与执行前复核 |
+| [PanelController.swift](../../Sources/Window/PanelController.swift)、[RecordPanel.swift](../../Sources/Window/RecordPanel.swift)、[LauncherMetrics.swift](../../Sources/Window/LauncherMetrics.swift) | 展示与组词事件、几何上报、固定尺寸预算 |
+
+实现完成后，将实际行为合并到 [Product overview](../product/overview.md)、[Architecture](architecture.md) 及受影响的 [current routing](../product/overview.md)，再删除本 Work 文档和索引项。实现和安装状态分别报告；本次文档编写不包含代码修改、应用更新或任务派发。

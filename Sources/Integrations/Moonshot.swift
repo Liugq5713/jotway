@@ -1,13 +1,23 @@
 import Foundation
 
-/// Kimi（Moonshot）是 `OpenAICompatible` 的薄配置，无服务商专有请求字段。
+/// Fixed official Kimi Code services; thinking uses the caller's separate total budget.
 enum Moonshot {
-    static func source() -> AIProviderPlugin.Source {
+    static let modelID = "kimi-k2.7-code"
+    static let fastModelID = "kimi-k2.7-code-highspeed"
+    static func source(readKey: (@MainActor @Sendable () throws -> String?)? = nil) -> AIProviderPlugin.Source {
+        source(model: modelID, title: "Kimi Code", readKey: readKey)
+    }
+    static func fastSource(readKey: (@MainActor @Sendable () throws -> String?)? = nil) -> AIProviderPlugin.Source {
+        source(model: fastModelID, title: "Kimi Code Highspeed", readKey: readKey)
+    }
+    private static func source(model: String, title: String,
+                               readKey: (@MainActor @Sendable () throws -> String?)?) -> AIProviderPlugin.Source {
         OpenAICompatible.source(.init(
-            id: "moonshot", title: "Kimi", brand: "Kimi", providerKey: .moonshot,
+            id: "moonshot", title: title, brand: "Kimi", providerKey: .moonshot,
             baseURL: URL(string: "https://api.moonshot.cn/v1/chat/completions")!,
-            modelID: "kimi-k2-0905-preview", displayPrefix: "moonshot",
+            modelID: model, displayPrefix: "moonshot",
             keyURL: URL(string: "https://platform.moonshot.cn/console/api-keys")!,
-            detail: "Model: kimi-k2. Record text and related context are sent to Kimi (Moonshot); charges are billed to your Moonshot account."))
+            detail: "Thinking and output share the token budget. Input is sent to Moonshot and billed to your Moonshot account.",
+            thinking: true), readKey: readKey)
     }
 }

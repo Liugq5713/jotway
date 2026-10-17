@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ServiceKeyField: View {
     let accessibilityTitle: String
-    let keyURL: URL
+    let keyURL: URL?
     let hasKey: Bool
     @Binding var text: String
     var isFocused: FocusState<Bool>.Binding
@@ -14,7 +14,7 @@ struct ServiceKeyField: View {
                 Text(L10n.text("settings.key.section"))
                     .font(.callout.weight(.medium))
                 Spacer(minLength: 8)
-                Link(destination: keyURL) {
+                if let keyURL { Link(destination: keyURL) {
                     HStack(spacing: 4) {
                         Text(L10n.text("settings.key.get_short"))
                         Image(systemName: "arrow.up.right").font(.system(size: 9, weight: .semibold))
@@ -22,7 +22,7 @@ struct ServiceKeyField: View {
                     .font(.caption)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.accentColor) }
             }
             HStack(spacing: 10) {
                 Image(systemName: "key.horizontal")

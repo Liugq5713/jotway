@@ -43,7 +43,7 @@ struct ActionSettingsView: View {
             selectedActionID = nil
             notice = L10n.text("actions.removed_notice")
         }
-        .onAppear { configuration.registry.refreshAvailability() }
+        .onAppear { configuration.registry.requestAvailabilityRefresh() }
     }
 
     private var entries: [ActionSettingsEntry] { configuration.registry.settingsEntries() }
@@ -107,6 +107,7 @@ struct ActionSettingsView: View {
 
 struct AppleNotesSettingsView: View {
     let module: AppleNotesModule
+    @State private var showsGroupingKey = false
 
     var body: some View {
         // The editable preferences live in UserDefaults; the module revision drives their UI refresh.
@@ -117,6 +118,26 @@ struct AppleNotesSettingsView: View {
                 defaultLocation: L10n.text("action.notes.default_location"), privacyPane: "Automation",
                 name: { $0.name }, authorize: { try await module.authorizeAndSetDefaultDestination() },
                 load: { try await module.loadDestinations() }, save: { try module.setDestination($0) })
+            Section(L10n.text("notes.title.heading")) {
+                Text(L10n.text("notes.title.help"))
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(module.hasGroupingConfiguration ? L10n.text("notes.grouping.configured")
+                    : L10n.text("notes.title.unconfigured"))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section(L10n.text("notes.grouping.title")) {
+                Toggle(L10n.text("notes.grouping.toggle"), isOn: Binding(
+                    get: { module.isDailyGroupingEnabled }, set: { module.setDailyGroupingEnabled($0) }))
+                    .accessibilityIdentifier("notes-daily-grouping-toggle")
+                Text(L10n.text("notes.grouping.help"))
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Text(module.hasGroupingConfiguration ? L10n.text("notes.grouping.configured")
+                        : L10n.text("notes.grouping.unconfigured"))
+                    Spacer()
+                    Button(L10n.text("notes.grouping.configure")) { showsGroupingKey = true }
+                }
+            }
             Section(L10n.text("action.notes.ai_supplements")) {
                 settingRow(L10n.text("action.notes.supplement_help")) {
                     Toggle(L10n.text("action.notes.supplement_toggle"), isOn: Binding(
@@ -141,86 +162,34 @@ struct AppleNotesSettingsView: View {
                     }
                 }
             }
+            NotesHistorySettingsView(history: module.history)
+            Section(L10n.text("notes.review.title")) {
+                Toggle(L10n.text("notes.review.enable"),
+                       isOn: Binding(get: { module.isReviewEnabled }, set: { module.setReviewEnabled($0) }))
+                Text(L10n.text("notes.review.enable.help")).font(.caption).foregroundStyle(.secondary)
+            }
             Section(L10n.text("action.notes.tags")) {
-                settingRow(L10n.text("action.notes.fixed_tag_help")) {
-                    TextField(L10n.text("action.notes.fixed_tag"), text: Binding(
-                        get: { module.notesTag }, set: { module.setNotesTag($0) }))
-                        .accessibilityIdentifier("notes-fixed-tag")
-                }
-                settingRow(module.isAISupplementEnabled ? L10n.text("action.notes.ai_tags_help")
-                                                        : L10n.text("action.notes.ai_tags_requires_supplements")) {
-                    Toggle(L10n.text("action.notes.ai_tags"), isOn: Binding(
-                        get: { module.isAITagsEnabled }, set: { module.setAITagsEnabled($0) }))
-                        .disabled(!module.isAISupplementEnabled)
-                        .accessibilityIdentifier("notes-ai-tags-toggle")
-                }
+                Text(L10n.text("action.notes.tags_paused"))
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
+        .sheet(isPresented: $showsGroupingKey) { NotesGroupingKeyView(module: module) }
     }
 }
 
-struct AppleRemindersSettingsView: View {
-    let module: AppleRemindersModule
+private struct NotesGroupingKeyView: View {
+    let module: AppleNotesModule
+    @Environment(\.dismiss) private var dismiss
     var body: some View {
-        Form {
-            StorageDestinationSection(destination: module.destination, failure: module.repairFailure,
-                label: L10n.text("action.reminders.destination_label"),
-                defaultLocation: L10n.text("action.reminders.default_location"), privacyPane: "Reminders",
-                name: { $0.name }, authorize: { try await module.authorizeAndSetDefaultDestination() },
-                load: { try await module.loadDestinations() }, save: { try module.setDestination($0) })
-            Section(L10n.text("action.settings.time_rules")) {
-                Text(L10n.text("action.reminders.time_help"))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            Section(L10n.text("action.settings.ai_rewrite")) {
-                settingRow(L10n.text("action.reminders.rewrite_help")) {
-                    Toggle(L10n.text("action.settings.rewrite_toggle"), isOn: Binding(
-                        get: { module.isAIRewriteEnabled }, set: { module.setAIRewriteEnabled($0) }))
-                        .accessibilityIdentifier("ai-rewrite-toggle-\(module.descriptor.id)")
-                }
-                if module.isAIRewriteEnabled {
-                    InstructionEditor(title: L10n.text("action.settings.rewrite_style"), saved: module.rewritePrompt,
-                        defaultValue: AITextProcessor.localizedDefaultStyle,
-                        explanation: L10n.text("action.settings.rewrite_time_help"),
-                        onSave: { module.setRewritePrompt($0) })
-                }
-            }
-        }
-        .formStyle(.grouped)
-    }
-}
-
-struct AppleCalendarSettingsView: View {
-    let module: AppleCalendarModule
-    var body: some View {
-        Form {
-            StorageDestinationSection(destination: module.destination, failure: module.repairFailure,
-                label: L10n.text("action.calendar.destination_label"),
-                defaultLocation: L10n.text("action.calendar.default_location"), privacyPane: "Calendars",
-                name: { $0.name }, authorize: { try await module.authorizeAndSetDefaultDestination() },
-                load: { try await module.loadDestinations() }, save: { try module.setDestination($0) })
-            Section(L10n.text("action.settings.time_rules")) {
-                Text(L10n.text("action.calendar.time_help"))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            Section(L10n.text("action.settings.ai_rewrite")) {
-                settingRow(L10n.text("action.calendar.rewrite_help")) {
-                    Toggle(L10n.text("action.settings.rewrite_toggle"), isOn: Binding(
-                        get: { module.isAIRewriteEnabled }, set: { module.setAIRewriteEnabled($0) }))
-                        .accessibilityIdentifier("ai-rewrite-toggle-\(module.descriptor.id)")
-                }
-                if module.isAIRewriteEnabled {
-                    InstructionEditor(title: L10n.text("action.settings.rewrite_style"), saved: module.rewritePrompt,
-                        defaultValue: AITextProcessor.localizedDefaultStyle,
-                        explanation: L10n.text("action.settings.rewrite_time_help"),
-                        onSave: { module.setRewritePrompt($0) })
-                }
-            }
-        }
-        .formStyle(.grouped)
+        VStack {
+            Form {
+                ModelCapabilitySettingsView(models: module.models, capability: .fast)
+                ModelServiceSettingsView(models: module.models)
+            }.formStyle(.grouped)
+            HStack { Spacer(); Button(L10n.text("common.done")) { dismiss() }.keyboardShortcut(.cancelAction) }
+                .padding()
+        }.frame(width: 640, height: 560)
     }
 }
 

@@ -6,10 +6,21 @@ import SwiftUI
 @MainActor
 final class PanelController: NSObject, NSWindowDelegate {
     private let appState: AppState
-    private let pasteboard: NSPasteboard
+    private let clipboard: ClipboardService
+    private var sourcePreparation: Task<Void, Never>?
+    private var sourcePreparationID = UUID()
+    private let selectedTextReader: SelectedTextReader
+    private let selectionSource: @MainActor () -> SelectionSource?
+    private var selectionAdoptions = SelectionAdoptions()
+    private var deferredSelection: SelectedText?
+    private var deferredSelectionNotice = false
+    private var deferredQuote: String?
+    private var hasDeferredQuote = false
     private let openApplication: @MainActor (URL, NSWorkspace.OpenConfiguration, @escaping @MainActor (Result<NSRunningApplication, Error>) -> Void) -> Void
     private let presentActionSetup: @MainActor (NSWindow) -> Void
     private var recordPanel: RecordPanel?
+    private var completionNoticePanel: CompletionNoticePanel?
+    private var completionNoticeID = UUID()
     private(set) var welcomeWindow: NSPanel?
     private(set) var actionSetupWindow: NSWindow?
     private var actionSetupRequest: ActionSetupRequest?
@@ -19,6 +30,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     private let editorFocusTarget: EditorFocusTarget
     private var hotkeyInstalled = false
     private var workspaceObserver: NSObjectProtocol?
+    private var availabilityObservers: [NSObjectProtocol] = []
     private var intentObservers: [NSObjectProtocol] = []
     private var pendingGettingStarted: (() -> Void)?
     private var preservesEditorAfterGettingStarted = false
@@ -28,7 +40,9 @@ final class PanelController: NSObject, NSWindowDelegate {
     init(
         appState: AppState,
         session: LauncherSession,
-        pasteboard: NSPasteboard = .general,
+        pasteboard: NSPasteboard? = nil,
+        selectedTextReader: SelectedTextReader = SelectedTextReader(),
+        selectionSource: @escaping @MainActor () -> SelectionSource? = { SelectionSource.frontmost },
         openApplication: @escaping @MainActor (URL, NSWorkspace.OpenConfiguration, @escaping @MainActor (Result<NSRunningApplication, Error>) -> Void) -> Void
             = PanelController.openSystemApplication,
         presentActionSetup: @escaping @MainActor (NSWindow) -> Void = {
@@ -38,31 +52,55 @@ final class PanelController: NSObject, NSWindowDelegate {
     ) {
         self.appState = appState
         self.session = session
+        self.selectedTextReader = selectedTextReader
+        self.selectionSource = selectionSource
         self.editorFocusTarget = EditorFocusTarget()
-        self.pasteboard = pasteboard
+        clipboard = pasteboard.map { ClipboardService(pasteboard: $0, sourceSettings: appState.browserSource) } ?? appState.clipboard
         self.openApplication = openApplication
         self.presentActionSetup = presentActionSetup
-        lastObservedPasteboardChangeCount = pasteboard.changeCount
         super.init()
         session.handleEffect = { [weak self] effect in self?.handleSessionEffect(effect) ?? false }
-        for name in [JevSettings.didChangeNotification, ActionRegistry.didChangeNotification] {
+        for name in [ActionRegistry.didChangeNotification] {
             intentObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak session] _ in
                 MainActor.assumeIsolated { session?.send(.refreshConfiguration) }
             })
         }
-        for name in [Notification.Name.NSSystemTimeZoneDidChange, Notification.Name.NSSystemClockDidChange] {
-            intentObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak session] _ in
-                MainActor.assumeIsolated { session?.send(.timeContextChanged) }
+        intentObservers.append(NotificationCenter.default.addObserver(
+            forName: TemplateConfiguration.didChangeNotification, object: appState.templateConfiguration,
+            queue: .main) { [weak session] _ in
+                MainActor.assumeIsolated { session?.send(.refreshTemplates) }
             })
-        }
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
-        ) { [weak appState] notification in
+        ) { [weak self, weak appState] notification in
             guard let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
                   application.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
-            MainActor.assumeIsolated { appState?.shortcutTrialLeftJotway() }
+            MainActor.assumeIsolated {
+                appState?.shortcutTrialLeftJotway()
+                self?.cancelSourcePreparation()
+            }
         }
-        startPasteboardMonitor()
+        // Launch/termination and volume changes are known external invalidations. Missed
+        // installation changes are covered on presentation and again on confirmation.
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification,
+                     NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
+            availabilityObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak session] _ in
+                MainActor.assumeIsolated { session?.send(.externalAvailabilityChanged) }
+            })
+        }
+        for name in [NSApplication.didBecomeActiveNotification, NSNotification.Name.NSCalendarDayChanged,
+                     NSNotification.Name.NSSystemClockDidChange, NSNotification.Name.NSSystemTimeZoneDidChange] {
+            intentObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak session] _ in
+                MainActor.assumeIsolated { session?.send(.recentDocumentDateChanged) }
+            })
+        }
+        availabilityObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak session] _ in
+                MainActor.assumeIsolated { session?.send(.recentDocumentDateChanged) }
+            })
+        clipboard.start()
     }
 
     private func synchronizeEditorInput() {
@@ -73,13 +111,17 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     private func sendLauncherEvent(_ event: LauncherEvent) {
+        if sourcePreparation != nil {
+            switch event {
+            case .inputChanged, .cancel, .confirm, .panelDismissed, .compositionChanged, .toggleMode: cancelSourcePreparation()
+            default: break
+            }
+        }
         switch event {
-        case .planPresented:
-            guard !isHidingPanel, let panel = recordPanel, panel.isVisible,
-                  panel.occlusionState.contains(.visible) else { return }
         case .inputChanged:
             appState.cancelRecordShortcutTrial()
-        case .confirm, .preserveDraft, .toggleTargetMenu, .selectTarget, .useAutomatic, .cycleTarget:
+        case .confirm, .preserveDraft, .toggleTargetMenu, .selectTarget, .useAutomatic, .cycleTarget,
+             .selectTemplate, .dismissTemplateMenu, .toggleMode, .requestThinkingPrompt, .closeThinkingPrompt, .thinkingSettingsOpened:
             synchronizeEditorInput()
         case .cancel:
             guard !isHidingPanel else { return }
@@ -114,10 +156,29 @@ final class PanelController: NSObject, NSWindowDelegate {
     @discardableResult
     private func handleSessionEffect(_ effect: LauncherEffect) -> Bool {
         switch effect {
+        case .changeMode(let mode):
+            guard !isHidingPanel, editorFocusTarget.textView?.hasMarkedText() != true else { return false }
+            cancelSourcePreparation()
+            return recordPanel?.changeMode(to: mode) ?? false
         case .replaceEditor(let content, let reason):
             guard let editor = editorFocusTarget.textView as? EditorTextView else { return true }
-            return editor.setPlainText(content, reason: reason == .newDraft ? .newDraft : .restoreDraft)
-        case .prepareSubmission: recordPanel?.prepareSubmissionAnimation()
+            let editorReason: EditorTextView.ReplacementReason = switch reason {
+            case .newDraft: .newDraft
+            case .restoreDraft: .restoreDraft
+            }
+            return editor.setPlainText(content, reason: editorReason)
+        case .insertTemplate(let expansion, let expected):
+            guard !isHidingPanel, session.draft.id == expected.draftID, session.draftRevision == expected.revision,
+                  session.state.mode == .quickInput, !session.state.isAcceptingSubmission,
+                  !session.state.isConfiguringAction, !session.state.isComposingText,
+                  let editor = editorFocusTarget.textView as? EditorTextView,
+                  editor.string == session.draft.content else { return false }
+            return editor.insertTemplate(expansion)
+        case .endTemplateEditing:
+            (editorFocusTarget.textView as? EditorTextView)?.endTemplateEditing()
+        case .prepareSubmission:
+            (editorFocusTarget.textView as? EditorTextView)?.endTemplateEditing()
+            recordPanel?.prepareSubmissionAnimation()
         case .cancelSubmission: recordPanel?.cancelSubmissionAnimation()
         case .hidePanel(let submitted, let policy):
             hideRecordPanel(submitted: submitted, keepingExternalFocus: policy == .keepDestinationFrontmost)
@@ -130,6 +191,21 @@ final class PanelController: NSObject, NSWindowDelegate {
         case .showActionSetup(let request): showActionSetup(request)
         case .closeActionSetup(let id): closeActionSetup(id)
         case .restoreEditorAfterSetup: restoreEditorAfterActionSetup()
+        case .restoreEditorAfterRecentDocumentRemoval: editorFocusTarget.restoreEditorIfRecentDocumentFocused()
+        case .showCompletionNotice(let message, let destination):
+            guard appState.completionNotificationsEnabled else { return true }
+            if completionNoticePanel == nil { completionNoticePanel = CompletionNoticePanel() }
+            let noticeID = UUID()
+            completionNoticeID = noticeID
+            var onOpen: (@MainActor () -> Void)?
+            var openHint = L10n.text("completion.open_app")
+            if let destination {
+                onOpen = { [weak self] in
+                    self?.openCompletionDestination(destination, noticeID: noticeID)
+                }
+                if case .url = destination { openHint = L10n.text("completion.open_result") }
+            }
+            completionNoticePanel?.show(message: message, onOpen: onOpen, openHint: openHint)
         case .openApplication(let url, let dispatched, let completion):
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.activates = true
@@ -142,7 +218,40 @@ final class PanelController: NSObject, NSWindowDelegate {
         return true
     }
 
+    private func openCompletionDestination(_ destination: ActionCompletionDestination, noticeID: UUID) {
+        guard noticeID == completionNoticeID else { return }
+        switch destination {
+        case .application(let bundleIdentifier):
+            openCompletionApplication(bundleIdentifier: bundleIdentifier, noticeID: noticeID)
+        case .url(let url, let fallback):
+            if !NSWorkspace.shared.open(url), !NSWorkspace.shared.open(fallback) {
+                showCompletionOpenFailure(noticeID: noticeID)
+            }
+        }
+    }
+
+    private func openCompletionApplication(bundleIdentifier: String, noticeID: UUID) {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) else {
+            showCompletionOpenFailure(noticeID: noticeID)
+            return
+        }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        configuration.createsNewApplicationInstance = false
+        configuration.allowsRunningApplicationSubstitution = false
+        configuration.promptsUserIfNeeded = false
+        openApplication(url, configuration) { [weak self] result in
+            if case .failure = result { self?.showCompletionOpenFailure(noticeID: noticeID) }
+        }
+    }
+
+    private func showCompletionOpenFailure(noticeID: UUID) {
+        guard noticeID == completionNoticeID, appState.completionNotificationsEnabled else { return }
+        completionNoticePanel?.show(message: L10n.text("completion.open_failed"), isError: true)
+    }
+
     isolated deinit {
+        completionNoticePanel?.dismiss()
         actionSetupRequest?.snapshot.setup.invalidate()
         actionSetupWindow?.delegate = nil
         (actionSetupWindow?.contentView as? ActionSetupHostingView)?.onPreferredSizeChange = nil
@@ -151,7 +260,8 @@ final class PanelController: NSObject, NSWindowDelegate {
         }
         actionSetupWindow?.contentView = nil
         actionSetupWindow?.close()
-        pasteboardMonitor?.invalidate()
+        sourcePreparation?.cancel()
+        for observer in availabilityObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         if let workspaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(workspaceObserver) }
         for observer in intentObservers { NotificationCenter.default.removeObserver(observer) }
     }
@@ -173,9 +283,15 @@ final class PanelController: NSObject, NSWindowDelegate {
         let shortcut = KeyboardShortcuts.getShortcut(for: .recordNote)
         let external = !NSApp.isActive && recordPanel?.isKeyWindow != true
         if appState.canCompleteShortcutTrial(shortcut: shortcut, fromExternalApplication: external) {
-            showRecordPanel()
-            appState.completeRecordShortcutTrial(shortcut: shortcut, fromExternalApplication: external,
-                presented: recordPanel?.isVisible == true && recordPanel?.isKeyWindow == true)
+            showRecordPanel { [weak self] in
+                guard let self else { return }
+                self.appState.completeRecordShortcutTrial(shortcut: shortcut, fromExternalApplication: external,
+                    presented: self.recordPanel?.isVisible == true && self.recordPanel?.isKeyWindow == true)
+            }
+        } else if recordPanel?.isVisible != true, welcomeWindow?.isVisible != true,
+                  let source = selectionSource(),
+                  beginSourcePreparation(selectionSource: source, resume: { [weak self] in self?.showRecordPanel() }) {
+            return
         } else {
             toggleRecordPanel()
         }
@@ -236,19 +352,22 @@ final class PanelController: NSObject, NSWindowDelegate {
         }
     }
 
-    func showRecordPanel() {
+    func showRecordPanel(onPresented: (@MainActor () -> Void)? = nil) {
         if focusActionSetupIfNeeded() { return }
         if welcomeWindow?.isVisible == true {
-            startRecordingFromWelcome()
+            startRecordingFromWelcome(onPresented: onPresented)
             return
         }
         if preservesEditorAfterGettingStarted, session.state.hasPreparedDraft {
             showRecordFromGettingStarted()
+            onPresented?()
             return
         }
+        if beginSourcePreparation(resume: { [weak self] in self?.showRecordPanel(onPresented: onPresented) }) { return }
         guard let panel = prepareRecordPanel() else { return }
         closeGettingStarted(cancelShortcutTrial: false)
         panel.showPanel()
+        onPresented?()
     }
 
     /// 主动打开不使用热键的 toggle，也不以首次提示标记决定是否显示工作窗口。
@@ -256,6 +375,9 @@ final class PanelController: NSObject, NSWindowDelegate {
         if focusActionSetupIfNeeded() { return }
         // 在恢复草稿/追加新剪贴板引用之前判断，刚准备的新编辑区仍需正常显示并聚焦。
         let preservesEditor = recordPanel?.isVisible == true || shouldPreserveRecordEditor || preservesEditorAfterGettingStarted
+        if !atLaunch, !preservesEditor, !appState.needsFirstUsePresentation,
+           !NSApp.orderedWindows.contains(where: { $0.isVisible && $0.canBecomeKey && $0.styleMask.contains(.titled) }),
+           beginSourcePreparation(resume: { [weak self] in self?.showWorkWindow(atLaunch: atLaunch) }) { return }
         guard let window = prepareWorkWindow(atLaunch: atLaunch) else { return }
         if let panel = window as? RecordPanel {
             closeGettingStarted(cancelShortcutTrial: false)
@@ -348,13 +470,15 @@ final class PanelController: NSObject, NSWindowDelegate {
         return prepareRecordPanel()
     }
 
-    private func startRecordingFromWelcome() {
+    private func startRecordingFromWelcome(onPresented: (@MainActor () -> Void)? = nil) {
+        if beginSourcePreparation(resume: { [weak self] in self?.startRecordingFromWelcome(onPresented: onPresented) }) { return }
         guard let panel = prepareRecordFromWelcome() else { return }
         if preservesEditorAfterGettingStarted {
             showRecordFromGettingStarted()
         } else {
             panel.showPanel()
         }
+        onPresented?()
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -484,6 +608,13 @@ final class PanelController: NSObject, NSWindowDelegate {
     func prepareRecordPanel() -> RecordPanel? {
         guard !focusActionSetupIfNeeded() else { return nil }
         guard editorFocusTarget.textView?.hasMarkedText() != true else { return nil }
+        if session.state.mode == .sticky, let panel = recordPanel {
+            synchronizeEditorInput()
+            session.resumePresentation()
+            panel.cancelSubmissionAnimation()
+            isHidingPanel = false
+            return panel
+        }
         editorFocusTarget.preserveSelectionOnNextFocus = false
         if preservesEditorAfterGettingStarted, session.state.hasPreparedDraft, let panel = recordPanel { return panel }
         if let panel = recordPanel, panel.isVisible, !isHidingPanel {
@@ -494,7 +625,22 @@ final class PanelController: NSObject, NSWindowDelegate {
         guard session.state.lastEventSucceeded else { return nil }
         recordPanel?.cancelSubmissionAnimation()
         isHidingPanel = false
-        return makeRecordPanel()
+        let panel = makeRecordPanel()
+        if let selection = deferredSelection {
+            deferredSelection = nil
+            panel.contentView?.layoutSubtreeIfNeeded()
+            if let editor = editorFocusTarget.textView as? EditorTextView,
+               editor.insertCapturedQuotation(selection.quotation) {
+                selectionAdoptions.record(selection, draftID: session.draft.id)
+            }
+        }
+        if deferredSelectionNotice {
+            deferredSelectionNotice = false
+            if let notice = SelectedTextPermission.shared.takeNotice(existingMessage: session.state.message) {
+                session.send(.selectedTextPermissionNotice(notice))
+            }
+        }
+        return panel
     }
 
     /// 只预建隐藏视图；不得恢复、消费或写回真实草稿。
@@ -550,49 +696,79 @@ final class PanelController: NSObject, NSWindowDelegate {
         }
     }
 
-    private var lastObservedPasteboardChangeCount: Int
-    private var lastPasteboardCheckAt = Date()
-    private var pasteboardChangedAt: Date?
+    func observePasteboardChange(at date: Date = Date()) { clipboard.observe(at: date) }
 
-    /// 后台只记录变化次数和发现时间；唤起面板之前不读取剪贴板文字。
-    func observePasteboardChange(at date: Date = Date()) {
-        defer { lastPasteboardCheckAt = date }
-        let changeCount = pasteboard.changeCount
-        guard changeCount != lastObservedPasteboardChangeCount else { return }
-        lastObservedPasteboardChangeCount = changeCount
-        // 用上次检查作为保守起点，发现延迟不能延长引用时限；长停顿或时间倒退时跳过。
-        pasteboardChangedAt = (0...1).contains(date.timeIntervalSince(lastPasteboardCheckAt)) ? lastPasteboardCheckAt : nil
-    }
-
-    /// 每次复制最多引用一次。打开时补查一次，覆盖复制后尚未到下个轮询 tick 的情况。
     func consumeRecentPasteboardQuote(at date: Date = Date()) -> String? {
-        observePasteboardChange(at: date)
-        defer { pasteboardChangedAt = nil }
-        guard !session.state.isOpeningApplication,
-              let changedAt = pasteboardChangedAt,
-              (0...1).contains(date.timeIntervalSince(changedAt)) else { return nil }
-        guard pasteboard.types?.contains(.string) == true,
-              let text = pasteboard.string(forType: .string),
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return text.trimmingCharacters(in: .newlines)
-            .split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
-            .map { "> \($0)" }
-            .joined(separator: "\n") + "\n\n"
+        guard session.state.mode == .quickInput else { return nil }
+        if hasDeferredQuote {
+            defer { hasDeferredQuote = false; deferredQuote = nil }
+            return deferredQuote
+        }
+        guard !session.state.isOpeningApplication, let claim = clipboard.claimQuote(at: date) else { return nil }
+        return clipboard.finishQuote(claim)
     }
 
-    private var pasteboardMonitor: Timer?
-
-    /// 常驻只观察 changeCount 以判断文字新鲜度，不提前读取剪贴板内容。
-    private func startPasteboardMonitor() {
-        guard pasteboardMonitor == nil else { return }
-        let timer = Timer(timeInterval: 0.3, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.observePasteboardChange()
+    /// Real presentation can wait briefly; synchronous/offscreen preparation never waits.
+    func beginSourcePreparation(selectionSource: SelectionSource? = nil,
+                                resume: @escaping @MainActor () -> Void) -> Bool {
+        guard session.state.mode == .quickInput else { return false }
+        if sourcePreparation != nil { return true }
+        guard !hasDeferredQuote, selectionSource != nil || appState.browserSource.enabled,
+              recordPanel?.isVisible != true, !preservesEditorAfterGettingStarted,
+              actionSetupRequest == nil, welcomeWindow?.isVisible != true,
+              !session.state.isOpeningApplication, !session.state.isAcceptingSubmission, !isHidingPanel,
+              !session.state.isComposingText, editorFocusTarget.textView?.hasMarkedText() != true else { return false }
+        let deadline = ContinuousClock.now.advanced(by: .milliseconds(150))
+        let claim = clipboard.claimQuote()
+        guard selectionSource != nil || claim != nil else { return false }
+        let token = UUID()
+        sourcePreparationID = token
+        let draft = session.draft
+        let revision = session.draftRevision
+        let panelSession = session.state.panelSessionID
+        sourcePreparation = Task { [weak self, clipboard, selectedTextReader] in
+            var selected: SelectedText?
+            var unauthorized = false
+            if let selectionSource {
+                switch await selectedTextReader.read(source: selectionSource, until: deadline) {
+                case .selected(let value): selected = value
+                case .unauthorized: unauthorized = true
+                default: break
+                }
             }
+            var quote: String?
+            // Any valid selection, including a duplicate, consumes this opening's claim.
+            if selected == nil, let claim, clipboard.isCurrent(claim) {
+                quote = await clipboard.resolve(claim, until: deadline)
+                if !clipboard.isCurrent(claim) { quote = nil }
+            } else if let claim { _ = clipboard.finishQuote(claim) }
+            guard let self, self.sourcePreparationID == token else { return }
+            self.sourcePreparation = nil
+            guard !Task.isCancelled, self.session.draft == draft, self.session.draftRevision == revision,
+                  self.session.state.panelSessionID == panelSession,
+                  selectionSource == nil || self.selectionSource() == selectionSource,
+                  !self.session.state.isComposingText, self.editorFocusTarget.textView?.hasMarkedText() != true,
+                  !self.session.state.isConfiguringAction, !self.session.state.isOpeningApplication,
+                  !self.session.state.isAcceptingSubmission, self.session.state.mode == .quickInput else { return }
+            if let selected, !self.selectionAdoptions.contains(selected, draftID: draft.id) {
+                self.deferredSelection = selected
+            }
+            self.deferredSelectionNotice = unauthorized
+            self.deferredQuote = quote
+            self.hasDeferredQuote = true
+            resume()
         }
-        RunLoop.main.add(timer, forMode: .common)
-        pasteboardMonitor = timer
+        return true
+    }
+
+    private func cancelSourcePreparation() {
+        sourcePreparationID = UUID()
+        sourcePreparation?.cancel()
+        sourcePreparation = nil
+        deferredQuote = nil
+        deferredSelection = nil
+        deferredSelectionNotice = false
+        hasDeferredQuote = false
     }
 
     @discardableResult
@@ -605,6 +781,7 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     private func hideRecordPanel(submitted: Bool = false, keepingExternalFocus: Bool = false,
                                 completion: @escaping @MainActor () -> Void = {}) {
+        cancelSourcePreparation()
         session.send(.externalFocusChanged)
         guard let panel = recordPanel, !isHidingPanel else { return }
         pendingGettingStarted = nil

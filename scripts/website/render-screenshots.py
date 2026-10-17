@@ -17,6 +17,7 @@ output = ROOT / "Resources/Screenshots"
 renderer = binary / "RenderScreenshots"
 subprocess.run(["swiftc", "-parse-as-library", "-enable-testing", "-I", str(binary / "Modules"),
                 "-Xcc", "-fmodule-map-file=" + str(ROOT / ".build/checkouts/GRDB.swift/Sources/GRDBSQLite/module.modulemap"),
+                "-Xcc", "-fmodule-map-file=" + str(binary / "CSQLiteVec.build/module.modulemap"),
                 "-target", platform.machine() + "-apple-macosx15.0",
                 "-F", str(binary), "-framework", "Sparkle", "-Xlinker", "-rpath", "-Xlinker", str(binary),
                 str(ROOT / "scripts/website/RenderScreenshots.swift"), *objects, "-o", str(renderer)], cwd=ROOT, check=True)

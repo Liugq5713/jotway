@@ -16,15 +16,18 @@ final class RuntimeLog: @unchecked Sendable {
         case feedbackWrite = "feedback_write"
     }
     enum Stage: String, Codable, Sendable {
-        case preflight, configuration, input, intent, phase, helperLaunch = "helper_launch"
+        case preflight, configuration, input, intent, phase, modelChain = "model_chain", helperLaunch = "helper_launch"
         case helperConnection = "helper_connection", helperExchange = "helper_exchange"
         case targetConnection = "target_connection", account, workspaces, projects, config, limit, encode
         case createChat, createMessage, send, lookup, service, model, format, validation
         case receipt, cleanup, metadata, persistence
+        case notesRetrieval = "notes_retrieval", notesPreparation = "notes_preparation", notesAdoption = "notes_adoption"
+        case notesTitle = "notes_title"
+        case notesGrouping = "notes_grouping", notesOriginalSave = "notes_original_save", notesRefresh = "notes_refresh"
     }
     enum Outcome: String, Codable, Sendable { case success, failed, uncertain, accepted, cancelled, discarded, timeout, unknown }
     enum Operation: String, Codable, Sendable { case send, verify, receiptSave = "receipt_save", metadata, generate, recognize, recordFeedback = "record_feedback", updateFeedback = "update_feedback", action }
-    enum Purpose: String, Codable, Sendable { case supplement, summary, context, intentRecognition = "intent_recognition", intentFeedback = "intent_feedback", connectionTest = "connection_test", unknown }
+    enum Purpose: String, Codable, Sendable { case supplement, summary, context, draftThinkingPrompt = "draft_thinking_prompt", notesTitle = "notes_title", notesGrouping = "notes_grouping", notesReview = "notes_review", personalAgent = "personal_agent", intentRecognition = "intent_recognition", intentFeedback = "intent_feedback", connectionTest = "connection_test", unknown }
     enum Code: String, Codable, Sendable {
         case unknown, configuration, inputTooLarge = "input_too_large", storage, stale, validation, format
         case modelMismatch = "model_mismatch", modelUnknown = "model_unknown", emptyResponse = "empty_response"
@@ -39,7 +42,19 @@ final class RuntimeLog: @unchecked Sendable {
         case ready, sending, uncertain, failed, prepared, creatingChat, chatCreated
         case creatingMessage, messageCreated, sendingMessage, opening, accepted
     }
+    struct PersonalRead: Codable, Sendable {
+        enum Source: String, Codable, Sendable { case notes }
+        enum Status: String, Codable, Sendable {
+            case ready, empty, partial, disabled, unconfigured, denied, unavailable, timeout
+        }
+        let source: Source
+        let status: Status
+        let count: Int
+    }
+    enum ModelRole: String, Codable, Sendable { case primary, fallback }
+    enum FallbackState: String, Codable, Sendable { case none, ready, unavailable }
     struct Fields: Codable, Sendable {
+        var capability: ModelConfiguration.Capability? = nil
         var stage: Stage? = nil
         var outcome: Outcome? = nil
         var errorCode: Code? = nil
@@ -59,16 +74,25 @@ final class RuntimeLog: @unchecked Sendable {
         var actionID: String? = nil
         var exitCode: Int32? = nil
         var droppedCount: Int? = nil
-        var intent: JevDiagnostics? = nil
+        var intent: LegacyIntentDiagnostics? = nil
         var feedbackID: UUID? = nil
-        var feedbackSource: JevDiagnostics.Source? = nil
+        var feedbackSource: LegacyIntentDiagnostics.Source? = nil
         var feedbackConfirmation: String? = nil
         var feedbackExecution: String? = nil
+        var fallbackState: FallbackState? = nil
+        var modelRole: ModelRole? = nil
+        var fallbackReason: Code? = nil
         var attemptID: String? = nil
+        var notes: NotesSupplementResult.Report? = nil
+        var grouping: NotesGroupingDiagnostics.Report? = nil
+        var title: NotesInitialTitleGenerator.Report? = nil
+        var externalRequestID: UUID? = nil
+        var personal: PersonalRead? = nil
     }
 
     struct Context: Sendable {
         var log: RuntimeLog = .shared
+        var capability: ModelConfiguration.Capability? = nil
         var module: Module = .ai
         var requestID = UUID()
         var callID: UUID? = nil
@@ -82,6 +106,7 @@ final class RuntimeLog: @unchecked Sendable {
 
         func emit(_ event: Event, _ fields: Fields = .init(), at date: Date? = nil) {
             var fields = fields
+            fields.capability = fields.capability ?? capability
             if event == .requestFinished, fields.totalDurationMs == nil { fields.totalDurationMs = RuntimeLog.milliseconds(since: started) }
             log.record(event, context: self, fields: fields, at: date)
         }
@@ -187,10 +212,11 @@ final class RuntimeLog: @unchecked Sendable {
         guard enabled else { return }
         // Bound strings before retaining a queued event, including untrusted response model IDs.
         var boundedFields = fields
-        let models = ["deepseek/deepseek-flash", "moonshot/kimi-k2-0905-preview"]
-        boundedFields.requestedModel = fields.requestedModel.map { models.contains($0) || JevDiagnostics.validModel($0, requested: true) ? $0 : "unknown" }
-        boundedFields.actualModel = fields.actualModel.map { models.contains($0) || JevDiagnostics.validModel($0) ? $0 : "unknown" }
+        let models = [DeepSeek.qualifiedModelID, "deepseek/\(DeepSeek.planningModelID)", "moonshot/kimi-k2-0905-preview", "moonshot/\(Moonshot.modelID)", "moonshot/\(Moonshot.fastModelID)"]
+        boundedFields.requestedModel = fields.requestedModel.map { models.contains($0) || LegacyIntentDiagnostics.validModel($0, requested: true) ? $0 : "unknown" }
+        boundedFields.actualModel = fields.actualModel.map { models.contains($0) || LegacyIntentDiagnostics.validModel($0) ? $0 : "unknown" }
         boundedFields.intent = fields.intent?.bounded
+        boundedFields.notes = fields.notes?.bounded
         var boundedContext = context
         boundedContext.connector = context.connector.map { ["chrome"].contains($0) ? $0 : "unknown" }
         boundedContext.provider = context.provider.map { ["deepSeek", "jev", "moonshot"].contains($0) ? $0 : "unknown" }
@@ -357,7 +383,6 @@ final class RuntimeLog: @unchecked Sendable {
                         try repair(file.url)
                         try FileManager.default.copyItem(at: file.url, to: root.appendingPathComponent(file.url.lastPathComponent))
                     }
-                    try Jev.ruleDefinitionData().write(to: root.appendingPathComponent("\(Jev.ruleVersion).jsonl"))
                     continuation.resume(returning: (root, buffer.withLock { $0.incomplete }))
                 } catch {
                     try? FileManager.default.removeItem(at: root)

@@ -2,27 +2,20 @@
 
 > Role: **Reference**
 
-## Registration
+`AppState.models` owns `ModelConfiguration`. Text chains are stored in `plugin.ai.textBindings.v1`; each model has stable source/model identity, and each chain holds primary and optional fallback. Legacy deep selections migrate without deleting their raw values. Unknown selections and corrupt new preferences remain unavailable. The independent embedding binding and source/fastSource injection remain supported.
 
-`bundledAISources()` defines the sources visible in Settings. DeepSeek and Moonshot use `OpenAICompatible`. `installPlugins(into:)` installs the shared provider and connection-test hook.
+`ModelTextRequest` carries instructions, content, output format, ordinary and thinking-model total token budgets, byte limit and timeout. Its local `streaming` option defaults to false and is excluded from prompt-size encoding, as is `AIProviderPlugin.Request.streaming`. Direct invocation forwards the option to the provider. `OpenAICompatible` selects SSE when this option is true or a legacy direct `onPartial` callback is present; a preview subscriber is not required. Deep primary, fallback and single-model connection tests enable streaming. Fast and embedding retain their default transport, and connection tests construct a direct invocation with no fallback.
 
-## Request lifecycle
+`ModelTextInvocation` freezes both provider configurations, privately including credentials. `ModelFallback` gives each frozen flow a serial queue; `ModelDeadline` uses a single-settlement continuation and a monotonic deadline without joining cancelled work. Queueing and both attempts share one finite deadline: fast defaults to 120 seconds and deep to 300 seconds, with a shorter caller deadline taking priority. When fallback is ready, the primary receives at most 30 seconds for fast or 120 seconds for deep, also bounded by half the remaining budget after queueing. Fallback receives only the remainder. Partial content never renews these deadlines. Business validation is rechecked before both attempts and result adoption.
 
-`AIProviderPlugin` is an actor and allows one provider request at a time.
+`ModelTextInvocation.call` and `callAsFunction` optionally accept `onEvent: (@Sendable (ModelStreamEvent) async throws -> Void)?`. Events carry `invocationID`, `attemptID`, `role`, and `kind` (`attemptStarted` or `content(String)`); content is cumulative within one attempt. A start event precedes content and resets the receiver's provisional state. A fallback start follows irreversible invalidation of the primary attempt. `isValid` synchronously checks the attempt token and its deadlines; receivers must recheck it inside MainActor adoption together with their own request, scope and configuration identity. Queued or late events from expired, cancelled or completed attempts must be discarded. The final complete `String` remains the success boundary. Legacy fallback `onPartial` receives the final success only; legacy direct callbacks continue receiving cumulative content. Provisional events do not authorize caching or Notes writes, and do not install a content diagnostic receiver.
 
-1. Capture the selected source/model and manual configuration on the main actor.
-2. Build a bounded request with fixed rules, optional user Instructions, and task content.
-3. Queue behind any active request.
-4. Perform the provider call with cancellation and runtime-log context.
-5. Validate non-empty output and the observed model identifier.
-6. Return text or a bounded typed failure.
+Only timeout/disconnect, HTTP 408/429 and 5xx permit a second attempt. Other HTTP status, invalid input/output and model identity errors terminate. `AIProviderPlugin.Failure` preserves bounded status/retry metadata without raw service bodies. `RuntimeLog` links logical calls and attempts by capability, role and bounded diagnostics; the optional content receiver is not installed by Notes.
 
-Queued requests keep the configuration snapshot taken before queuing. A later settings change cannot redirect an in-flight request to another provider.
+The SSE adapter reads UTF-8 events with a 2,000,000-byte transport limit and the request's existing answer byte limit. CRLF, comments, blank events and optional usage-only events do not produce content. Each reported model is checked against the requested identity before answer fragments are delivered. Success requires `finish_reason: stop`, a following `[DONE]`, a verified model and a nonempty final answer. EOF before the complete terminal sequence is a disconnect; `[DONE]` before `stop`, explicit truncation, malformed events, tool/function output and invalid model identity are terminal errors that do not permit fallback. Reasoning fields never enter previews or final answers. No stream failure causes a nonstreaming replay.
 
-## Direct providers
+DeepSeek Flash and Pro explicitly disable thinking. Moonshot uses `https://api.moonshot.cn/v1/chat/completions` with fixed `kimi-k2.7-code-highspeed` and `kimi-k2.7-code` identities. It receives no disabled-thinking field, placeholder tools, empty schemas or unsupported sampling overrides. JSON uses `response_format: {type: json_object}`. Kimi requires the caller's `maximumTokensForThinkingModel` total budget, including reasoning; only content is read. Incomplete/truncated replies and a nonmatching returned model fail.
 
-DeepSeek and Moonshot are thin configurations over the OpenAI-compatible transport. Each declares its HTTPS endpoint, model ID, key storage key, user-facing disclosure, and any provider-specific body fields.
+The initial 16,384-token fast and 32,768-token deep thinking budgets are application policy, not measured latency or account-availability guarantees. Official references: [Kimi Code guide](https://platform.kimi.com/docs/guide/kimi-k2-7-code-quickstart), [thinking budgets](https://platform.kimi.com/docs/guide/use-thinking-models), [JSON mode](https://platform.kimi.com/docs/guide/use-json-mode-feature-of-kimi-api). Real-service acceptance is separate from adapter checks.
 
-## Failure policy
-
-Provider failures are meaningful to callers, but storage action processors deliberately catch them and return the original text. A connection test surfaces the failure because its purpose is to diagnose configuration.
+`ModelEmbeddingInvocation` retains its frozen compatibility profile, ordered vector validation and separate query/indexing lanes. `NotesIndex.validateProfile` rejects another vector space without clearing data. Existing profile identity and 1024 dimensions remain unchanged. Jev remains historical metadata only.

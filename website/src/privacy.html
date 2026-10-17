@@ -1,45 +1,32 @@
 <div class="document-page wrap">
-    <header class="page-intro"><p class="eyebrow">PRIVACY &amp; DATA FLOW</p><h1>Where your<br>words go.</h1><p class="lede">Drafts, Actions, optional AI, and local feedback have different boundaries. Here's what the current app does with each.</p></header>
-    <section class="document-section">
-        <h2>01 · On your Mac</h2>
-        <p>An unsubmitted draft lives in the current app process's memory. Hide the panel and return to it during the same session. Quitting, a crash, or a restart clears it. A failed Action restores the draft; if you have started a new one, the failed submission waits separately in memory for you to restore it.</p>
-        <p>Action configuration, preferences, app usage statistics, and intent feedback are stored locally. Preferences use UserDefaults. The database lives in Jotway's Application Support directory. API keys use local credential files with access restricted to your user account; they are not stored in the system Keychain or synced by Jotway.</p>
-        <p>Jotway has no browsable inbox, content history, Summary, or content export archive. <a href="https://github.com/Liugq5713/jotway/blob/main/docs/development/data-model.md">Read the data model ↗</a></p>
+    <header class="page-intro"><p class="eyebrow">PRIVACY &amp; DATA FLOW</p><h1>Where your<br>words go.</h1><p class="lede">App access, optional AI, indexing and local records have different boundaries.</p><p class="section-note">This guide includes development-preview behavior. Notes assistance and local application matching require an unreleased source build; do not assume the current download contains them.</p></header>
+    <section class="document-section"><h2>01 · On your Mac</h2>
+        <p>The working draft stays in process memory while you hide and reopen the panel. Quitting clears that working copy, but <strong>enabled Local Records can also save unsent drafts and activity to disk</strong>. Closing a panel does not delete those records or historical debug archives.</p>
+        <p>Preferences, app usage and operation records are stored locally. API keys use account-restricted local credential files, not the system Keychain. Jotway has no browsable inbox or resumable conversation history.</p>
+        <p>macOS permissions and selected Notes folders bound access. Apple apps may sync received content according to their own account settings.</p>
     </section>
-    <section class="document-section">
-        <h2>02 · After you confirm an Action</h2>
-        <p>Notes, Reminders, and Calendar receive the confirmed text in your chosen destination. Whether those apps sync it through iCloud or another account depends on their settings.</p>
-        <p>Google Search puts your text in a Google search URL and opens it in Chrome. App launching is matched locally.</p>
-        <p>See the <a href="https://github.com/Liugq5713/jotway/blob/main/docs/product/overview.md">product guide</a> for the complete Action list. Jotway cannot delete content already received by another app.</p>
+    <section class="document-section"><h2>02 · Review before saving</h2>
+        <p>Confirming Notes writes to your selected folder. Jotway cannot retract content already received by another app.</p>
+        <p>Optional Notes assistance can add separate insights or related history. Notes retains the complete original even when optional assistance fails. Local application matching never sends typing-time drafts to an intent service.</p>
     </section>
-    <section class="document-section" id="providers">
-        <h2>03 · Optional network processing</h2>
-        <p>AI features need separate configuration. Providers may charge your account and apply their own server-side retention, use, and deletion policies. Clearing local data does not retract a request already sent.</p>
+    <section class="document-section" id="providers"><h2>03 · Optional network processing</h2>
+        <p>Providers may charge for requests and apply their own retention policies. Deleting local data does not retract data already sent.</p>
         <div class="provider-list">
-            <article><h3>Jev / TypeSafe · Intent recognition</h3><p>After you save a Jev key, eligible drafts are sent to TypeSafe with criteria for available Actions while you type. <strong>This can happen before you press Enter.</strong> The response only suggests a destination. Without a key, or when a request fails, local rules, manual selection, and the available fallback remain usable.</p><p>Remove the key in Settings → Intent Recognition to stop future model requests. <a href="https://github.com/Liugq5713/jotway/blob/main/docs/integrations/jev-intent-research.md">Read the request boundary ↗</a></p></article>
-            <article><h3>DeepSeek · Action text processing</h3><p>When processing is enabled for Notes, Reminders, or Calendar, confirming that Action sends the text, processing instructions, and relevant date context to DeepSeek. This path uses DeepSeek regardless of the general AI source selection. A missing key, network error, timeout, or invalid response falls back to the original text and the Action's default dates.</p><p>Disable AI rewriting for the Action in Settings → Actions, or select DeepSeek in Settings → AI and remove its key. <a href="https://github.com/Liugq5713/jotway/blob/main/docs/plugins/ai.md">Read about AI processing ↗</a></p></article>
-            <article><h3>DeepSeek / Moonshot · General AI settings</h3><p>The AI settings register both providers and store your model, key, and instructions. Connection tests send fixed sample content, not your current draft. Selecting Moonshot does not switch the Action text-processing path above to Moonshot.</p><p>Select the provider in Settings → AI to remove its key. Changes affect new requests; queued or running requests use the configuration captured when they started. <a href="https://github.com/Liugq5713/jotway/blob/main/docs/product/settings.md">Read about configuration and tests ↗</a></p></article>
+            <article><h3>Notes indexing and related history</h3><p>When enabled and configured, text from the chosen Notes scope is read and indexed locally. Indexing and queries can send text to the configured embedding service. The local index contains readable note content as well as vectors. Search covers the indexed scope and refresh state, not necessarily the entire or live library.</p></article>
+            <article><h3>Notes AI assistance</h3><p>Fast models generate titles and group Notes; deep models prepare optional supplements. Each capability has a primary and optional fallback model. On eligible service failures, the same text and context may be sent once to the fallback, and each service bills its own account. Accepted work keeps its frozen configuration. Cancellation and finite deadlines prevent late adoption; a model retry never repeats the Notes write. Connection tests call only the chosen model using sample content.</p></article>
         </div>
     </section>
-    <section class="document-section">
-        <h2>04 · Local feedback can include the full text</h2>
-        <p>Confirming a route may save local intent-feedback samples containing <strong>the entire draft</strong>. These samples are separate from unsubmitted, memory-only drafts. They are not a browsable content history, are not uploaded for training, and do not automatically change routing rules.</p>
+    <section class="document-section"><h2>04 · Local records and clearing</h2>
         <dl class="retention-list">
-            <div><dt>Corrections</dt><dd>When you change a Jev suggestion and confirm, Jotway keeps the most recent 200 corrections. Clear them in Settings → Intent Recognition.</dd></div>
-            <div><dt>Accepted suggestions</dt><dd>There is currently no retention period, record limit, or user-facing clear control. Quitting the app, clearing corrections, or clearing logs does not remove these samples.</dd></div>
-            <div><dt>App usage statistics</dt><dd>App paths, cumulative open counts, and the most recent open time are stored locally. This is not a per-event activity history. There is no separate user-facing clear control.</dd></div>
+            <div><dt>Local Records</dt><dd>Text revisions, including unsent drafts, and routing or execution events may be saved. Settings → App Suggestions controls capture, retention (90 days by default), export and clearing. Turning capture off requires confirmation and deletes existing operation records.</dd></div>
+            <div><dt>Personal Agent archives</dt><dd>Historical question and model content from earlier versions remains untouched until manually deleted. Personal Agent is retired; current Notes model calls do not create these files. Technical-log clearing does not erase old archives.</dd></div>
+            <div><dt>Notes index</dt><dd>Indexed note text and vectors remain in the local index. Use the Notes history controls to manage its scope and index. Removing a service key does not itself erase already indexed text.</dd></div>
+            <div><dt>App usage</dt><dd>App identities, open counts and recent open times are stored separately. Clearing operation records does not clear app usage or data in Apple apps.</dd></div>
         </dl>
-        <p><a href="https://github.com/Liugq5713/jotway/blob/main/docs/integrations/jev-intent-research.md">Feedback rules ↗</a> · <a href="https://github.com/Liugq5713/jotway/blob/main/docs/product/settings.md">Storage and clearing controls ↗</a></p>
     </section>
-    <section class="document-section">
-        <h2>05 · Clearing logs and keys</h2>
-        <p>Runtime logs contain bounded stages, outcomes, identifiers, and timings. They exclude draft text, API keys, full provider responses, and account details. Logs retain today and the previous six days, with a 10 MB limit per file and 50 MB in total.</p>
-        <p>Settings → General → Runtime Logs lets you open, export, or clear retained logs. Exports include the current Jev rule definition. Clearing logs does not clear drafts, preferences, or intent feedback.</p>
-        <p>Remove provider keys in AI settings and the Jev key in Intent Recognition settings. Removing a key does not delete existing feedback or remote data. There is no single control to erase all app data. <a href="https://github.com/Liugq5713/jotway/blob/main/docs/development/runtime-logs-research.md">Read the logging policy ↗</a></p>
+    <section class="document-section"><h2>05 · Technical logs are separate</h2>
+        <p>Runtime logs contain bounded stages, identifiers, outcomes and timings, not draft bodies or keys. They keep today and the previous six days, with 10 MB per file and 50 MB total. Settings → General → Runtime Logs offers open, export and clear controls.</p>
+        <p>Those controls do not clear Personal Agent full-content archives, operation records, preferences or provider-side data. Chrome Source is separately opt-in: it may read the front Chrome tab near a recent copy, with plain-text fallback when unavailable. It is independent of Clipboard history. There is no single control that erases all app data. <a href="https://github.com/Liugq5713/jotway/blob/main/docs/product/settings.md">Configuration and storage reference ↗</a></p>
     </section>
-    <section class="document-section">
-        <h2>06 · This website</h2>
-        <p>This is a static website with no account system, analytics scripts, or external font requests. The interactive demo uses only predefined sample text. It does not open apps, send text to a provider, or save your choices. Its controls affect only the current page.</p>
-        <p>GitHub, downloads, and other external links are subject to the respective service's data policies.</p>
-    </section>
+    <section class="document-section"><h2>06 · This website</h2><p>This static site has no accounts, analytics or external fonts. The illustrative demo contains only predefined fictional text. It does not open apps, read local data, call a model or persist choices. External links and downloads follow their services' data policies.</p></section>
 </div>

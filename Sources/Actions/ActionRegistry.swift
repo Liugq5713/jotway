@@ -14,7 +14,6 @@ final class ActionRegistry {
     private var registered: [RegisteredModule] = []
     private var disabledIDs: Set<String> = []
     private(set) var revision = 0
-    private(set) var currentUserRules: [IntentRule] = []
 
     init(modules: [any ActionModule] = []) {
         for module in modules { register(module) }
@@ -31,7 +30,12 @@ final class ActionRegistry {
         } else {
             registered.append(entry)
         }
-        module.onChange = { [weak self] in self?.moduleDidChange(id: id) }
+        let instanceID = entry.instanceID
+        module.onChange = { [weak self] in
+            guard let self, self.registered.contains(where: { $0.instanceID == instanceID }) else { return }
+            self.moduleDidChange(id: id)
+        }
+        module.requestAvailabilityRefresh(invalidate: false)
         publishChange()
     }
 
@@ -67,6 +71,10 @@ final class ActionRegistry {
 
     func refreshAvailability() {
         for entry in registered { entry.module.refreshAvailability() }
+    }
+
+    func requestAvailabilityRefresh(invalidate: Bool = false) {
+        for entry in registered { entry.module.requestAvailabilityRefresh(invalidate: invalidate) }
     }
 
     func executionSnapshots() -> [ActionExecutionSnapshot] {
@@ -122,13 +130,10 @@ final class ActionRegistry {
     func setEnabled(_ enabled: Bool, id: String) {
         guard case .userToggle = descriptor(for: id)?.enablementPolicy else { return }
         let changed = enabled ? disabledIDs.remove(id) != nil : disabledIDs.insert(id).inserted
-        if changed { publishChange() }
-    }
-
-    func setUserRules(_ rules: [IntentRule]) {
-        guard rules != currentUserRules else { return }
-        currentUserRules = rules
-        publishChange()
+        if changed {
+            registered.first { $0.module.descriptor.id == id }?.module.requestAvailabilityRefresh(invalidate: true)
+            publishChange()
+        }
     }
 
     /// 密钥、共享处理器等不属于单个模块的执行依赖变化时，使全部未提交快照失效。
@@ -150,7 +155,7 @@ final class ActionRegistry {
             descriptor: module.descriptor,
             configurationIdentity: .init(moduleInstance: entry.instanceID,
                                          revision: module.state.configurationRevision,
-                                         registryRevision: revision),
+                                         registryRevision: revision, scopeToken: module.configurationToken),
             action: action)
     }
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# 无需 Xcode 的开发构建：SwiftPM 编译 + 手工打包 .app + ad-hoc 签名
+# 无需 Xcode 的开发构建：SwiftPM 编译 + 手工打包 .app + 可配置代码签名
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -17,42 +17,42 @@ for argument in "$@"; do
             echo "默认只构建；--update 只替换同一 Bundle ID 的 /Applications/Jotway.app，然后正常重启。"
             echo "更新前请暂存草稿，或提交正在编辑的记录。"
             echo "debug 与 release 均包含内置 action 和 AI Provider。"
+            echo "固定签名：设置 JOTWAY_SIGNING_IDENTITY，或将证书 SHA-1 指纹存入 .secrets/signing-identity。"
             exit 0
             ;;
         *) echo "未知参数：${argument}（使用 --help 查看用法）" >&2; exit 1 ;;
     esac
 done
 
+# 在编译和替换构建产物前检查证书，并固定本次构建使用的指纹。
+JOTWAY_SIGNING_IDENTITY=$(python3 scripts/code_signing.py identity)
+export JOTWAY_SIGNING_IDENTITY
+
 echo "==> swift build -c $CONFIG"
 swift build -c "$CONFIG"
 
 BIN=".build/$CONFIG/$SWIFT_PRODUCT"
 APP_DIR="$APP.app"
-SIGNING_ENTITLEMENTS="Resources/Jotway.entitlements"
 
 echo "==> 打包 $APP_DIR"
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BIN" "$APP_DIR/Contents/MacOS/$APP"
+mkdir -p "$APP_DIR/Contents/Helpers"
+cp ".build/$CONFIG/JotwayClipboardOCR" "$APP_DIR/Contents/Helpers/JotwayClipboardOCR"
 cp Resources/Info.plist "$APP_DIR/Contents/Info.plist"
 if [ "$CONFIG" = debug ]; then
     /usr/libexec/PlistBuddy -c 'Set :JotwayUpdatesEnabled false' "$APP_DIR/Contents/Info.plist"
 fi
 cp Resources/AppIcon.icns Resources/JotwayMenuBarTemplate.pdf "$APP_DIR/Contents/Resources/"
 
-echo "==> 嵌入 Sparkle（保留符号链接，先签名内层服务）"
+echo "==> 嵌入 Sparkle（保留符号链接）"
 mkdir -p "$APP_DIR/Contents/Frameworks"
 ditto ".build/$CONFIG/Sparkle.framework" "$APP_DIR/Contents/Frameworks/Sparkle.framework"
 mkdir -p "$APP_DIR/Contents/Resources/Licenses"
 cp .build/artifacts/sparkle/Sparkle/LICENSE "$APP_DIR/Contents/Resources/Licenses/Sparkle-LICENSE.txt"
 cp .build/checkouts/GRDB.swift/LICENSE "$APP_DIR/Contents/Resources/Licenses/GRDB-LICENSE.txt"
 cp Vendor/KeyboardShortcuts/license "$APP_DIR/Contents/Resources/Licenses/KeyboardShortcuts-LICENSE.txt"
-SPARKLE="$APP_DIR/Contents/Frameworks/Sparkle.framework/Versions/B"
-codesign --force --sign - --options runtime "$SPARKLE/XPCServices/Installer.xpc"
-codesign --force --sign - --options runtime --preserve-metadata=entitlements "$SPARKLE/XPCServices/Downloader.xpc"
-codesign --force --sign - --options runtime "$SPARKLE/Autoupdate"
-codesign --force --sign - --options runtime "$SPARKLE/Updater.app"
-codesign --force --sign - "$APP_DIR/Contents/Frameworks/Sparkle.framework"
 
 # 本地替换 release 包时延续已安装版本，避免被源 plist 的开发版本号降级。
 if [ "$CONFIG" = release ] && [ "$UPDATE" = true ]; then
@@ -100,13 +100,10 @@ for localization in Sources/Resources/*.lproj; do
     cp "$localization/InfoPlist.strings" "$destination/InfoPlist.strings"
 done
 
-echo "==> ad-hoc 签名（含 entitlements）"
-codesign --force --sign - --entitlements "$SIGNING_ENTITLEMENTS" "$APP_DIR"
+echo "==> 代码签名（${JOTWAY_SIGNING_IDENTITY}，含 entitlements）"
+python3 scripts/code_signing.py sign "$APP_DIR"
 
-# 资源从 Contents/Resources 读取，签名后不再修改应用包。
-codesign --verify --deep --strict --verbose=2 "$APP_DIR"
-
-echo "==> 完成：$PWD/$APP_DIR"
+echo "==> 完成：${PWD}/${APP_DIR}（本地开发产物，未执行公证／公开发布门禁）"
 if [ "$UPDATE" = false ]; then
     echo "    更新安装版并重启：./scripts/build-app.sh $CONFIG --update"
     exit 0
@@ -125,6 +122,9 @@ for installed in "$INSTALL_DIR"; do
         fi
     fi
 done
+
+# 固定证书安装版不能意外退回 ad-hoc 或换成不兼容的证书。
+python3 scripts/code_signing.py check-update "$INSTALL_DIR" "$APP_DIR"
 
 # diff -r 会跟随 framework 的多个目录符号链接；这里只读比较链接、权限及文件内容。
 verify_copy() {

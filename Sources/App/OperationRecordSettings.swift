@@ -6,6 +6,7 @@ struct OperationRecordSettings: View {
     let appState: AppState
     @State private var status: OperationRecorder.Status?
     @State private var busy = false
+    @State private var managesRecords = false
     @State private var confirmsClear = false
     @State private var confirmsDisable = false
     @State private var messageKey: String?
@@ -23,43 +24,48 @@ struct OperationRecordSettings: View {
                     .disabled(busy)
                     .accessibilityIdentifier("operation-recording-enabled")
             }
-            settingRow(L10n.text("operations.retention_help")) {
-                Stepper(L10n.text("operations.retention", status?.retentionDays ?? appState.operationRetentionDays),
-                    value: Binding(get: { status?.retentionDays ?? appState.operationRetentionDays },
-                        set: { days in run { try await appState.setOperationRetentionDays(days) } }),
-                    in: 1...3650)
-                    .disabled(busy)
-                    .accessibilityIdentifier("operation-recording-retention")
-            }
+            Button(L10n.text("operations.export"), action: chooseExport)
+                .disabled(busy)
+                .accessibilityIdentifier("operation-recording-export")
             if let status {
-                if status.countsAvailable {
-                    settingRow(L10n.text("operations.size_help")) {
-                        LabeledContent(L10n.text("operations.size"), value:
-                            ByteCountFormatter.string(fromByteCount: status.storedBytes, countStyle: .file))
-                        Text(L10n.text("operations.counts", status.inputCount, status.attemptCount, status.eventCount))
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                } else {
+                if !status.countsAvailable {
                     Text(L10n.text("operations.unavailable"))
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Text(integrityMessage(status.integrity))
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("operation-recording-integrity")
-                if status.pendingCount > 0 {
-                    Text(L10n.text("operations.pending", status.pendingCount))
-                        .font(.caption).foregroundStyle(.secondary)
+                if let warning = integrityMessage(status.integrity) {
+                    Text(warning).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("operation-recording-integrity")
                 }
             }
-            HStack {
-                Button(L10n.text("operations.export"), action: chooseExport)
-                    .accessibilityIdentifier("operation-recording-export")
-                Spacer(minLength: 8)
+            DisclosureGroup(L10n.text("operations.manage"), isExpanded: $managesRecords) {
+                settingRow(L10n.text("operations.retention_help")) {
+                    Stepper(L10n.text("operations.retention", status?.retentionDays ?? appState.operationRetentionDays),
+                        value: Binding(get: { status?.retentionDays ?? appState.operationRetentionDays },
+                            set: { days in run { try await appState.setOperationRetentionDays(days) } }),
+                        in: 1...3650)
+                        .disabled(busy)
+                        .accessibilityIdentifier("operation-recording-retention")
+                }
+                if let status {
+                    if status.countsAvailable {
+                        settingRow(L10n.text("operations.size_help")) {
+                            LabeledContent(L10n.text("operations.size"), value:
+                                ByteCountFormatter.string(fromByteCount: status.storedBytes, countStyle: .file))
+                            Text(L10n.text("operations.counts", status.inputCount, status.attemptCount, status.eventCount))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    if status.pendingCount > 0 {
+                        Text(L10n.text("operations.pending", status.pendingCount))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Text(L10n.text("operations.purpose")).font(.caption).foregroundStyle(.secondary)
                 Button(L10n.text("operations.clear"), role: .destructive) { confirmsClear = true }
+                    .disabled(busy)
                     .accessibilityIdentifier("operation-recording-clear")
             }
-            .disabled(busy)
             if busy { ProgressView().controlSize(.small) }
             if let messageKey {
                 Text(L10n.text(messageKey)).font(.caption).foregroundStyle(.secondary)
@@ -73,6 +79,7 @@ struct OperationRecordSettings: View {
             }
         } header: { Text(L10n.text("operations.title")) }
         .task {
+            managesRecords = false
             while !Task.isCancelled {
                 status = await appState.operationRecorder.status()
                 do { try await Task.sleep(for: .seconds(2)) } catch { break }
@@ -92,9 +99,9 @@ struct OperationRecordSettings: View {
         } message: { Text(L10n.text("operations.delete_help")) }
     }
 
-    private func integrityMessage(_ value: OperationRecorder.Integrity) -> String {
+    private func integrityMessage(_ value: OperationRecorder.Integrity) -> String? {
         switch value {
-        case .complete: L10n.text("operations.integrity.complete")
+        case .complete: nil
         case .incomplete: L10n.text("operations.integrity.incomplete")
         case .unknown: L10n.text("operations.integrity.unknown")
         }

@@ -15,9 +15,9 @@ struct RenderScreenshots {
         for dark in [false, true] {
             for empty in [true, false] {
                 let state = LauncherViewState()
-                let draft = empty ? "" : "Google search macOS keyboard shortcuts"
+                let draft = empty ? "" : "For the design review: make the first step clearer."
                 state.draftContent = draft
-                state.displayedActionTitle = empty ? nil : L10n.text("action.chrome.title")
+                state.displayedActionTitle = empty ? nil : L10n.text("action.notes.title")
                 let content = EditorView(text: .constant(draft), focusTarget: EditorFocusTarget(), state: state, send: { _ in })
                     .environment(\.colorScheme, dark ? .dark : .light)
                     .frame(width: captureSize.width, height: captureSize.height)

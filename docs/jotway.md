@@ -1,13 +1,13 @@
 # Jotway documentation
 
-This page is the only documentation entry point. A document's role determines whether it is authoritative.
+This page is the documentation entry point. A document's role determines whether it is authoritative.
 
-- **Current**: describes behavior that exists now.
+- **Current**: product and architecture pages explain shipped behavior and link to detailed behavior contracts in `openspec/specs/`. Both describe the current source build.
 - **Work**: a temporary proposal or implementation brief; it is not current behavior.
 - **Reference**: reusable external, protocol, or operational facts.
 - **Decision**: the durable reason behind a hard-to-reverse choice.
 
-Terminology lives only in [CONTEXT.md](../CONTEXT.md). When a Current document and code disagree, reconcile them in the same change rather than adding another explanation.
+Terminology lives only in [CONTEXT.md](../CONTEXT.md). When a spec and code disagree, reconcile them in the same change rather than adding another explanation.
 
 ## Current product
 
@@ -25,29 +25,26 @@ Terminology lives only in [CONTEXT.md](../CONTEXT.md). When a Current document a
 | [App updates](product/updates.md) | Sparkle configuration and user-visible update behavior |
 | [Website and usage images](development/website.md) | English static site, interactive demo, verified download metadata, and README captures |
 
-## Current actions and routing
+## Actions and routing
 
 | Document | Scope |
 |---|---|
 | [Apple Notes](integrations/apple-notes.md) | Default action, destination, and text writing |
-| [Apple Reminders](integrations/apple-reminders.md) | Reminder routing, due date, and destination |
-| [Apple Calendar](integrations/apple-calendar.md) | Calendar routing, time range, and destination |
-| [Chrome](integrations/chrome.md) | Google search in Chrome |
-| [ChatGPT](integrations/chatgpt.md) | Desktop conversation with prefilled text and manual send |
-| [Jev intent recognition](integrations/jev-intent-research.md) | Model suggestion, local priority, switching, and feedback |
+| [Clipboard](integrations/clipboard.md) | Local clipboard history, image text search, and exact copy |
+| [Codex](integrations/codex.md) | Background app-server tasks and conversation links without choosing a project |
 
 ## Work documents
 
-These describe active or candidate changes. Their contents do not override Current documents.
+These describe active or candidate changes. Their contents do not override specs.
 
 | Document | State |
 |---|---|
-| [Launcher UI](development/launcher-ui.md) | Active design brief |
+| [Input responsiveness](development/launcher-ui.md) | Draft: stable target and preview layout, availability caching, and typing performance validation |
 | [Submission receipt](product/submission-receipt.md) | P1 implementation brief: immediate non-activating completion feedback and grouped results |
-| [Editor cursor alignment](development/editor-cursor-alignment.md) | Confirmed follow-up: integrate, verify, and deliver the existing caret alignment fix |
+| [Editor cursor alignment](development/editor-cursor-alignment.md) | Pending follow-up: native empty-line caret geometry and input-method positioning |
 | [Personal routing memory](development/personal-routing-memory.md) | Paused candidate; automatic learning and its previous storage assumptions require reassessment |
 
-Delete a Work document after its resulting behavior has been merged into the relevant Current document.
+Delete a Work document after its resulting behavior has been synced into the relevant spec.
 
 ## Decisions and references
 
@@ -55,9 +52,17 @@ Delete a Work document after its resulting behavior has been merged into the rel
 |---|---|
 | [Launcher pivot](development/launcher-refactor.md) | Decision: transient launcher instead of local inbox |
 | [Connector to action](development/launcher-connector-to-action.md) | Decision: one action abstraction |
-| [Jev API](integrations/jev-api-research.md) | Reference: external protocol and uncertainty boundary |
+| [Jev API](integrations/jev-api-research.md) | Reference: retired Jev protocol and historical diagnostics only |
 | [Cloudflare Workers AI proxy](integrations/cloudflare-workers-ai-research.md) | Reference: proxy integration, mainland China latency, and measurement boundaries |
 | [Launcher competitor research](development/launcher-competitor-research.md) | Reference: Raycast, Alfred, and LaunchBar capabilities and Jotway comparison boundaries |
+| [Application matching research](development/application-matching-research.md) | Reference: Raycast search behavior, Tinycast matching and ranking, and Jotway application-search gaps |
+| [AI development plans](development/ai-development-plans-research.md) | Reference: readable plan templates, acceptance criteria, and agent handoffs |
+| [Codex sidebar visibility](development/codex-sidebar-research.md) | Reference: background-session discovery, community workarounds, and app-server integration options |
+| [Apple Notes native tags](development/apple-notes-tags-research.md) | Reference: native tag actions, community integrations, and verification boundaries |
+| [Apple Notes formatting](development/apple-notes-formatting-research.md) | Reference: rich text, HTML import boundaries, and source links |
+| [AI and personal notes community practices](development/ai-notes-community-research.md) | Reference: first-person workflows, product patterns, evidence limits, and implications for Jotway |
+| [Capture and thinking mechanisms](development/capture-and-thinking-mechanisms-research.md) | Reference: primary evidence, product mechanisms, work/life reflection, and candidate validation |
+| [Personal Agent context strategies](development/personal-agent-context-research.md) | Reference: full context, targeted retrieval, and global summaries for personal questions |
 | [AI provider onboarding](development/ai-provider-onboarding.md) | Reference: adding an AI source |
 | [AI provider implementation](plugins/ai-provider-implementation.md) | Reference: provider request path |
 | [Third-party notices](../THIRD_PARTY_NOTICES.md) | Reference: dependency sources and licenses |
@@ -65,7 +70,7 @@ Delete a Work document after its resulting behavior has been merged into the rel
 ## Maintenance rules
 
 1. Write the smallest Work brief that makes a change testable: scenario, current behavior, target behavior, non-goals, and acceptance criteria.
-2. Keep Current docs timeless. Do not append delivery dates, build durations, PIDs, local installation receipts, or chronological implementation logs.
-3. After implementation, update one Current document and delete the completed Work brief. Git is the archive.
+2. Keep Current docs and their detailed specs timeless. Do not append delivery dates, build durations, PIDs, local installation receipts, or chronological implementation logs.
+3. After implementation, sync the change's delta specs into `openspec/specs/`, update the relevant Current document when its behavior or structure changed, and delete the completed Work brief. Git is the archive.
 4. Keep research only when its sources or uncertainty boundaries will be reused.
 5. Create a decision record only when the choice is hard to reverse, surprising without context, and the result of a real trade-off.

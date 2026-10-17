@@ -65,27 +65,35 @@ struct ActionSetupRequest {
 protocol ActionModule: AnyObject {
     var descriptor: ActionDescriptor { get }
     var state: ActionModuleState { get }
+    var configurationToken: String? { get }
     var settings: ActionSettings? { get }
     var setup: ActionSetup? { get }
     var onChange: (@MainActor () -> Void)? { get set }
 
+    /// Synchronous confirmation recheck; never called by ordinary input refresh.
     func refreshAvailability()
+    /// Display refresh requests coalesce inside each external module.
+    func requestAvailabilityRefresh(invalidate: Bool)
     func makeAction() -> any LauncherAction
 }
 
 extension ActionModule {
+    var configurationToken: String? { nil }
     var setup: ActionSetup? { nil }
+    func requestAvailabilityRefresh(invalidate: Bool = false) { refreshAvailability() }
 }
 
 struct ActionConfigurationIdentity: Hashable, Sendable {
     let moduleInstance: UUID
     let revision: Int
     let registryRevision: Int
+    let scopeToken: String?
 
-    init(moduleInstance: UUID, revision: Int, registryRevision: Int = 0) {
+    init(moduleInstance: UUID, revision: Int, registryRevision: Int = 0, scopeToken: String? = nil) {
         self.moduleInstance = moduleInstance
         self.revision = revision
         self.registryRevision = registryRevision
+        self.scopeToken = scopeToken
     }
 }
 

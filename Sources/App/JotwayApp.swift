@@ -5,8 +5,19 @@ extension KeyboardShortcuts.Name {
     static let recordNote = Self("recordNote", default: .init(.space, modifiers: [.command, .shift]))
 }
 
-enum ThemeMode: String {
+enum ThemeMode: String, CaseIterable {
     case system, light, dark
+
+    var title: String { L10n.text("settings.general.theme.\(rawValue)") }
+    var detail: String { L10n.text("settings.appearance.\(rawValue).help") }
+
+    var symbol: String {
+        switch self {
+        case .system: "circle.lefthalf.filled"
+        case .light: "sun.max.fill"
+        case .dark: "moon.fill"
+        }
+    }
 
     @MainActor
     func apply() {
@@ -22,7 +33,6 @@ enum ThemeMode: String {
     }
 }
 
-@main
 struct JotwayApp: App {
     @NSApplicationDelegateAdaptor(JotwayAppDelegate.self) private var appDelegate
     @AppStorage("themeMode") private var themeMode: ThemeMode = .system
@@ -53,8 +63,6 @@ struct JotwayApp: App {
         // SwiftUI 在主线程序列化创建 App，此处可安全假设 MainActor
         let panelController = MainActor.assumeIsolated {
             let controller = JotwayAppDelegate.measureStartup("input_entry") {
-                // 主路由：启动即读取密钥状态，配置过 Jev 的用户无需先打开设置即可识别。
-                JevSettings.shared.refreshKeyStatus()
                 let controller = PanelController(appState: appState, session: appState.makeLauncherSession())
                 controller.installHotkey()
                 return controller
@@ -98,6 +106,7 @@ final class JotwayAppDelegate: NSObject, NSApplicationDelegate {
     weak var panelController: PanelController?
     weak var appState: AppState?
     private var quitting = false
+    private var receivedSourceLink = false
     private(set) var deferredStartupTask: Task<Void, Never>?
 
     /// 可选分段计时只记录阶段名和耗时，不记录正文。默认不输出。
@@ -176,7 +185,7 @@ final class JotwayAppDelegate: NSObject, NSApplicationDelegate {
         appState?.applyDockPreference()
         DispatchQueue.main.async { [weak self] in
             guard let self, !self.quitting else { return }
-            if interactive {
+            if interactive && !self.receivedSourceLink {
                 self.panelController?.showWorkWindow(atLaunch: true)
             }
             self.startDeferredWork()
@@ -185,7 +194,37 @@ final class JotwayAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
+    func application(_ application: NSApplication, open urls: [URL]) {
+        var seen = Set<String>()
+        let noteIDs = urls.compactMap { NotesSourceLink.noteID(from: $0) }
+            .filter { seen.insert($0).inserted }
+        guard !noteIDs.isEmpty, !quitting else { return }
+        receivedSourceLink = true
+        // URL delivery can precede didFinishLaunching. Opening needs neither app state nor an index.
+        Task { [weak self] in
+            for noteID in noteIDs {
+                guard let self, !self.quitting, !Task.isCancelled else { return }
+                do {
+                    try await AppleNotesReader().open(noteID: noteID)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    guard !self.quitting else { return }
+                    let status = (error as? ActionFailure)?.osStatus
+                    let denied = status == -1743 || status == -1744
+                    let alert = NSAlert()
+                    alert.messageText = L10n.text("notes.source.open_failed")
+                    alert.informativeText = L10n.text(denied ? "notes.source.permission" : "notes.source.unavailable")
+                    alert.addButton(withTitle: L10n.text("common.ok"))
+                    NSApp.activate(ignoringOtherApps: true)
+                    alert.runModal()
+                }
+            }
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        CodexTaskRunner.shared.cancelAll()
         _ = appState?.operationRecorder.flushBeforeExit()
         RuntimeLog.Context(module: .app).emit(.shutdown)
         RuntimeLog.shared.flush()

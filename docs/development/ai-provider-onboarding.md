@@ -9,10 +9,10 @@ Use this recipe for a compile-time provider with a fixed endpoint and model cata
 Prefer a thin configuration over `OpenAICompatible`:
 
 1. Define a stable source ID, title, provider key, fixed HTTPS endpoint, model ID, and user disclosure.
-2. Add key load/save/remove through `APIKeyStore`.
+2. Use `ModelConfiguration` key operations, backed by `APIKeyStore`, so every affected binding publishes a version.
 3. Reject redirects so draft text and authorization headers cannot move to another host.
 4. Return the provider/model identifier in the expected normalized form.
-5. Register the source in `bundledAISources()` in the intended display order.
+5. Register the text source in the model configuration catalog; keep `bundledAISources()` display order consistent. Bind it to fast or deep without changing business prompts.
 
 Provider-specific request fields belong in the configuration's extra body, not in the shared transport.
 
@@ -20,7 +20,7 @@ Providers that require a local executable or inherited login context are not sup
 
 ## Settings contract
 
-A source declares its models, key URL, detail text, preference key, key operations, version string, and configuration closure. Settings should derive UI from that declaration rather than switching on the provider ID.
+A source declares its models, key URL, detail text, preference key, version string and frozen configuration closure. Settings use the central owner for key operations and capability status. Settings should derive UI from that declaration rather than switching on the provider ID.
 
 If a saved source is absent from the current build, preserve the preference and report it unavailable. Never silently move a key or request to another provider.
 
@@ -34,3 +34,5 @@ Before registering a source:
 - verify cancellation while queued and while running;
 - verify empty output and mismatched/unknown model IDs are rejected;
 - inspect runtime logs to confirm text, keys, and raw responses are absent.
+
+For non-text backends, implement `ModelEmbeddingInvocation` or `ModelJevInvocation` and bind it with `ModelConfiguration.bindEmbedding(profile:factory:)` or `bindJev(model:factory:)`. Preserve explicit vector-space identity and Jev scores/alias semantics; never wrap arbitrary JSON as a universal text result. See [implementation](../plugins/ai-provider-implementation.md) for exact seams.

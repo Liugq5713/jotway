@@ -90,13 +90,13 @@ AI Gateway 的基础分析、缓存、限流目前免费；Guardrails 等能力�
 
 ## Jotway 的适配边界
 
-以下是调研时的代码观察；当前产品行为仍以 [AI capability](../plugins/ai.md) 和 [Jev intent recognition](jev-intent-research.md) 为准。
+以下是调研时的代码观察；当前产品行为仍以 [AI capability](../plugins/ai.md) 和 [current routing](../product/overview.md) 为准。
 
 | 调用路径 | 已有实现 | 对代理的意义 |
 |---|---|---|
-| Jev 意图识别 | [Jev.swift](../../Sources/Integrations/Jev.swift) 的请求/资源超时为 1.5 秒；[IntentRecognition.swift](../../Sources/Features/Launcher/IntentRecognition.swift) 默认先防抖 500 ms | 500 ms 防抖不属于 1.5 秒网络超时。新增链路更易耗尽网络预算；应独立评估，不因文本整理可用就一起迁移 |
-| 通用 AI transport | [OpenAICompatible.swift](../../Sources/Integrations/OpenAICompatible.swift) 设置 `stream: false`，用 `URLSession.data(for:)` 收完整响应，超时 120 秒 | Worker 支持 SSE 不会自动使客户端逐字显示；当前重点是完整结果耗时 |
-| 存入前整理 | [BundledActions.swift](../../Sources/Actions/BundledActions.swift) 单独构造固定 DeepSeek 的 processor；[AITextProcessor.swift](../../Sources/Actions/AITextProcessor.swift) 在失败时回退原文 | 只改设置页的通用 provider 不一定覆盖这条路径；提醒和日历仍要完整结构化结果才能创建 |
+| Jev 意图识别 | `Jev.swift`（研究时的实现，现已退休） 的请求/资源超时为 1.5 秒；[IntentRecognition.swift](../../Sources/Features/Launcher/IntentRecognition.swift) 默认先防抖 500 ms | 500 ms 防抖不属于 1.5 秒网络超时。新增链路更易耗尽网络预算；应独立评估，不因文本整理可用就一起迁移 |
+| 通用 AI transport | [OpenAICompatible.swift](../../Sources/Integrations/OpenAICompatible.swift) 设置 `stream: false`，用 `URLSession.data(for:)` 收完整响应，默认超时 300 秒 | Worker 支持 SSE 不会自动使客户端逐字显示；当前重点是完整结果耗时 |
+| 存入前整理 | [BundledActions.swift](../../Sources/Actions/BundledActions.swift) 单独构造固定 DeepSeek 的 processor；`AITextProcessor.swift`（研究时的实现，现已退休） 在失败时回退原文 | 只改设置页的通用 provider 不一定覆盖这条路径；提醒和日历仍要完整结构化结果才能创建 |
 | 模型与排队 | [AIProviderPlugin.swift](../../Sources/Plugins/AIProvider/AIProviderPlugin.swift) 在每个 actor 实例内串行调用，校验请求模型与返回模型一致 | 后端偷偷换模型可能触发拒收；代理不会消除客户端排队 |
 | 提前准备 | [ActionExecutor.swift](../../Sources/Actions/ActionExecutor.swift) 默认防抖 500 ms 后准备，并复用同一输入的结果 | 网络总耗时与按 Enter 后剩余等待不同，应分别记录 |
 

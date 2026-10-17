@@ -435,7 +435,7 @@ struct OperationStore: Sendable {
             guard event.reasonCode != nil else { throw OperationStoreError.invalid("rejected_reason") }
             try outcome(event, allowed: [.failed, .unavailable])
         case (.executionFinished, .execution):
-            try outcome(event, allowed: [.created, .opened, .prefilled, .accepted, .failed, .unknown], required: true)
+            try outcome(event, allowed: [.created, .opened, .prefilled, .accepted, .completed, .failed, .unknown], required: true)
         case (.draftRestored, .restoration(let details)):
             guard !details.sourceLineageID.isEmpty else { throw OperationStoreError.invalid("restore_source") }
             try outcome(event, allowed: [])

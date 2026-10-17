@@ -3,7 +3,6 @@ import Foundation
 struct RouteInput: Sendable {
     let draft: RecordDraft
     let actions: [ActionDescriptor]
-    let userRules: [IntentRule]
     let explicitTargetID: String?
     let recognizedTargetID: String?
     let recognitionIsCurrent: Bool
@@ -20,7 +19,6 @@ enum RouteFailure: Equatable, Sendable {
 
 enum RouteSource: Equatable, Sendable {
     case explicit
-    case userRule
     case localKeyword
     case recognition
     case fallback
@@ -66,21 +64,17 @@ struct RouteResolver: Sendable {
 
         if let explicit = input.explicitTargetID { return target(explicit, source: .explicit) }
 
+        let explicitOnly = Set((input.actions + input.setupActions).filter(\.requiresExplicitSelection).map(\.id))
         let lowercased = text.lowercased()
-        if let rule = input.userRules.first(where: {
-            let phrase = $0.phrase.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            return !phrase.isEmpty && lowercased.hasPrefix(phrase)
-        }) {
-            return target(rule.actionID, source: .userRule)
-        }
-
         if let action = (input.actions + input.setupActions).first(where: { descriptor in
-            descriptor.intentHints.localKeywords.contains { Self.matchesLocalPrefix($0, in: lowercased) }
+            descriptor.intentHints.localKeywords.contains {
+                !$0.hasPrefix("@") && Self.matchesLocalPrefix($0, in: lowercased)
+            }
         }) {
             return target(action.id, source: .localKeyword)
         }
 
-        if input.recognitionIsCurrent, let recognized = input.recognizedTargetID,
+        if input.recognitionIsCurrent, let recognized = input.recognizedTargetID, !explicitOnly.contains(recognized),
            actionIDs.contains(recognized) || input.applicationIDs.contains(recognized) {
             return target(recognized, source: .recognition)
         }
@@ -98,9 +92,10 @@ struct RouteResolver: Sendable {
     /// English prefixes require a token boundary so a longer word cannot produce a false match.
     /// Existing CJK prefixes retain their established behavior.
     static func matchesLocalPrefix(_ prefix: String, in text: String) -> Bool {
+        guard !prefix.hasPrefix("@") else { return false }
         guard let range = text.range(of: prefix, options: [.anchored, .caseInsensitive]) else { return false }
         guard range.upperBound != text.endIndex else { return true }
-        // A delimiter included in the prefix already supplies the token boundary (e.g. "ChatGPT:").
+        // A delimiter included in the prefix already supplies the token boundary (e.g. "Note:").
         if let last = prefix.last, last.isWhitespace || last.unicodeScalars.allSatisfy({
             CharacterSet.punctuationCharacters.contains($0)
         }) { return true }

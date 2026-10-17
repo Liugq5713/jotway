@@ -1,0 +1,171 @@
+
+/* Local clipboard history */
+"clipboard.title" = "剪贴板";
+"clipboard.summary" = "搜索并复制本地剪贴板历史。";
+"clipboard.group" = "本地";
+"clipboard.collect" = "采集剪贴板历史";
+"clipboard.privacy" = "仅保存在此 Mac。输入空闲时在本地识别图片文字。采集开关独立于 action 显示开关。";
+"clipboard.clear" = "清空剪贴板历史";
+"clipboard.clear_confirm" = "清空全部剪贴板历史？";
+"clipboard.clear_detail" = "删除保存的文字、图片和识别文字。当前剪贴板保持不变。";
+"clipboard.collecting" = "正在采集";
+"clipboard.paused" = "采集已关闭";
+"clipboard.loading" = "正在读取历史…";
+"clipboard.empty" = "无匹配历史。请在 Clipboard 设置中启用采集以保存新复制的内容。";
+"clipboard.image" = "图片 · %@ × %@";
+"clipboard.select_hint" = "选中后按回车复制。Jotway 不会自动粘贴。";
+"clipboard.select_item" = "请先选择剪贴板历史条目。";
+"clipboard.too_large" = "剪贴板内容超过大小限制。";
+"clipboard.invalid_image" = "无法读取此图片。";
+"clipboard.storage_failed" = "历史存储失败。采集已暂停。重新切换采集开关以重试。";
+"clipboard.item_unavailable" = "此历史条目已不可用。";
+"clipboard.copy_failed" = "复制失败。查询保持不变。";
+"clipboard.ocr_pending" = "等待输入空闲";
+"clipboard.ocr_processing" = "正在识别文字…";
+"clipboard.ocr_empty" = "未发现文字";
+"clipboard.ocr_failed" = "文字识别失败";
+"clipboard.text" = "文字";
+
+"launcher.mode.sticky" = "切换为临时便签";
+"launcher.mode.quick_input" = "返回快捷输入";
+"launcher.mode.blocked.composition" = "请完成中文组词后再切换。";
+"launcher.mode.blocked.onboarding" = "请完成首次引导后再切换。";
+"launcher.mode.blocked.setup" = "请关闭 action 配置后再切换。";
+"launcher.mode.blocked.conversation" = "请关闭 Personal Agent 会话后再切换。";
+"launcher.mode.blocked.submission" = "请等待当前提交受理完成。";
+
+// Input templates
+"templates.title" = "模板";
+"templates.subtitle" = "重复使用的草稿正文，执行目标另行选择。";
+"templates.built_in" = "内置模板";
+"templates.fixed" = "内置模板不可删除。";
+"templates.custom" = "自定义模板";
+"templates.edit" = "编辑";
+"templates.delete" = "删除";
+"templates.add" = "新增模板";
+"templates.editing" = "编辑模板";
+"templates.name" = "名称";
+"templates.body" = "模板正文";
+"templates.save" = "保存";
+"templates.cancel" = "取消";
+"templates.syntax_title" = "占位符语法";
+"templates.syntax_help" = "支持 ${1}、${2:默认文字} 和一个可选 ${0}。正编号不可重复或带前导零。Tab / Shift+Tab 切换字段，Esc 结束填写。不支持嵌套、变量、选择项和转换。用 \\$ 表示字面 $，\\\\ 表示反斜杠，默认文字内用 \\} 表示右花括号；$1 是普通文字。";
+"templates.invalid_syntax" = "模板语法无效，UTF-16 位置 %d。";
+"templates.invalid_name" = "请输入非空、单行名称。";
+"templates.duplicate_name" = "已有同名模板（不区分大小写）。";
+"templates.empty_body" = "展开后的正文不能为空白。";
+"templates.storage_read_failed" = "无法读取已保存模板。原数据已保留，自定义编辑已停用。";
+"templates.storage_write_failed" = "模板保存失败，保留上一有效版本。";
+"templates.selected" = "已选中";
+"templates.insert_help" = "填入模板正文，不执行提交。";
+"templates.filling_help" = "Tab：下一字段。Shift+Tab：上一字段。Esc：结束填写。";
+
+"notes.title.pending" = "标题待生成";
+
+"notes.title.heading" = "首次笔记标题";
+
+"notes.title.help" = "新笔记由快速模型概括首条原文，独立于按天归集和 AI 补充开关。标题失败时完整原文只保存一次，使用待生成标题；仅在当天后台重试，Notes 中的手动编辑会停止自动替换。追加时保留当前标题。";
+
+"notes.title.unconfigured" = "请在下方配置快速模型以生成标题；未配置时仍可完整保存原文和待生成标题。";
+
+"action.codex.checking" = "正在检测 Codex CLI…";
+
+"action.codex.cli_missing" = "在当前执行环境中未检测到 Codex CLI。请安装后重新检查配置。";
+
+"action.codex.check_failed" = "无法检测 Codex CLI。请重新检查配置，或运行配置修复检测脚本。";
+
+"action.codex.ready" = "Codex CLI 和任务脚本已就绪。登录状态及模型权限会在运行任务时检查。";
+
+"action.codex.missing" = "请配置 Codex 只读检测和任务脚本。";
+
+"action.codex.setup_help" = "配置会打开终端，先安装只读检测，再检查 Codex CLI 和现有登录后安装任务脚本。不会安装 Codex 或自动登录。";
+
+"templates.menu_title" = "输入模板";
+"templates.no_preview" = "无正文预览";
+"templates.insert" = "插入正文";
+"recent_documents.item" = "最近文档 %d";
+"recent_documents.empty_slot" = "暂无最近文档";
+"recent_documents.open" = "在输入框下方查看文档";
+"recent_documents.title" = "最近文档";
+"recent_documents.loading" = "正在加载文档…";
+"recent_documents.retry" = "重试";
+"recent_documents.close" = "关闭文档";
+"recent_documents.empty_body" = "这篇文档没有正文。";
+"recent_documents.load_failed" = "无法读取这篇文档，可能已锁定、删除或暂时不可用。请检查 Notes 访问权限后重试。";
+
+// Notes reviews
+"notes.review.title" = "笔记回顾";
+"notes.review.weekly" = "每周回顾";
+"notes.review.monthly" = "每月回顾";
+"notes.review.loading" = "正在总结近期笔记…";
+"notes.review.generating" = "正在生成…";
+"notes.review.regenerate" = "回顾配置已更改。请关闭后重新打开以再次生成。";
+"notes.review.empty" = "没有足够内容生成回顾。";
+"notes.review.failed" = "暂时无法生成回顾，请重试。";
+"notes.review.unavailable.disabled" = "笔记回顾已关闭，请在 Related History 设置中开启。";
+"notes.review.unavailable.not_ready" = "请先启用并同步 Related History，再查看笔记回顾。";
+"notes.review.coverage" = "仅基于已索引的笔记。";
+"notes.review.note_count" = "%d 篇笔记";
+"notes.review.themes" = "值得注意的主题";
+"notes.review.theme_count" = "（%d）";
+"notes.review.unresolved" = "值得再想";
+"notes.review.enable" = "每周和每月回顾";
+"notes.review.enable.help" = "点击快捷输入左下角的两个按钮，回顾最近 7 天或 30 天的笔记。";
+
+// Draft thinking prompts
+"thinking.settings.title" = "思考提示";
+"thinking.settings.automatic" = "自动追问";
+"thinking.settings.help" = "默认关闭。开启后，停写约 1 秒会把当前草稿发送给 fast 模型，生成一条临时追问。提示不会加入存入正文。";
+"thinking.open" = "获取思考提示";
+"thinking.title" = "思考提示 · AI";
+"thinking.snapshot" = "基于生成时的草稿";
+"thinking.refresh" = "换一个";
+"thinking.close" = "关闭思考提示";
+"thinking.loading" = "正在生成…";
+"thinking.empty" = "这次没有合适的提示。可以继续写，或换一个。";
+"thinking.unconfigured" = "请先在 Writing Help 配置 fast 模型。";
+"thinking.configure" = "打开 Writing Help";
+"thinking.too_large" = "草稿超出提示输入上限，完整正文保持不变。";
+"thinking.timeout" = "提示生成超时，可以重试。";
+"thinking.failed" = "未取得可用提示，可以重试。";
+"thinking.updated" = "思考提示已更新";
+"thinking.blocked.empty" = "先写一点内容";
+"thinking.blocked.clipboard" = "剪贴板查询仅在本机处理";
+"thinking.blocked.menu" = "先完成当前菜单或模板填写";
+"thinking.blocked.unavailable" = "返回编辑区后可请求提示";
+
+// Selected text and direct-distribution recovery
+"selected_text.title" = "选中文字";
+"selected_text.help" = "在其他应用中使用记录快捷键，可摘录支持辅助功能的控件中的选中文字；无法读取时沿用最近复制的文字。";
+"selected_text.granted" = "已允许辅助功能";
+"selected_text.missing" = "尚未允许辅助功能";
+"selected_text.allow" = "允许辅助功能…";
+"selected_text.settings" = "系统设置…";
+"selected_text.notice" = "若需免复制摘录选中文字，可在设置 → 通用中允许辅助功能。普通记录仍可使用。";
+"migration.title" = "Jotway 需要完成数据迁移";
+"migration.recovery" = "原容器仍被保留。请关闭其他 Jotway 实例后重试，或选择你自己的 Jotway 容器。此版本产生新记录后，请勿直接用旧容器覆盖新数据。";
+"migration.retry" = "重试";
+"migration.choose" = "选择 Jotway 容器…";
+"migration.error.unsafePath" = "数据路径或所有权不安全。";
+"migration.error.inaccessible" = "无法读取或保存所需数据，请检查自己 Jotway 容器的访问权限。";
+"migration.error.sourceRunning" = "另一个 Jotway 实例或迁移仍在运行。";
+"migration.error.conflictingState" = "两处存在无法安全合并的状态，两侧数据均已保留。";
+"migration.error.invalidCopy" = "数据副本未通过完整性检查，原数据未变。";
+"migration.error.invalidJournal" = "迁移检查点与现有数据不匹配。";
+"migration.error.preferences" = "偏好设置无法安全复制并核验。";
+
+// Target capsule interaction
+"launcher.choose_target_help" = "点击确认当前目标；目标菜单已打开时只收起菜单。按 Tab 聚焦后，用 Return 或 Space 选择目标。";
+"launcher.confirm_target" = "确认当前目标";
+
+// Recent document navigation
+"recent_documents.toggle_help" = "查看最近存入的文档；已打开时关闭文档。";
+"recent_documents.position" = "%d / %d";
+"recent_documents.newer" = "上一条（较新文档）";
+"recent_documents.older" = "下一条（较早文档）";
+
+/* Account-owned embedding configuration. */
+"notes.history.endpoint" = "向量服务地址";
+"notes.history.endpoint_help" = "填写你自己的工作空间的 HTTPS DashScope 向量服务地址。应用不预设工作空间。保存不会测试连接；更改地址后需重建已有索引。清空地址即可断开配置。";
+"notes.history.save_endpoint" = "保存服务地址";
+"notes.history.error.configuration" = "请填写你自己的工作空间的有效 HTTPS DashScope 向量服务地址。";

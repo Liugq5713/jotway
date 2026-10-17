@@ -5,7 +5,7 @@ import Foundation
 @MainActor
 final class APIKeyStore {
     enum Provider: String, CaseIterable {
-        case deepSeek = "deepseek", jev, moonshot
+        case deepSeek = "deepseek", moonshot, notesEmbedding
     }
 
     enum Failure: Error, LocalizedError, Equatable, RuntimeLogError {

@@ -3,27 +3,6 @@ import CoreText
 import KeyboardShortcuts
 import SwiftUI
 
-/// 同一套中性颜色供 SwiftUI 卡片与 AppKit 正文、placeholder、光标使用。
-private enum EditorPalette {
-    static let surface = adaptive(0xFAFBFC, 0x202226)
-    static let outline = adaptive(0xDCE0E5, 0x3F4248)
-    static let text = adaptive(0x24262A, 0xE7E9EE)
-    static let secondary = adaptive(0x777C85, 0x959BA7)
-    static let button = adaptive(0xEDF0F4, 0x2C2F35)
-    static let buttonText = adaptive(0x5B6471, 0xB9C1CD)
-    static let keycap = adaptive(0xDFE5ED, 0x3A4350)
-    static let accent = adaptive(0x285BAF, 0x72BDED)
-
-    private static func adaptive(_ light: UInt32, _ dark: UInt32) -> NSColor {
-        NSColor(name: nil) { appearance in
-            let rgb = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
-            return NSColor(srgbRed: CGFloat((rgb >> 16) & 255) / 255,
-                           green: CGFloat((rgb >> 8) & 255) / 255,
-                           blue: CGFloat(rgb & 255) / 255, alpha: 1)
-        }
-    }
-}
-
 /// AppKit 编辑器与窗口之间的焦点、组词和用户事件桥接。
 @MainActor @Observable
 final class EditorFocusTarget {
@@ -33,9 +12,38 @@ final class EditorFocusTarget {
     }
 
     @ObservationIgnored weak var textView: NSTextView?
+    @ObservationIgnored weak var modeButton: NSButton?
+    @ObservationIgnored var recentDocumentButtons: [NSButton] = []
+    @ObservationIgnored var recentDocumentCommandButtons: [Int: NSButton] = [:]
+    @ObservationIgnored var reviewButtons: [NSButton] = []
+    @ObservationIgnored weak var thinkingButton: NSButton?
+    @ObservationIgnored var thinkingCommandButtons: [Int: NSButton] = [:]
     @ObservationIgnored var preserveSelectionOnNextFocus = false
     var targetSelectorFocusRequest = 0
     var highlightedTargetMenuItem: TargetMenuItem?
+    var highlightedTemplateID: String?
+
+    func refreshTemplateFocus(previous: [InputTemplate], candidates: [InputTemplate]) {
+        if previous.isEmpty || !candidates.contains(where: { $0.id == highlightedTemplateID }) {
+            highlightedTemplateID = candidates.first?.id
+        }
+    }
+
+    func moveTemplateFocus(forward: Bool, state: LauncherViewState) {
+        let candidates = state.templateCandidates
+        guard !candidates.isEmpty else { return }
+        let index = candidates.firstIndex(where: { $0.id == highlightedTemplateID }) ?? 0
+        highlightedTemplateID = candidates[(index + (forward ? 1 : -1) + candidates.count) % candidates.count].id
+    }
+
+    func selectHighlightedTemplate(state: LauncherViewState, send: (LauncherEvent) -> Void) {
+        guard state.isTemplateMenuVisible, !state.isComposingText,
+              textView?.hasMarkedText() != true else { return }
+        guard let candidate = state.templateCandidates.first(where: { $0.id == highlightedTemplateID })
+            ?? state.templateCandidates.first else { return }
+        send(.selectTemplate(candidate))
+        restoreEditorFocus()
+    }
 
     func resetTargetMenuFocus(state: LauncherViewState) {
         highlightedTargetMenuItem = state.intentCandidates.first(where: \.isSelected)
@@ -72,6 +80,71 @@ final class EditorFocusTarget {
         textView.window?.makeFirstResponder(textView)
     }
 
+    func focusModeControl() {
+        guard textView?.hasMarkedText() != true, let modeButton else { return }
+        modeButton.window?.makeFirstResponder(modeButton)
+    }
+
+    @discardableResult
+    func focusRecentDocument(last: Bool = false) -> Bool {
+        guard textView?.hasMarkedText() != true else { return false }
+        let enabled = recentDocumentButtons.filter { $0.isEnabled && !$0.isHiddenOrHasHiddenAncestor && $0.window != nil }
+        guard let button = last ? enabled.last : enabled.first else { return false }
+        return button.window?.makeFirstResponder(button) == true
+    }
+
+    @discardableResult
+    func focusReview(last: Bool = false) -> Bool {
+        guard textView?.hasMarkedText() != true else { return false }
+        let enabled = reviewButtons.filter { $0.isEnabled && $0.window != nil }
+        guard let button = last ? enabled.last : enabled.first else { return false }
+        return button.window?.makeFirstResponder(button) == true
+    }
+
+    func restoreEditorIfRecentDocumentFocused() {
+        guard textView?.hasMarkedText() != true, let responder = textView?.window?.firstResponder else { return }
+        if recentDocumentButtons.contains(where: { $0 === responder })
+            || recentDocumentCommandButtons.values.contains(where: { $0 === responder }) { restoreEditorFocus() }
+    }
+
+    func focusFollowingRecentDocument() {
+        if !focusReview(), !focusThinkingPrompt() { restoreEditorFocus() }
+    }
+
+    @discardableResult
+    func moveRecentDocumentCommandFocus(from slot: Int, forward: Bool, state: LauncherViewState) -> Bool {
+        guard textView?.hasMarkedText() != true, !state.isComposingText else { return false }
+        let slots = state.selectedRecentDocument != nil
+            ? recentDocumentCommandButtons.keys.sorted().filter {
+                guard let button = recentDocumentCommandButtons[$0] else { return false }
+                return button.isEnabled && !button.isHiddenOrHasHiddenAncestor && button.window != nil
+            } : []
+        let next = forward ? slots.first(where: { $0 > slot }) : slots.last(where: { $0 < slot })
+        if let next, let button = recentDocumentCommandButtons[next] {
+            return button.window?.makeFirstResponder(button) == true
+        }
+        if forward { focusFollowingRecentDocument() }
+        else if !focusRecentDocument() { restoreEditorFocus() }
+        return false
+    }
+
+    @discardableResult
+    func focusThinkingPrompt() -> Bool {
+        guard textView?.hasMarkedText() != true, let thinkingButton, thinkingButton.isEnabled else { return false }
+        return thinkingButton.window?.makeFirstResponder(thinkingButton) == true
+    }
+
+    func moveThinkingCommandFocus(from slot: Int, forward: Bool, state: LauncherViewState) {
+        let slots = state.thinkingPrompt?.display.isOpen == true
+            ? thinkingCommandButtons.keys.sorted().filter { thinkingCommandButtons[$0]?.isEnabled == true
+                && thinkingCommandButtons[$0]?.window != nil } : []
+        let next = forward ? slots.first(where: { $0 > slot }) : slots.last(where: { $0 < slot })
+        if let next, let button = thinkingCommandButtons[next] { button.window?.makeFirstResponder(button) }
+        else if !forward { if !focusThinkingPrompt() { restoreEditorFocus() } }
+        else if state.mode == .quickInput, state.canChooseTarget { targetSelectorFocusRequest += 1 }
+        else { restoreEditorFocus() }
+    }
+
     private func targetMenuItems(state: LauncherViewState) -> [TargetMenuItem] {
         state.intentCandidates.map { .target($0.id) } + (state.hasExplicitTarget ? [.automatic] : [])
     }
@@ -81,39 +154,67 @@ final class EditorFocusTarget {
 /// 默认 Enter 提交、Shift+Enter 换行；Esc 暂存并关闭。
 /// SwiftUI TextEditor 在非激活面板内焦点/按键不可靠，按文档预案回退为
 /// NSViewRepresentable 包 NSTextView（顺带解决 IME 组词中回车误触保存的问题）。
+private struct LauncherHeightMeasurement: Equatable {
+    let height: CGFloat
+    let generation: UUID
+}
+
 private struct LauncherTotalHeightKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+    static let defaultValue: LauncherHeightMeasurement? = nil
+    static func reduce(value: inout LauncherHeightMeasurement?, nextValue: () -> LauncherHeightMeasurement?) {
+        if let next = nextValue() { value = next }
+    }
 }
 
 private struct LauncherInputCardHeightKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+    static let defaultValue: LauncherHeightMeasurement? = nil
+    static func reduce(value: inout LauncherHeightMeasurement?, nextValue: () -> LauncherHeightMeasurement?) {
+        if let next = nextValue() { value = next }
+    }
+}
+
+private struct TemplateMenuScrollTarget: Equatable {
+    let candidates: [InputTemplate]
+    let highlightedID: String?
+    let height: CGFloat
+}
+
+private struct TargetMenuScrollTarget: Equatable {
+    let candidates: [IntentCandidate]
+    let highlightedID: String?
+    let height: CGFloat
 }
 
 struct EditorView: View {
     @Binding var text: String
     var appState: AppState? = nil
+    @Environment(\.openSettings) private var openSettings
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     let focusTarget: EditorFocusTarget
     let state: LauncherViewState
     let send: (LauncherEvent) -> Void
     /// 内容尺寸变化上报（总高、输入卡高），窗口据此顶锚定改高
-    var onContentSizeChange: (CGFloat, CGFloat) -> Void = { _, _ in }
+    var onContentSizeChange: (CGFloat, CGFloat, UUID) -> Void = { _, _, _ in }
     /// 手动调整时固定输入卡高度，新增空间交给编辑区；nil 恢复按正文自动长高。
     var manualInputCardHeight: CGFloat? = nil
+    var maximumContentHeight: CGFloat = 668
 
     /// placeholder 单点定义（EditorTextView 的默认值也引用这里）。
     static var placeholderText: String { L10n.text("launcher.placeholder") }
 
+    @State private var actionRowWidth: CGFloat = LauncherMetrics.panelWidth - 2 * LauncherMetrics.cardPaddingH
+    @State private var isInputCardHovered = false
     @State private var editorTextHeight: CGFloat = LauncherMetrics.editorMinHeight
-    @State private var reportedTotalHeight: CGFloat = 0
-    @State private var reportedCardHeight: CGFloat = 0
+    @State private var reportedTotalHeight: LauncherHeightMeasurement?
+    @State private var reportedCardHeight: LauncherHeightMeasurement?
     /// 同一轮布局里总高与卡高两个 preference 会先后到达，合并为一次上报，避免窗口收两帧几何。
     @State private var geometryReportScheduled = false
     @FocusState private var isTargetSelectorFocused: Bool
 
     var body: some View {
+        let generation = state.modeGeneration
         // 菜单开合与 NSPanel 的瞬时改高保持一致；整栈动画会让正文先跳位再滑回。
         let stack = VStack(spacing: LauncherMetrics.cardGap) {
             inputCard
@@ -124,7 +225,8 @@ struct EditorView: View {
         .fixedSize(horizontal: false, vertical: true)
         .background(
             GeometryReader { proxy in
-                Color.clear.preference(key: LauncherTotalHeightKey.self, value: proxy.size.height)
+                Color.clear.preference(key: LauncherTotalHeightKey.self,
+                                       value: .init(height: proxy.size.height, generation: generation))
             }
         )
         .onPreferenceChange(LauncherTotalHeightKey.self) { total in
@@ -146,7 +248,10 @@ struct EditorView: View {
                 }
             }
             .onChange(of: focusTarget.targetSelectorFocusRequest) { _, _ in
-                if state.canChooseTarget { isTargetSelectorFocused = true }
+                if hasDraftContent, state.canChooseTarget { isTargetSelectorFocused = true }
+            }
+            .onChange(of: state.templateCandidates) { previous, candidates in
+                focusTarget.refreshTemplateFocus(previous: previous, candidates: candidates)
             }
     }
 
@@ -156,29 +261,37 @@ struct EditorView: View {
         geometryReportScheduled = true
         DispatchQueue.main.async {
             geometryReportScheduled = false
-            onContentSizeChange(reportedTotalHeight, reportedCardHeight)
+            let generation = state.modeGeneration
+            guard let total = reportedTotalHeight, let card = reportedCardHeight,
+                  total.generation == generation, card.generation == generation else { return }
+            onContentSizeChange(total.height, card.height, generation)
         }
     }
 
-    /// 悬浮层只挂动作目标选择器（普通输入的动作与摘要已收进输入卡动作行）。
+    /// 悬浮层显示目标选择器、@ 补全菜单或所选 action 的内容。
     private var isOverlayVisible: Bool {
         if state.isReadingGettingStarted { return false }
-        return state.isIntentCandidateMenuVisible
+        if state.selectedRecentDocument != nil || state.thinkingPrompt?.display.isOpen == true { return true }
+        if state.mode == .sticky { return false }
+        return state.isIntentCandidateMenuVisible || state.isTemplateMenuVisible
+            || state.showsCodexRecentTasks || state.clipboardHistory != nil || state.showsReview
     }
 
     private var accent: Color {
         Color(nsColor: EditorPalette.accent)
     }
 
-    /// 实色表面不受桌面颜色影响，也满足 Reduce Transparency。
+    /// 每张卡独立裁剪材质；辅助设置仅更新背景，不重建原生编辑器。
     private func cardChrome<Content: View>(_ content: Content, cornerRadius: CGFloat,
                                          onBackgroundClick: (() -> Void)? = nil) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        // 圆角之外保持透明；外扩阴影在浅色桌面上会形成一圈灰底。
+        // 圆角之外保持透明；柔和的"浮起"感来自窗口的系统阴影（RecordPanel.hasShadow）。
         return content
             .background(WindowDragHandle(onClick: onBackgroundClick)) // 拖拽只挂在非文本区域。
             .background {
-                shape.fill(Color(nsColor: EditorPalette.surface)).allowsHitTesting(false)
+                EditorCardBackground(cornerRadius: cornerRadius, colorScheme: colorScheme,
+                                     reduceTransparency: reduceTransparency,
+                                     increasesContrast: colorSchemeContrast == .increased)
             }
             .overlay { cardOutline(shape) }
     }
@@ -192,23 +305,58 @@ struct EditorView: View {
             .allowsHitTesting(false)
     }
 
+    private var inputCardChromeHeight: CGFloat {
+        LauncherMetrics.inputCardChromeHeight
+    }
+
+    /// Reserve the lower area's smallest useful viewport before reducing the writing preference.
+    /// On very small screens the old one-line budget gives way only after the lower rows shrink.
+    private func reservedOverlayHeight(for maximumHeight: CGFloat) -> CGFloat {
+        guard isOverlayVisible else { return 0 }
+        let desired = state.isTemplateMenuVisible
+            ? LauncherMetrics.templateMenuChromeHeight + LauncherMetrics.templateRowHeight : 64
+        let floor = state.isTemplateMenuVisible ? LauncherMetrics.templateMenuChromeHeight : 64
+        let afterOneLine = maximumHeight - LauncherMetrics.inputCardChromeHeight
+            - LauncherMetrics.editorMinHeight - LauncherMetrics.cardGap
+        return min(max(floor, min(desired, afterOneLine)),
+                   max(0, maximumHeight - LauncherMetrics.inputCardChromeHeight - LauncherMetrics.cardGap))
+    }
+
+    private func maximumInputCardHeight(for maximumHeight: CGFloat) -> CGFloat {
+        max(0, maximumHeight - (isOverlayVisible ? LauncherMetrics.cardGap + reservedOverlayHeight(for: maximumHeight) : 0))
+    }
+
+    /// RecordPanel uses this same effective minimum when constraining its window and manual height.
+    func minimumInputCardHeight(for maximumHeight: CGFloat) -> CGFloat {
+        min(state.mode == .sticky ? LauncherMetrics.stickyMinHeight : LauncherMetrics.inputCardMinHeight,
+            maximumInputCardHeight(for: maximumHeight))
+    }
+
+    var minimumInputCardHeight: CGFloat { minimumInputCardHeight(for: maximumContentHeight) }
+
+    private var editorMinimumHeight: CGFloat {
+        let preferred = state.mode == .sticky ? LauncherMetrics.editorMinHeight : LauncherMetrics.quickInputEditorMinHeight
+        return max(0, min(preferred, minimumInputCardHeight - inputCardChromeHeight))
+    }
+
+    private var editorMaximumHeight: CGFloat {
+        min(LauncherMetrics.editorMaxHeight,
+            max(0, maximumInputCardHeight(for: maximumContentHeight) - inputCardChromeHeight))
+    }
+
     private var editorHeight: CGFloat {
-        min(max(editorTextHeight, LauncherMetrics.editorMinHeight),
-            LauncherMetrics.editorMaxHeight - (hasPlanResult ? LauncherMetrics.planResultMaxHeight + LauncherMetrics.cardInnerGap : 0))
+        min(max(editorTextHeight, editorMinimumHeight), editorMaximumHeight)
     }
 
-    private var hasPlanResult: Bool {
-        !state.isReadingGettingStarted && (state.planSummary != nil || state.timeIssue != nil
-            || state.preparationFailure != nil || state.isCheckingActionPlan)
-    }
-
-    var minimumInputCardHeight: CGFloat {
-        LauncherMetrics.inputCardMinHeight
-            + (hasPlanResult ? LauncherMetrics.planResultMaxHeight + LauncherMetrics.cardInnerGap : 0)
+    private var overlayAvailableHeight: CGFloat {
+        let cardHeight = min(max(reportedCardHeight?.height ?? 0, minimumInputCardHeight),
+                             maximumInputCardHeight(for: maximumContentHeight))
+        return max(0, maximumContentHeight - cardHeight - LauncherMetrics.cardGap)
     }
 
     private var inputCard: some View {
-        cardChrome(
+        let generation = state.modeGeneration
+        return cardChrome(
             VStack(spacing: LauncherMetrics.cardInnerGap) {
                 EditorTextViewRepresentable(
                     text: $text,
@@ -216,23 +364,24 @@ struct EditorView: View {
                     state: state,
                     send: send,
                     placeholder: Self.placeholderText,
+                    automaticViewportHeightLimit: state.mode == .quickInput && manualInputCardHeight == nil
+                        ? editorMaximumHeight : nil,
                     onContentHeightChange: { editorTextHeight = $0 }
                 )
-                .frame(minHeight: manualInputCardHeight == nil ? editorHeight : LauncherMetrics.editorMinHeight,
+                .frame(minHeight: manualInputCardHeight == nil ? editorHeight : editorMinimumHeight,
                        maxHeight: manualInputCardHeight == nil ? editorHeight : .infinity)
-                if hasPlanResult {
-                    ActionPlanResultRow(state: state, send: send)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
                 actionRow
             }
             .padding(.horizontal, LauncherMetrics.cardPaddingH)
             .padding(.top, LauncherMetrics.cardPaddingTop)
             .padding(.bottom, LauncherMetrics.cardPaddingBottom)
-            .frame(height: manualInputCardHeight.map { max($0, minimumInputCardHeight) })
+            .frame(height: manualInputCardHeight.map {
+                max(min($0, maximumInputCardHeight(for: maximumContentHeight)), minimumInputCardHeight)
+            })
             .background(
                 GeometryReader { proxy in
-                    Color.clear.preference(key: LauncherInputCardHeightKey.self, value: proxy.size.height)
+                    Color.clear.preference(key: LauncherInputCardHeightKey.self,
+                                           value: .init(height: proxy.size.height, generation: generation))
                 }
             ),
             cornerRadius: LauncherMetrics.inputCardCornerRadius,
@@ -241,38 +390,49 @@ struct EditorView: View {
                 textView.window?.makeFirstResponder(textView)
             }
         )
+        .onHover { isInputCardHovered = $0 }
     }
 
     // MARK: - 动作行（固定 22pt，始终占位）
 
-    /// 状态行文字的优先级：阻断性失败 > 明确用户操作反馈 > 识别中提示。
-    /// 动作摘要已下线——目标由右侧动作标签单一承载，不再与「存到备忘录」重复叙述。
-    private var actionRowStatusText: String? {
-        if state.isPreparingAction { return L10n.text("schedule.preparing") }
-        if let message = state.message { return message }
-        if let trial = appState?.shortcutTrialMessage { return trial }
-        if let status = state.intentStatus { return status }
-        if let issue = state.intentIssue { return issue }
-        return nil
-    }
-
-    /// 动作行：反馈/状态（单行尾省略，靠左）→ 弹性空间 → 目标选择入口（靠右）。
+    /// 模式入口固定左下；快捷输入的反馈与目标占用其右侧剩余空间。
     private var actionRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            if let status = actionRowStatusText {
-                Text(status)
-                    .font(.system(size: 12))
-                    .foregroundStyle(colorSchemeContrast == .increased ? Color.secondary : Color(nsColor: EditorPalette.secondary))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .layoutPriority(-1) // 窄窗口先压反馈
-                    .help(status)
-                    .accessibilityLabel(status)
-                    .accessibilityAddTraits(.updatesFrequently)
-                    .padding(.bottom, 1) // 与动作标签基线对齐
+            ModeControl(focusTarget: focusTarget, state: state, send: send,
+                        isCardHovered: isInputCardHovered,
+                        increasesContrast: colorSchemeContrast == .increased)
+                .frame(width: 22, height: 22)
+                .frame(height: LauncherMetrics.actionRowHeight)
+            if state.canShowRecentDocuments {
+                RecentDocumentControls(focusTarget: focusTarget, state: state,
+                                       isCardHovered: isInputCardHovered,
+                                       increasesContrast: colorSchemeContrast == .increased, send: send)
+                    .frame(width: 22, height: 22)
+                    .frame(height: LauncherMetrics.actionRowHeight)
             }
-            Spacer(minLength: 0)
-            actionTarget
+            if state.mode == .quickInput {
+                NotesReviewControls(focusTarget: focusTarget, state: state, send: send,
+                                    isCardHovered: isInputCardHovered,
+                                    increasesContrast: colorSchemeContrast == .increased)
+                    .frame(width: 46, height: 22)
+                    .fixedSize()
+            }
+            DraftThinkingPromptControl(focusTarget: focusTarget, state: state,
+                isCardHovered: isInputCardHovered, send: send)
+                .frame(width: 22, height: 22)
+            if state.mode == .quickInput {
+                HStack(alignment: .bottom, spacing: 8) {
+                    if hasDraftContent, !state.isReadingGettingStarted {
+                        ActionPlanResultRow(state: state)
+                    } else {
+                        Spacer(minLength: 0)
+                    }
+                    actionTarget
+                }
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { actionRowWidth = $0 }
+            } else {
+                Spacer(minLength: 0)
+            }
         }
         // 下端对齐：动作标签贴着动作行下缘，视觉更沉稳。
         .frame(height: LauncherMetrics.actionRowHeight, alignment: .bottom)
@@ -285,63 +445,97 @@ struct EditorView: View {
 
     @ViewBuilder
     private var actionTarget: some View {
-        if !state.isReadingGettingStarted {
-            targetSelector
-                .layoutPriority(1)
+        if hasDraftContent, !state.isReadingGettingStarted {
+            if state.isTemplateMenuVisible {
+                returnHint
+                    .padding(.horizontal, LauncherMetrics.targetPaddingH)
+                    .frame(height: LauncherMetrics.actionRowHeight)
+                    .layoutPriority(1)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityIdentifier("launcher-confirm-hint")
+                    .accessibilityLabel(state.displayedActionTitle ?? L10n.text("launcher.choose_target"))
+                    .accessibilityHint(actionReturnHelp)
+                    .help((state.displayedActionTitle.map { $0 + "\n" } ?? "")
+                        + actionReturnHelp)
+            } else {
+                targetSelector
+                    .layoutPriority(1)
+            }
         }
+    }
+
+    private var returnHint: some View {
+        Image(systemName: "return")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(colorSchemeContrast == .increased ? Color.secondary : Color(nsColor: EditorPalette.buttonText))
+            .frame(width: 16, height: 16, alignment: .center)
+    }
+
+    private var actionReturnHelp: String {
+        L10n.text(state.isTemplateMenuVisible ? "templates.insert_help" : "launcher.confirm_action_help")
     }
 
     @ViewBuilder
     private var explicitTargetMark: some View {
-        if state.hasExplicitTarget {
+        if hasDraftContent || state.hasExplicitTarget {
             Circle().fill(accent).frame(width: 5, height: 5)
+                .opacity(state.hasExplicitTarget ? 1 : 0)
                 .accessibilityHidden(true)
         }
     }
 
-    /// 名称本身就是选择入口；回车键帽只提示编辑区的执行快捷键。
+    /// Pointer confirmation and keyboard target selection share the existing capsule.
     private var targetSelector: some View {
-        Button {
-            guard !state.isComposingText, focusTarget.textView?.hasMarkedText() != true else { return }
-            send(.toggleTargetMenu)
-            if state.isIntentCandidateMenuVisible { focusTarget.resetTargetMenuFocus(state: state) }
-        } label: {
-            HStack(spacing: 5) {
-                explicitTargetMark
-                Text(state.displayedActionTitle ?? L10n.text("launcher.choose_target"))
-                    .font(.system(size: 12, weight: .medium))
-                    .lineLimit(1)
-                    .frame(maxWidth: hasDraftContent ? 220 : 260, alignment: .leading)
-                if hasDraftContent, state.displayedActionTitle != nil {
-                    Image(systemName: "return")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(accent)
-                        .frame(width: 16, height: 16, alignment: .center)
-                        .background(Color(nsColor: EditorPalette.keycap), in: RoundedRectangle(cornerRadius: 3))
-                        .accessibilityHidden(true)
-                }
+        HStack(spacing: 5) {
+            explicitTargetMark
+            Image(systemName: state.displayedActionIcon ?? "square.grid.2x2")
+                .font(.system(size: 12))
+                .frame(width: 12, height: 12)
+                .accessibilityHidden(true)
+            Text(state.displayedActionTitle ?? L10n.text("launcher.choose_target"))
+                .font(.system(size: 12, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: hasDraftContent ? min(LauncherMetrics.targetLabelMaxWidth,
+                    max(0, actionRowWidth - LauncherMetrics.targetAccessoryWidth)) : nil, alignment: .leading)
+                .frame(maxWidth: hasDraftContent ? nil : 260, alignment: .leading)
+            if hasDraftContent {
+                Rectangle().fill(Color(nsColor: EditorPalette.buttonText).opacity(0.25))
+                    .frame(width: 1, height: 10)
+                    .accessibilityHidden(true)
+                returnHint
+                    .opacity(state.displayedActionTitle == nil ? 0 : 1)
+                    .accessibilityHidden(true)
             }
-            .padding(.horizontal, 7)
-            .frame(height: LauncherMetrics.actionRowHeight)
-            .background(Color(nsColor: EditorPalette.button), in: RoundedRectangle(cornerRadius: 6))
-            .overlay {
-                if isTargetSelectorFocused {
-                    RoundedRectangle(cornerRadius: 6).strokeBorder(accent, lineWidth: 1.5)
-                }
-            }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .focusable()
+        .padding(.horizontal, LauncherMetrics.targetPaddingH)
+        .frame(height: LauncherMetrics.actionRowHeight)
+        .background {
+            Capsule().fill(Color(nsColor: state.isIntentCandidateMenuVisible
+                ? EditorPalette.buttonActive : EditorPalette.button))
+        }
+        .overlay {
+            TargetCapsulePointer(focusTarget: focusTarget, state: state, activate: confirmTargetWithPointer)
+                .accessibilityHidden(true)
+        }
+        .overlay {
+            if isTargetSelectorFocused {
+                Capsule().strokeBorder(colorSchemeContrast == .increased ? Color.primary : accent, lineWidth: 1.5)
+                    .allowsHitTesting(false)
+            }
+        }
+        .focusable(state.canChooseTarget)
         .focused($isTargetSelectorFocused)
         .focusEffectDisabled()
         .fixedSize(horizontal: true, vertical: false)
         .foregroundStyle(colorSchemeContrast == .increased ? Color.primary : Color(nsColor: EditorPalette.buttonText))
-        .disabled(!state.canChooseTarget)
+        .accessibilityElement(children: .ignore)
         .accessibilityIdentifier("launcher-choose-target")
         .accessibilityLabel(L10n.text("launcher.choose_target"))
         .accessibilityValue(targetSelectorValue)
-        .help(L10n.text("launcher.choose_target_help"))
+        .accessibilityHint(L10n.text("launcher.choose_target_help"))
+        .accessibilityAction(named: Text(L10n.text("launcher.confirm_target")), confirmTargetWithPointer)
+        .help(targetSelectorValue + "\n" + L10n.text("launcher.choose_target_help"))
         .onKeyPress(keys: [.return, .space, .upArrow, .downArrow, .escape, .tab], phases: .down) { key in
             handleTargetSelectorKey(key)
         }
@@ -352,8 +546,15 @@ struct EditorView: View {
         return state.displayedActionTitle.map { "\($0), \(mode)" } ?? mode
     }
 
+    private func confirmTargetWithPointer() {
+        TargetCapsulePointer.activate(focusTarget: focusTarget, state: state, send: send) {
+            isTargetSelectorFocused = false
+        }
+    }
+
     private func handleTargetSelectorKey(_ key: KeyPress) -> KeyPress.Result {
-        guard focusTarget.textView?.hasMarkedText() != true, !state.isComposingText else { return .ignored }
+        guard state.canChooseTarget, focusTarget.textView?.hasMarkedText() != true,
+              !state.isComposingText else { return .ignored }
         if key.modifiers == .option, key.key == .upArrow || key.key == .downArrow {
             if state.intentCanCycle { send(.cycleTarget(forward: key.key == .downArrow)) }
             return .handled
@@ -376,7 +577,8 @@ struct EditorView: View {
         }
         if key.key == .tab {
             isTargetSelectorFocused = false
-            focusTarget.restoreEditorFocus()
+            if key.modifiers.contains(.shift) { focusTarget.moveThinkingCommandFocus(from: 3, forward: false, state: state) }
+            else { focusTarget.focusModeControl() }
             return .handled
         }
         if key.key == .return || key.key == .space || key.key == .upArrow || key.key == .downArrow {
@@ -388,7 +590,163 @@ struct EditorView: View {
     }
 
     private var overlayCard: some View {
-        cardChrome(intentCandidateMenuContent, cornerRadius: LauncherMetrics.overlayCornerRadius)
+        cardChrome(Group {
+            if let document = state.selectedRecentDocument {
+                RecentDocumentDetailView(document: document, state: state, focusTarget: focusTarget, send: send,
+                    text: state.recentDocumentText, error: state.recentDocumentError,
+                    isLoading: state.isLoadingRecentDocument,
+                    maximumHeight: overlayAvailableHeight,
+                    composing: state.isComposingText,
+                    canInteract: { focusTarget.textView?.hasMarkedText() != true },
+                    retry: { send(.retryRecentDocument) },
+                    close: { send(.closeRecentDocument); focusTarget.restoreEditorFocus() })
+            } else if let prompt = state.thinkingPrompt, prompt.display.isOpen {
+                DraftThinkingPromptView(prompt: prompt, focusTarget: focusTarget, state: state,
+                    maximumHeight: overlayAvailableHeight, send: send, configure: {
+                        appState?.settingsDestination = .ai
+                        openSettings()
+                    })
+            } else if state.showsReview {
+                NotesReviewView(
+                    period: state.reviewPeriod,
+                    summary: state.reviewSummary,
+                    preview: state.reviewPreview,
+                    requestMetadata: state.reviewRequestMetadata,
+                    isLoading: state.isLoadingReview,
+                    failed: state.reviewFailed,
+                    coverageIncomplete: state.reviewCoverageIncomplete,
+                    unavailableReason: state.reviewUnavailableReason,
+                    maximumHeight: overlayAvailableHeight,
+                    close: { send(.closeReview); focusTarget.restoreEditorFocus() })
+            } else if let history = state.clipboardHistory, !state.isIntentCandidateMenuVisible, !state.isTemplateMenuVisible {
+                ClipboardHistoryView(history: history,
+                    height: min(300, overlayAvailableHeight),
+                    composing: state.isComposingText,
+                    select: { id in
+                        guard focusTarget.textView?.hasMarkedText() != true else { return }
+                        send(.clipboardSelect(id)); focusTarget.restoreEditorFocus()
+                    })
+            } else if state.showsCodexRecentTasks, !state.isIntentCandidateMenuVisible, !state.isTemplateMenuVisible {
+                CodexRecentTasksView(
+                    maximumHeight: overlayAvailableHeight,
+                    composing: state.isComposingText,
+                    canOpen: { focusTarget.textView?.hasMarkedText() != true },
+                    onOpened: { send(.codexRecentTaskOpened) })
+            } else {
+                overlayMenuContent
+            }
+        }, cornerRadius: LauncherMetrics.overlayCornerRadius)
+    }
+
+    @ViewBuilder private var overlayMenuContent: some View {
+        if state.isTemplateMenuVisible { templateMenuContent }
+        else {
+            ViewThatFits(in: .vertical) {
+                intentCandidateMenuContent
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical) { intentCandidateMenuContent }
+                        .frame(height: overlayAvailableHeight)
+                        .task(id: TargetMenuScrollTarget(candidates: state.intentCandidates,
+                                                        highlightedID: highlightedTargetScrollID,
+                                                        height: overlayAvailableHeight)) {
+                            await Task.yield()
+                            guard !Task.isCancelled, let id = highlightedTargetScrollID else { return }
+                            proxy.scrollTo(id)
+                        }
+                }
+            }
+            .frame(maxHeight: overlayAvailableHeight)
+        }
+    }
+
+    private var templateMenuAvailableHeight: CGFloat { overlayAvailableHeight }
+
+    private var templateMenuContent: some View {
+        let highlightedID = state.templateCandidates.contains { $0.id == focusTarget.highlightedTemplateID }
+            ? focusTarget.highlightedTemplateID : state.templateCandidates.first?.id
+        let listHeight = LauncherMetrics.templateListHeight(candidateCount: state.templateCandidates.count,
+                                                           availableHeight: templateMenuAvailableHeight)
+        return VStack(alignment: .leading, spacing: 0) {
+            Label(L10n.text("templates.menu_title"), systemImage: "text.badge.plus")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .frame(height: LauncherMetrics.templateHeaderHeight)
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    VStack(spacing: 0) {
+                        ForEach(state.templateCandidates) { candidate in
+                            templateRow(candidate, highlighted: highlightedID == candidate.id)
+                                .id(candidate.id)
+                        }
+                    }
+                }
+                .frame(height: listHeight)
+                .task(id: TemplateMenuScrollTarget(candidates: state.templateCandidates,
+                                                  highlightedID: highlightedID, height: listHeight)) {
+                    // Wait for the refreshed rows and viewport to participate in layout.
+                    await Task.yield()
+                    guard !Task.isCancelled, let highlightedID else { return }
+                    proxy.scrollTo(highlightedID)
+                }
+            }
+            templateKeyboardHints
+        }
+        .padding(LauncherMetrics.templateMenuPadding)
+    }
+
+    private func templateRow(_ candidate: InputTemplate, highlighted: Bool) -> some View {
+        let preview = candidate.preview
+        return Button {
+            guard !state.isComposingText, focusTarget.textView?.hasMarkedText() != true else { return }
+            send(.selectTemplate(candidate))
+            focusTarget.restoreEditorFocus()
+        } label: {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(candidate.name).font(.system(size: 13, weight: .medium))
+                    Text(preview).font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "return")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 16)
+                    .opacity(highlighted ? 1 : 0)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: LauncherMetrics.templateRowHeight)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(highlighted ? accent.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { if $0 { focusTarget.highlightedTemplateID = candidate.id } }
+        .accessibilityIdentifier("launcher-template-\(candidate.id)")
+        .accessibilityLabel(candidate.name + ", " + preview)
+        .accessibilityValue(highlighted ? L10n.text("templates.selected") : "")
+        .help(candidate.name + "\n" + preview + "\n" + L10n.text("templates.insert_help"))
+    }
+
+    private var templateKeyboardHints: some View {
+        HStack {
+            Spacer(minLength: 8)
+            keyHint("↑↓", systemImage: "arrow.up.arrow.down", L10n.text("launcher.navigate"))
+            keyHint("⏎", systemImage: "return", L10n.text("templates.insert"))
+            keyHint("esc", systemImage: "escape", L10n.text("launcher.collapse"))
+        }
+        .padding(.horizontal, 10)
+        .frame(height: LauncherMetrics.templateFooterHeight)
+    }
+
+    private var highlightedTargetScrollID: String? {
+        switch focusTarget.highlightedTargetMenuItem {
+        case .target(let id): "target." + id
+        case .automatic: "automatic"
+        case nil: nil
+        }
     }
 
     /// 菜单高亮只属于键盘导航；确定后才改变草稿的路由模式。
@@ -406,6 +764,7 @@ struct EditorView: View {
                                     highlighted: focusTarget.highlightedTargetMenuItem == .target(candidate.id))
                 }
                 .buttonStyle(.plain)
+                .id("target." + candidate.id)
                 .accessibilityIdentifier("launcher-target-\(candidate.id)")
                 .accessibilityLabel(L10n.text("launcher.switch_target", candidate.title))
                 .accessibilityValue(candidate.isSelected ? L10n.text("launcher.target_selected") : "")
@@ -422,21 +781,26 @@ struct EditorView: View {
             }
             .buttonStyle(.plain)
             .disabled(!state.hasExplicitTarget)
+            .id("automatic")
             .accessibilityIdentifier("launcher-use-automatic")
             .accessibilityValue(state.hasExplicitTarget ? "" : L10n.text("launcher.target_automatic"))
             .help(L10n.text("launcher.use_automatic_help"))
-            HStack {
-                Spacer(minLength: 8)
-                keyHint("↑↓", systemImage: "arrow.up.arrow.down", L10n.text("launcher.navigate"))
-                keyHint("⏎", systemImage: "return", L10n.text("launcher.select"))
-                keyHint("esc", systemImage: "escape", L10n.text("launcher.collapse"))
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            menuKeyboardHints
         }
         .font(.system(size: 12))
         .lineLimit(1)
         .padding(6)
+    }
+
+    private var menuKeyboardHints: some View {
+        HStack {
+            Spacer(minLength: 8)
+            keyHint("↑↓", systemImage: "arrow.up.arrow.down", L10n.text("launcher.navigate"))
+            keyHint("⏎", systemImage: "return", L10n.text("launcher.select"))
+            keyHint("esc", systemImage: "escape", L10n.text("launcher.collapse"))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
     }
 
     private func targetMenuLabel(title: String, selected: Bool, highlighted: Bool) -> some View {
@@ -584,6 +948,13 @@ private final class WindowDragNSView: NSView {
 
 // MARK: - NSTextView 封装
 
+private final class EditorScrollView: NSScrollView {
+    override func tile() {
+        super.tile()
+        (documentView as? EditorTextView)?.finishDeferredSelectionScroll()
+    }
+}
+
 private struct EditorTextViewRepresentable: NSViewRepresentable {
     @Binding var text: String
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -592,6 +963,7 @@ private struct EditorTextViewRepresentable: NSViewRepresentable {
     let state: LauncherViewState
     let send: (LauncherEvent) -> Void
     let placeholder: String
+    let automaticViewportHeightLimit: CGFloat?
     /// 文本排版高度变化上报（输入卡自动长高用；宽度变化、内容变化都会触发）。
     let onContentHeightChange: (CGFloat) -> Void
 
@@ -600,7 +972,7 @@ private struct EditorTextViewRepresentable: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
+        let scrollView = EditorScrollView()
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
         scrollView.focusRingType = .none // 去掉聚焦时输入框四周的蓝色描边
@@ -614,6 +986,7 @@ private struct EditorTextViewRepresentable: NSViewRepresentable {
         textView.state = state
         textView.send = send
         textView.placeholder = placeholder
+        textView.automaticViewportHeightLimit = automaticViewportHeightLimit
         textView.onContentHeightChange = onContentHeightChange
         let font = NSFont.systemFont(ofSize: LauncherMetrics.editorFontSize, weight: .regular)
         textView.font = font
@@ -655,6 +1028,7 @@ private struct EditorTextViewRepresentable: NSViewRepresentable {
         textView.state = state
         textView.send = send
         textView.placeholder = placeholder
+        textView.automaticViewportHeightLimit = automaticViewportHeightLimit
         textView.onContentHeightChange = onContentHeightChange
         textView.reducesMotion = reduceMotion
         context.coordinator.send = send
@@ -673,6 +1047,10 @@ private struct EditorTextViewRepresentable: NSViewRepresentable {
             self.send = send
         }
 
+        func textViewDidChangeSelection(_ notification: Notification) {
+            (notification.object as? EditorTextView)?.validateTemplateSelection()
+        }
+
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? EditorTextView else { return }
             text = textView.string
@@ -680,6 +1058,7 @@ private struct EditorTextViewRepresentable: NSViewRepresentable {
 
         /// 点到面板内非输入区 → 编辑器失焦 → 自动暂存草稿（§10.1）
         func textDidEndEditing(_ notification: Notification) {
+            (notification.object as? EditorTextView)?.endTemplateEditing()
             send(.preserveDraft)
         }
     }
@@ -698,6 +1077,13 @@ final class EditorTextView: NSTextView {
     }
     /// 文本排版高度变化上报（输入卡自动长高用）。
     var onContentHeightChange: ((CGFloat) -> Void)?
+    var automaticViewportHeightLimit: CGFloat? {
+        didSet {
+            if automaticViewportHeightLimit != oldValue, deferredSelectionScrollHeight != nil {
+                reportContentHeight()
+            }
+        }
+    }
     var reducesMotion = false {
         didSet { if reducesMotion != oldValue { updatePlaceholderVisibility() } }
     }
@@ -707,6 +1093,13 @@ final class EditorTextView: NSTextView {
             textColor = increasesContrast ? .labelColor : EditorPalette.text
             needsDisplay = true
         }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        textColor = increasesContrast ? .labelColor : EditorPalette.text
+        insertionPointColor = increasesContrast ? .labelColor : EditorPalette.accent
+        needsDisplay = true
     }
 
     private let placeholderStorage = NSTextContentStorage()
@@ -720,6 +1113,7 @@ final class EditorTextView: NSTextView {
     private var suppressesIntentReturnRepeats = false
     private var observesUndo = false
     private var lastReportedText = ""
+    private var reportedComposition = false
 
     enum ReplacementReason {
         case synchronize
@@ -739,6 +1133,7 @@ final class EditorTextView: NSTextView {
             undoManager?.removeAllActions()
         }
         guard contentChanged || reason != .synchronize else { return true }
+        endTemplateEditing()
         if contentChanged {
             string = text
         }
@@ -746,7 +1141,7 @@ final class EditorTextView: NSTextView {
             breakUndoCoalescing()
             undoManager?.removeAllActions()
         }
-        if reason != .synchronize {
+        if reason != .synchronize, contentChanged || reason == .newDraft {
             setSelectedRange(NSRange(location: (string as NSString).length, length: 0))
         }
         updatePlaceholderVisibility()
@@ -754,6 +1149,109 @@ final class EditorTextView: NSTextView {
         lastReportedText = string
         needsDisplay = true
         return true
+    }
+
+    private(set) var templateEditing: TemplateEditingSession?
+    private var applyingTemplate = false
+    private var movingTemplateSelection = false
+    private var templateUndoSelection: (text: String, range: NSRange)?
+
+    func endTemplateEditing() {
+        guard templateEditing != nil else { return }
+        templateEditing = nil
+        setAccessibilityHelp(nil)
+        send(.templateFillingChanged(false))
+    }
+
+    func validateTemplateSelection() {
+        guard !applyingTemplate, !movingTemplateSelection, let templateEditing else { return }
+        if !templateEditing.contains(selectedRange()) { endTemplateEditing() }
+    }
+
+    override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        guard super.shouldChangeText(in: affectedCharRange, replacementString: replacementString) else { return false }
+        if !applyingTemplate, var session = templateEditing {
+            if undoManager?.isUndoing == true || undoManager?.isRedoing == true ||
+                !session.replace(affectedCharRange, withUTF16Length: (replacementString ?? "").utf16.count) {
+                endTemplateEditing()
+            } else { templateEditing = session }
+        }
+        return true
+    }
+
+    /// One native text transaction. The launcher suppresses its binding echo until this returns.
+    @discardableResult
+    func insertTemplate(_ expansion: TemplateExpansion) -> Bool {
+        guard !hasMarkedText(), isEditable else { return false }
+        observeUndoChangesIfNeeded()
+        let originalText = string
+        let originalSelection = selectedRange()
+        let range = NSRange(location: 0, length: (string as NSString).length)
+        // insertText performs shouldChangeText itself; preflighting it would register undo twice.
+        endTemplateEditing()
+        applyingTemplate = true
+        defer { applyingTemplate = false }
+        breakUndoCoalescing()
+        insertText(expansion.text, replacementRange: range)
+        breakUndoCoalescing()
+        guard string == expansion.text else { return false }
+        // AppKit restores replacement text but puts the caret at its end. Restore the
+        // original selection after that native undo, within the same undo group.
+        registerTemplateSelectionUndo(text: originalText, range: originalSelection)
+        setSelectedRange(expansion.firstSelection)
+        templateEditing = TemplateEditingSession(expansion)
+        if templateEditing != nil { setAccessibilityHelp(L10n.text("templates.filling_help")) }
+        send(.templateFillingChanged(templateEditing != nil))
+        updatePlaceholderVisibility()
+        reportContentHeight()
+        lastReportedText = string
+        return true
+    }
+
+    /// Append the capture as one native undoable edit, before the panel is shown.
+    @discardableResult
+    func insertCapturedQuotation(_ quotation: String) -> Bool {
+        guard !hasMarkedText(), isEditable, !quotation.isEmpty else { return false }
+        observeUndoChangesIfNeeded()
+        let original = string, selection = selectedRange()
+        let separator = original.isEmpty || original.hasSuffix("\n\n") ? "" : (original.hasSuffix("\n") ? "\n" : "\n\n")
+        let insertion = separator + quotation
+        endTemplateEditing()
+        breakUndoCoalescing()
+        insertText(insertion, replacementRange: NSRange(location: (original as NSString).length, length: 0))
+        breakUndoCoalescing()
+        guard string == original + insertion else { return false }
+        registerTemplateSelectionUndo(text: original, range: selection)
+        return true
+    }
+
+    private func registerTemplateSelectionUndo(text: String, range: NSRange) {
+        undoManager?.registerUndo(withTarget: self) { editor in
+            editor.templateUndoSelection = (text, range)
+            // Redo restores only the text; retain the selection restoration for a later Undo.
+            editor.undoManager?.registerUndo(withTarget: editor) { editor in
+                editor.registerTemplateSelectionUndo(text: text, range: range)
+            }
+        }
+    }
+
+    private func navigateTemplate(forward: Bool) {
+        guard var session = templateEditing else { return }
+        let destination = session.move(forward: forward)
+        templateEditing = session
+        movingTemplateSelection = true
+        let text = string as NSString
+        let location = min(destination.selection.location, text.length)
+        let safe: NSRange
+        if destination.selection.length > 0, NSMaxRange(destination.selection) <= text.length {
+            safe = text.rangeOfComposedCharacterSequences(for: destination.selection)
+        } else if location < text.length {
+            safe = NSRange(location: text.rangeOfComposedCharacterSequence(at: location).location, length: 0)
+        } else { safe = NSRange(location: location, length: 0) }
+        setSelectedRange(safe)
+        scrollRangeToVisible(safe)
+        movingTemplateSelection = false
+        if destination.finished { endTemplateEditing() }
     }
 
     /// 粘贴与拖放只接收文字。富文本降级为字符，附件占位符被移除；图片和文件不写入正文。
@@ -798,55 +1296,109 @@ final class EditorTextView: NSTextView {
         return attributed?.string.replacingOccurrences(of: "\u{FFFC}", with: "")
     }
 
-    /// 输入卡自动长高：上报当前排版高度（不含卡片内边距，由 SwiftUI 侧加回）。
+    private var contentHeightReportScheduled = false
+    private var deferredSelectionScrollHeight: CGFloat?
+
+    override func scrollToVisible(_ rect: NSRect) -> Bool {
+        if let limit = automaticViewportHeightLimit, let scrollView = enclosingScrollView,
+           scrollView.contentSize.height + 0.5 < limit,
+           frame.height > scrollView.contentSize.height + 0.5,
+           rect.maxY > visibleRect.maxY {
+            // Native editing reveals the caret before SwiftUI grows the viewport.
+            // Wait for that growth instead of scrolling up and immediately back down.
+            deferredSelectionScrollHeight = .greatestFiniteMagnitude
+            reportContentHeight()
+            return true
+        }
+        return super.scrollToVisible(rect)
+    }
+
+    fileprivate func finishDeferredSelectionScroll() {
+        guard let height = deferredSelectionScrollHeight, let scrollView = enclosingScrollView,
+              scrollView.contentSize.height + 0.5 >= height else { return }
+        deferredSelectionScrollHeight = nil
+        scrollRangeToVisible(selectedRange())
+    }
+
+    /// Coalesce text and viewport changes after AppKit finishes the editing transaction.
     func reportContentHeight() {
+        guard !contentHeightReportScheduled else { return }
+        contentHeightReportScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.contentHeightReportScheduled = false
+            self.publishContentHeight()
+        }
+    }
+
+    private func publishContentHeight() {
+        let timing = InputPerformance.begin()
+        defer { InputPerformance.end("height", timing) }
         guard let onContentHeightChange, let textLayoutManager else { return }
-        textLayoutManager.ensureLayout(for: textLayoutManager.documentRange)
-        let layoutHeight = textLayoutManager.usageBoundsForTextContainer.height
-        var height = ceil(layoutHeight)
-        // TextKit 的行框不包含部分 emoji/组合字符的末行下伸墨迹。
-        // renderingSurfaceBounds 又含普通文字的空白余量，不能直接用它把每行都加高。
-        textLayoutManager.enumerateTextLayoutFragments(from: textLayoutManager.documentRange.location, options: [.ensuresLayout]) { fragment in
-            guard fragment.layoutFragmentFrame.maxY >= layoutHeight,
-                  let line = fragment.textLineFragments.last, line.characterRange.length > 0 else { return true }
+        var height: CGFloat = 0
+        var lastTextLine: (fragment: NSTextLayoutFragment, line: NSTextLineFragment)?
+        // usageBoundsForTextContainer can retain a deleted trailing paragraph's height.
+        // Measure the current fragments, including the extra insertion line, instead.
+        textLayoutManager.enumerateTextLayoutFragments(
+            from: textLayoutManager.documentRange.location,
+            options: [.ensuresLayout, .ensuresExtraLineFragment]
+        ) { fragment in
+            height = max(height, fragment.layoutFragmentFrame.maxY)
+            if let line = fragment.textLineFragments.last(where: { $0.characterRange.length > 0 }) {
+                lastTextLine = (fragment, line)
+            }
+            return true
+        }
+        // Preserve ink extending below the final text line, including tall fallback glyphs.
+        if let (fragment, line) = lastTextLine {
             let content = line.attributedString.attributedSubstring(from: line.characterRange)
             let ink = CTLineGetImageBounds(CTLineCreateWithAttributedString(content), nil)
             if !ink.isNull, !ink.isInfinite {
                 let baseline = fragment.layoutFragmentFrame.minY + line.typographicBounds.minY + line.glyphOrigin.y
-                height = max(height, ceil(baseline - ink.minY))
+                height = max(height, baseline - ink.minY)
             }
-            return true
         }
-        // 达到滚动上限后，末行墨迹也必须属于文档高度，才能完整滚入可见区域。
-        if frame.height < height {
-            super.setFrameSize(NSSize(width: frame.width, height: height))
+        height = ceil(height)
+        // The scrollable document must follow both increases and decreases in content.
+        let documentHeight = max(height, enclosingScrollView?.contentSize.height ?? 0)
+        if abs(frame.height - documentHeight) > 0.5 {
+            super.setFrameSize(NSSize(width: frame.width, height: documentHeight))
+        }
+        if deferredSelectionScrollHeight != nil {
+            deferredSelectionScrollHeight = automaticViewportHeightLimit.map { min(height, $0) } ?? 0
         }
         onContentHeightChange(height)
+        finishDeferredSelectionScroll()
     }
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        // 宽度变化会改变折行，高度随之变；上报幂等（SwiftUI 侧同值不触发更新）。
         reportContentHeight()
     }
 
     override func insertText(_ insertString: Any, replacementRange: NSRange) {
         super.insertText(insertString, replacementRange: replacementRange)
         updatePlaceholderVisibility()
-        send(.compositionChanged(hasMarkedText()))
+        reportComposition(hasMarkedText())
     }
 
     override func unmarkText() {
         super.unmarkText()
         updatePlaceholderVisibility()
-        send(.compositionChanged(hasMarkedText()))
+        reportComposition(hasMarkedText())
     }
 
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
-        send(.compositionChanged(true))
+        reportComposition(true)
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
         updatePlaceholderVisibility()
-        send(.compositionChanged(hasMarkedText()))
+        reportComposition(hasMarkedText())
+    }
+
+    private func reportComposition(_ composing: Bool) {
+        guard composing != reportedComposition else { return }
+        reportedComposition = composing
+        send(.compositionChanged(composing))
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -916,6 +1468,8 @@ final class EditorTextView: NSTextView {
     }
 
     override func didChangeText() {
+        let timing = InputPerformance.begin()
+        defer { InputPerformance.end("edit", timing) }
         super.didChangeText()
         observeUndoChangesIfNeeded()
         lastReportedText = string
@@ -933,8 +1487,14 @@ final class EditorTextView: NSTextView {
     }
 
     @objc private func undoFinished(_ notification: Notification) {
-        guard notification.object as? UndoManager === undoManager, string != lastReportedText else { return }
-        didChangeText()
+        guard notification.object as? UndoManager === undoManager else { return }
+        endTemplateEditing()
+        if string != lastReportedText { didChangeText() }
+        if let selection = templateUndoSelection, string == selection.text,
+           NSMaxRange(selection.range) <= (string as NSString).length {
+            setSelectedRange(selection.range)
+        }
+        templateUndoSelection = nil
     }
 
     isolated deinit {
@@ -962,6 +1522,7 @@ final class EditorTextView: NSTextView {
                 selectAll(nil)
                 return
             case "z":
+                endTemplateEditing()
                 if mods.contains(.shift) { undoManager?.redo() } else { undoManager?.undo() }
                 return
             default:
@@ -973,10 +1534,73 @@ final class EditorTextView: NSTextView {
             return
         }
 
+        // Review is read-only: Esc closes and Tab reaches the footer controls.
+        // so the hidden editor doesn't mutate under the overlay.
+        if state.showsReview {
+            if event.keyCode == 0x35, !event.isARepeat { send(.closeReview) }
+            else if event.keyCode == 0x30, !event.isARepeat,
+                    mods.intersection([.command, .control, .option]).isEmpty {
+                if mods.contains(.shift) { _ = focusTarget?.focusReview(last: true) }
+                else { focusTarget?.focusModeControl() }
+            }
+            return
+        }
+
+        if templateEditing != nil {
+            if event.keyCode == 0x30, mods.intersection([.command, .control, .option]).isEmpty {
+                if !event.isARepeat { navigateTemplate(forward: !mods.contains(.shift)) }
+                return
+            }
+            if event.keyCode == 0x35 { endTemplateEditing(); return }
+        }
+
         let isReturn = event.keyCode == 0x24 || event.keyCode == 0x4C // 回车 / 小键盘回车
         let returnModifiers = mods.intersection([.command, .control, .option, .shift])
+        if event.keyCode == 0x30, returnModifiers == .shift, !state.isTemplateMenuVisible {
+            if !event.isARepeat, focusTarget?.focusThinkingPrompt() != true,
+               focusTarget?.focusReview(last: true) != true, focusTarget?.focusRecentDocument(last: true) != true {
+                focusTarget?.focusModeControl()
+            }
+            return
+        }
+        if state.mode == .sticky {
+            if isReturn {
+                if returnModifiers.isEmpty || returnModifiers == .shift { insertNewline(nil) }
+                return
+            }
+            if event.keyCode == 0x35 {
+                if !event.isARepeat { send(.cancel) }
+                return
+            }
+            super.keyDown(with: event)
+            return
+        }
         if isReturn, event.isARepeat, suppressesIntentReturnRepeats { return }
         if !event.isARepeat { suppressesIntentReturnRepeats = false }
+        // @ completion consumes confirmation before the normal execution path, including Cmd+Enter.
+        if let focusTarget, state.isTemplateMenuVisible {
+            if event.keyCode == 0x35 {
+                send(.dismissTemplateMenu)
+                return
+            }
+            if returnModifiers.isEmpty, event.keyCode == 0x7E || event.keyCode == 0x7D {
+                if !event.isARepeat { focusTarget.moveTemplateFocus(forward: event.keyCode == 0x7D, state: state) }
+                return
+            }
+            if event.keyCode == 0x30, returnModifiers.isEmpty || returnModifiers == .shift {
+                focusTarget.moveTemplateFocus(forward: returnModifiers.isEmpty, state: state)
+                return
+            }
+            if isReturn {
+                if returnModifiers == .shift {
+                    insertNewline(nil)
+                } else if returnModifiers.isEmpty || returnModifiers == .command {
+                    suppressesIntentReturnRepeats = true
+                    if !event.isARepeat { focusTarget.selectHighlightedTemplate(state: state, send: send) }
+                }
+                return
+            }
+        }
         if isReturn, returnModifiers == .command, focusTarget != nil,
            state.isIntentRecognitionEnabled,
            !state.isIntentCandidateMenuVisible,
@@ -1004,13 +1628,19 @@ final class EditorTextView: NSTextView {
                 return
             }
         }
-        // Tab 把真实键盘焦点移到选择按钮；关闭菜单后回到原编辑选区。
-        if let focusTarget, state.canChooseTarget, event.keyCode == 0x30,
+        if state.clipboardHistory != nil, returnModifiers.isEmpty,
+           event.keyCode == 0x7E || event.keyCode == 0x7D {
+            send(.clipboardMove(forward: event.keyCode == 0x7D))
+            return
+        }
+        // Tab 把真实键盘焦点移到目标胶囊；关闭菜单后回到原编辑选区。
+        if let focusTarget, state.canChooseTarget,
+           !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, event.keyCode == 0x30,
            returnModifiers.isEmpty || returnModifiers == .shift {
             if !event.isARepeat { focusTarget.targetSelectorFocusRequest += 1 }
             return
         }
-        // ⌥↑/⌥↓：在 Jev 建议与其他可用目标间切换（仅当有多个目标可切换时拦截）。
+        // ⌥↑/⌥↓：在 Notes 与 Codex 之间切换（仅当有多个目标可切换时拦截）。
         if focusTarget != nil, state.intentCanCycle,
            state.isIntentRecognitionEnabled,
            !state.isReadingGettingStarted,

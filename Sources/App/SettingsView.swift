@@ -28,9 +28,11 @@ func settingRow<Control: View>(_ caption: String?,
 struct SettingsView: View {
     enum Page: Hashable {
         case general
+        case appearance
         case ai
         case intent
         case actions
+        case templates
         case instructions
         case gettingStarted
         case about
@@ -38,10 +40,12 @@ struct SettingsView: View {
         var title: String {
             switch self {
             case .general: L10n.text("settings.page.general")
-            case .ai: "AI"
+            case .appearance: L10n.text("settings.general.appearance")
+            case .ai: L10n.text("settings.page.ai")
             case .intent: L10n.text("settings.page.intent")
-            case .actions: "Actions"
-            case .instructions: "Instructions"
+            case .actions: L10n.text("settings.page.actions")
+            case .templates: L10n.text("templates.title")
+            case .instructions: L10n.text("settings.page.instructions")
             case .gettingStarted: L10n.text("settings.page.getting_started")
             case .about: L10n.text("settings.page.about")
             }
@@ -50,9 +54,11 @@ struct SettingsView: View {
         var subtitle: String {
             switch self {
             case .general: L10n.text("settings.subtitle.general")
+            case .appearance: L10n.text("settings.subtitle.appearance")
             case .ai: L10n.text("settings.subtitle.ai")
             case .intent: L10n.text("settings.subtitle.intent")
             case .actions: L10n.text("settings.subtitle.actions")
+            case .templates: L10n.text("templates.subtitle")
             case .instructions: L10n.text("settings.subtitle.instructions")
             case .gettingStarted: L10n.text("settings.subtitle.getting_started")
             case .about: L10n.text("settings.subtitle.about")
@@ -62,9 +68,11 @@ struct SettingsView: View {
         var symbol: String {
             switch self {
             case .general: "gearshape"
+            case .appearance: "circle.lefthalf.filled"
             case .ai: "sparkles"
             case .intent: "arrow.triangle.branch"
             case .actions: "bolt.horizontal"
+            case .templates: "text.badge.plus"
             case .instructions: "text.alignleft"
             case .gettingStarted: "questionmark.circle"
             case .about: "info.circle"
@@ -120,9 +128,11 @@ struct SettingsView: View {
                 Group {
                     switch selectedPage {
                     case .general: generalPage
+                    case .appearance: AppearanceSettingsView(themeMode: $themeMode, submissionEffect: $submissionEffect)
                     case .ai: aiPage
                     case .intent: intentPage
                     case .actions: actionsPage
+                    case .templates: TemplateSettingsView(configuration: appState.templateConfiguration)
                     case .instructions: instructionsPage
                     case .gettingStarted: gettingStartedPage
                     case .about: aboutPage
@@ -138,17 +148,29 @@ struct SettingsView: View {
         .frame(minWidth: 760, idealWidth: 820, minHeight: 560, idealHeight: 640)
         .onAppear {
             refreshShortcutIssue()
+            SelectedTextPermission.shared.refresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in refreshShortcutIssue() }
         .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcuts.shortcutDidChangeNotification)) { _ in refreshShortcutIssue() }
         .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcuts.registrationStatusDidChangeNotification)) { _ in refreshShortcutIssue() }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in refreshShortcutIssue() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in refreshShortcutIssue(); SelectedTextPermission.shared.refresh() }
         .onChange(of: appState.generalSettingsRequest) { selectedPage = .general }
         .onChange(of: appState.gettingStartedRequest, initial: true) { _, request in
             if request > 0 { selectedPage = .gettingStarted }
         }
+        .onChange(of: appState.settingsDestination, initial: true) { _, destination in
+            guard let destination else { return }
+            switch destination {
+            case .ai:
+                selectedPage = .ai
+            case .action(let id):
+                selectedPage = .actions
+                selectedActionID = id
+            }
+            appState.settingsDestination = nil
+        }
         .onChange(of: selectedPage) { old, new in
-            selectedActionID = nil
+            if new != .actions { selectedActionID = nil }
             if old == .gettingStarted && new != .gettingStarted { panelController?.closeGettingStarted() }
             if new != .about { contact.error = nil }
         }
@@ -173,7 +195,7 @@ struct SettingsView: View {
 
             List(selection: $selectedPage) {
                 Section(L10n.text("settings.sidebar.configuration")) {
-                    ForEach([Page.general, .intent, .ai, .actions, .instructions], id: \.self) { page in
+                    ForEach([Page.general, .appearance, .intent, .ai, .actions, .templates, .instructions], id: \.self) { page in
                         sidebarLabel(page)
                     }
                 }
@@ -279,23 +301,6 @@ struct SettingsView: View {
     }
     private var generalPage: some View {
         Form {
-            Section(L10n.text("settings.general.appearance")) {
-                LabeledContent(L10n.text("settings.general.theme")) {
-                    Picker(L10n.text("settings.general.theme"), selection: $themeMode) {
-                        Text(L10n.text("settings.general.theme.system")).tag(ThemeMode.system)
-                        Text(L10n.text("settings.general.theme.light")).tag(ThemeMode.light)
-                        Text(L10n.text("settings.general.theme.dark")).tag(ThemeMode.dark)
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 260)
-                }
-                settingRow(appState.dockPreferenceIssue) {
-                    Toggle(L10n.text("settings.general.show_in_dock"), isOn: Binding(
-                        get: { appState.showsInDock }, set: { appState.setShowsInDock($0) }))
-                }
-            }
-
             Section(L10n.text("settings.general.quick_record")) {
                 settingRow(shortcutStatus.issue) {
                     LabeledContent(L10n.text("settings.general.global_shortcut")) {
@@ -316,22 +321,57 @@ struct SettingsView: View {
                         }
                     }
                 }
+                settingRow(L10n.text("selected_text.help")) {
+                    LabeledContent(L10n.text("selected_text.title")) {
+                        VStack(alignment: .trailing, spacing: 6) {
+                            Text(L10n.text(SelectedTextPermission.shared.granted ? "selected_text.granted" : "selected_text.missing"))
+                                .foregroundStyle(.secondary)
+                            HStack {
+                                if !SelectedTextPermission.shared.granted {
+                                    Button(L10n.text("selected_text.allow")) { SelectedTextPermission.shared.requestAccess() }
+                                        .accessibilityIdentifier("selected-text-allow")
+                                }
+                                Button(L10n.text("selected_text.settings")) { SelectedTextPermission.shared.openSettings() }
+                                    .accessibilityIdentifier("selected-text-settings")
+                            }
+                        }
+                    }
+                }
                 settingRow(L10n.text("settings.general.follow_cursor.help")) {
                     Toggle(L10n.text("settings.general.follow_cursor"), isOn: Binding(
                         get: { appState.recordPanelFollowsCursor }, set: { appState.recordPanelFollowsCursor = $0 }))
                 }
-                settingRow(L10n.text("settings.general.submission_effect.help")) {
-                    Picker(L10n.text("settings.general.submission_effect"), selection: $submissionEffect) {
-                        ForEach(SubmissionEffect.allCases, id: \.self) { effect in
-                            Text(effect.title).tag(effect)
-                        }
+                settingRow(L10n.text("browser_source.help")) {
+                    Toggle(L10n.text("browser_source.enable"), isOn: Binding(
+                        get: { appState.browserSource.enabled }, set: { appState.browserSource.setEnabled($0) }))
+                        .onAppear { appState.browserSource.refreshPermission() }
+                }
+                if appState.browserSource.enabled {
+                    HStack {
+                        Text(L10n.text(appState.browserSource.permissionGranted ? "browser_source.allowed" : "browser_source.unavailable"))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button(L10n.text("browser_source.retry")) { appState.browserSource.refreshPermission(request: true) }
+                            .disabled(appState.browserSource.requesting)
                     }
-                    .pickerStyle(.menu)
+                }
+
+            }
+
+            Section(L10n.text("settings.general.notifications")) {
+                settingRow(L10n.text("settings.general.completion_notifications.help")) {
+                    Toggle(L10n.text("settings.general.completion_notifications"), isOn: Binding(
+                        get: { appState.completionNotificationsEnabled },
+                        set: { appState.completionNotificationsEnabled = $0 }))
                 }
             }
 
             Section(L10n.text("settings.general.startup")) {
                 LaunchAtLoginToggle(title: L10n.text("settings.general.launch_at_login"))
+                settingRow(appState.dockPreferenceIssue) {
+                    Toggle(L10n.text("settings.general.show_in_dock"), isOn: Binding(
+                        get: { appState.showsInDock }, set: { appState.setShowsInDock($0) }))
+                }
             }
             RuntimeLogSettings()
         }
@@ -345,7 +385,7 @@ struct SettingsView: View {
 
     private var intentPage: some View {
         Form {
-            JevSettingsView(appState: appState)
+            OperationRecordSettings(appState: appState)
         }
         .formStyle(.grouped)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -468,17 +508,9 @@ struct SettingsView: View {
             Section(L10n.text("guide.capabilities")) {
                 gettingStartedExample(L10n.text("guide.example.note.title"), input: L10n.text("guide.example.note.input"),
                     result: L10n.text("guide.example.note.result"))
-                gettingStartedExample(L10n.text("guide.example.reminder.title"), input: L10n.text("guide.example.reminder.input"),
-                    result: L10n.text("guide.example.reminder.result"))
-                gettingStartedExample(L10n.text("guide.example.calendar.title"), input: L10n.text("guide.example.calendar.input"),
-                    result: L10n.text("guide.example.calendar.result"))
-                gettingStartedExample(L10n.text("guide.example.search.title"), input: L10n.text("guide.example.search.input"),
-                    result: L10n.text("guide.example.search.result"))
                 gettingStartedExample(L10n.text("guide.example.app.title"), input: L10n.text("guide.example.app.input"),
                     result: L10n.text("guide.example.app.result"))
                 Text(L10n.text("guide.fallback.help"))
-                    .font(.caption).foregroundStyle(.secondary)
-                Text(L10n.text("guide.time.help"))
                     .font(.caption).foregroundStyle(.secondary)
             }
 

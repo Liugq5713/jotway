@@ -63,6 +63,9 @@ def main():
         record = json.loads(args.release.read_text())
     else:
         record = json.loads(read_public_asset(release, 'release.json'))
+    if record.get('codeSigning') != 'developer-id' or not all(record.get(key) is True for key in
+            ('notarized', 'distributionVerified', 'stapled', 'gatekeeperAccepted')):
+        raise ValueError('Public download requires a verified Developer ID, notarized, stapled and Gatekeeper-accepted artifact.')
     if record['version'] != tag[1:]:
         raise ValueError('Tag does not match the artifact version.')
     if Path(record['file']).name != record['file']:

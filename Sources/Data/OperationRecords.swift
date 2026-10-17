@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-enum OperationExecutionOutcome: String, Codable, Sendable { case created, opened, prefilled, accepted, failed, unknown }
+enum OperationExecutionOutcome: String, Codable, Sendable { case created, opened, prefilled, accepted, completed, failed, unknown }
 enum OperationCompleteness: String, Codable, Sendable { case complete; case legacyPartial = "legacy_partial" }
 enum OperationTargetKind: String, Codable, Sendable { case action, application, setup, unknown }
 enum OperationRouteSource: String, Codable, Sendable {
@@ -14,7 +14,10 @@ enum OperationSelectionContinuity: String, Codable, Sendable { case direct, inhe
 enum OperationConfirmationSource: String, Codable, Sendable { case enter, commandEnter = "command_enter", button }
 enum OperationCaptureTrigger: String, Codable, Sendable { case stableInput = "stable_input", recognition, selection, confirmation, hide, clear }
 enum OperationSelectionTrigger: String, Codable, Sendable { case keyboard, button, setupCompletion = "setup_completion" }
-enum OperationTextTransform: String, Codable, Sendable { case unchanged, trimWhitespaceAndNewlines = "trim_whitespace_and_newlines" }
+enum OperationTextTransform: String, Codable, Sendable {
+    case unchanged, trimWhitespaceAndNewlines = "trim_whitespace_and_newlines"
+    case removeActionMention = "remove_action_mention"
+}
 enum OperationRestoreMode: String, Codable, Sendable { case restore, merge }
 enum OperationLegacySource: String, Codable, Sendable { case intentFeedback = "intent_feedback", intentCorrections = "intent_corrections" }
 enum OperationEventKind: String, Codable, Sendable {

@@ -2,21 +2,42 @@ import Foundation
 import KeyboardShortcuts
 import SwiftUI
 
+enum SettingsDestination: Equatable {
+    case ai
+    case action(String)
+}
+
 /// 应用共享状态：启动器输入外壳的草稿、action 注册表、AI 配置、更新、Dock、快捷键。
 /// 沉淀层（收件箱记录 / 卡片 / 待办 / 概览 / 完成 / 导出 / 处理面板）已随 LAUNCHER-01 退场。
 @MainActor @Observable
 final class AppState: NSObject {
     private let repository: LauncherStore
+    let browserSource: BrowserSourceSettings
+    let clipboard: ClipboardService
     let operationRecorder: OperationRecorder
     private(set) var operationRecordingEnabled: Bool
     private(set) var operationRetentionDays: Int
+    @ObservationIgnored private weak var launcherSession: LauncherSession?
+    var automaticDraftThinkingPromptsEnabled: Bool {
+        didSet {
+            preferences.set(automaticDraftThinkingPromptsEnabled, forKey: "automaticDraftThinkingPromptsEnabled")
+            launcherSession?.send(.automaticThinkingPreferenceChanged)
+        }
+    }
     private let preferences: UserDefaults
     var recordPanelFollowsCursor: Bool {
         didSet { preferences.set(recordPanelFollowsCursor, forKey: "recordPanelFollowsCursor") }
     }
+    var completionNotificationsEnabled: Bool {
+        didSet { preferences.set(completionNotificationsEnabled, forKey: "completionNotificationsEnabled") }
+    }
     /// 数据库打开失败时降级内存运行，操作记录明确报告不可持久化。
     let storageAvailable: Bool
+    let templateConfiguration: TemplateConfiguration
+    let recentSavedDocuments: RecentSavedDocuments
     let actionConfiguration: ActionConfiguration
+    /// Periodic review over indexed notes; nil when the notes module isn't available.
+    let notesReview: NotesReview?
     let shortcutTrial = ShortcutTrial()
     let applicationUsageStore: ApplicationUsageStore
     let onboarding: OnboardingState
@@ -31,6 +52,7 @@ final class AppState: NSObject {
     var skipsFirstUseAtLaunch: Bool { onboarding.skipsFirstUseAtLaunch }
     var generalSettingsRequest = 0
     var gettingStartedRequest = 0
+    var settingsDestination: SettingsDestination?
     var isTryingRecordShortcut: Bool { shortcutTrial.isTrying }
     var shortcutTrialMessage: String? { shortcutTrial.message }
 
@@ -115,14 +137,16 @@ final class AppState: NSObject {
 
     private static let aiSourceKey = "plugin.ai.source"
     var aiSourceRevision: Int { preferences.integer(forKey: "plugin.ai.sourceRevision") }
-    private(set) var aiSource: String
+    let models: ModelConfiguration
+    var aiSource: String { models.deepSelection }
     var aiSources: [AIProviderPlugin.Source] {
-        didSet { refreshAIModel(); invalidateAIConnectionTest() }
+        get { models.sources }
+        set { models.sources = newValue; invalidateAIConnectionTest() }
     }
-    var selectedAISource: AIProviderPlugin.Source? { aiSources.first { $0.id == aiSource } }
-    private(set) var aiModel: String?
+    var selectedAISource: AIProviderPlugin.Source? { models.deepSource }
+    var aiModel: String? { models.deepModel }
     var aiSourceVersion: String {
-        "\(selectedAISource?.version(aiModel) ?? "unavailable/" + aiSource):\(aiSourceRevision)"
+        models.version(.deep)
     }
     private static let aiManualConfigurationKey = "plugin.ai.manualConfiguration"
     private(set) var aiManualConfiguration: AIProviderPlugin.ManualConfiguration
@@ -168,7 +192,7 @@ final class AppState: NSObject {
     }
 
     var submissionEffect: SubmissionEffect {
-        SubmissionEffect(rawValue: preferences.string(forKey: "submissionEffect") ?? "") ?? .wind
+        SubmissionEffect(rawValue: preferences.string(forKey: "submissionEffect") ?? "") ?? .quick
     }
 
     var applicationUsage: [String: ApplicationUsage] { applicationUsageStore.usage }
@@ -190,7 +214,10 @@ final class AppState: NSObject {
     init(repository: LauncherStore, preferences: UserDefaults = .standard,
          operationStateFileURL: URL? = nil, persistentStorageAvailable: Bool = true,
          aiSources: [AIProviderPlugin.Source] = bundledAISources(),
-         actionModules: (@MainActor (UserDefaults) -> [any ActionModule])? = nil) {
+         modelConfiguration: ModelConfiguration? = nil,
+         actionModules: (@MainActor (UserDefaults) -> [any ActionModule])? = nil,
+         clipboardService: ClipboardService? = nil) {
+        automaticDraftThinkingPromptsEnabled = preferences.bool(forKey: "automaticDraftThinkingPromptsEnabled")
         self.repository = repository
         storageAvailable = persistentStorageAvailable
         let recordingEnabled = preferences.object(forKey: "operationRecording.enabled") == nil
@@ -203,7 +230,16 @@ final class AppState: NSObject {
             enabled: recordingEnabled, retentionDays: retentionDays,
             storageAvailable: persistentStorageAvailable)
         self.preferences = preferences
-        let modules = actionModules?(preferences) ?? BundledActions.modules(preferences: preferences)
+        let browserSource = clipboardService?.sourceSettings ?? BrowserSourceSettings(preferences: preferences)
+        self.browserSource = browserSource
+        clipboard = clipboardService ?? ClipboardService(sourceSettings: browserSource, preferences: preferences)
+        let models = modelConfiguration ?? ModelConfiguration(preferences: preferences, sources: aiSources)
+        self.models = models
+        let modules = actionModules?(preferences) ?? BundledActions.modules(preferences: preferences, models: models, clipboard: clipboard.history)
+        notesReview = modules.compactMap { $0 as? AppleNotesModule }.first
+            .map { NotesReview(preferences: preferences, history: $0.history) }
+        templateConfiguration = TemplateConfiguration(defaults: preferences)
+        recentSavedDocuments = RecentSavedDocuments(defaults: preferences)
         actionConfiguration = ActionConfiguration(preferences: preferences, modules: modules)
         updateManager = UpdateManager(preferences: preferences)
         let usageStore = ApplicationUsageStore(store: repository)
@@ -213,13 +249,23 @@ final class AppState: NSObject {
             applicationUsageIsEmpty: usageStore.usage.isEmpty, usedPreferenceKeys: usedPreferenceKeys,
             hasSavedActionConfiguration: actionConfiguration.hasSavedActionConfiguration)
         recordPanelFollowsCursor = Self.enabledPreference("recordPanelFollowsCursor", in: preferences)
+        completionNotificationsEnabled = preferences.bool(forKey: "completionNotificationsEnabled")
         showsInDock = preferences.object(forKey: "showsInDock") == nil || preferences.bool(forKey: "showsInDock")
-        self.aiSources = aiSources
-        aiSource = preferences.string(forKey: Self.aiSourceKey) ?? defaultAISourceID
         aiManualConfiguration = preferences.data(forKey: Self.aiManualConfigurationKey)
             .flatMap { try? JSONDecoder().decode(AIProviderPlugin.ManualConfiguration.self, from: $0) } ?? .init()
         super.init()
-        refreshAIModel()
+        observeModelConfiguration()
+
+    }
+
+    private func observeModelConfiguration() {
+        withObservationTracking { _ = models.version(.deep); _ = models.version(.fast) } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.launcherSession?.send(.thinkingPreferencesChanged)
+                self?.invalidateAIConnectionTest()
+                self?.observeModelConfiguration()
+            }
+        }
     }
 
     // MARK: - 应用更新
@@ -261,26 +307,20 @@ final class AppState: NSObject {
             preferences.set(aiSourceRevision + 1, forKey: "plugin.ai.sourceRevision")
             invalidateAIConnectionTest()
         }
-        aiSource = source
-        preferences.set(source, forKey: Self.aiSourceKey)
+        models.selectDeep(source)
         refreshAIModel()
     }
 
-    private func refreshAIModel() {
-        guard let source = selectedAISource, let key = source.modelPreferenceKey else { aiModel = nil; return }
-        let saved = preferences.string(forKey: key)
-        aiModel = source.models.first { $0.id == saved }?.id ?? source.models.first?.id
-    }
+    private func refreshAIModel() {} // Selection is resolved by the configuration owner.
 
     func setAIModel(_ model: String) {
-        guard let source = selectedAISource, let key = source.modelPreferenceKey,
+        guard let source = selectedAISource, source.modelPreferenceKey != nil,
               source.models.contains(where: { $0.id == model }) else { return }
         if model != aiModel {
             preferences.set(aiSourceRevision + 1, forKey: "plugin.ai.sourceRevision")
             invalidateAIConnectionTest()
         }
-        aiModel = model
-        preferences.set(model, forKey: key)
+        models.selectDeepModel(model)
     }
 
     func invalidateAIConnectionTest() {
@@ -334,14 +374,9 @@ final class AppState: NSObject {
     }
 
     func aiRequestConfiguration() throws -> AIProviderPlugin.Configuration {
-        guard let source = selectedAISource else {
-            throw AIProviderPlugin.Failure(message: L10n.text("error.ai_source_unregistered", aiSource))
-        }
-        return try source.configure(aiModel)
+        try models.textConfiguration(.deep)
     }
 
-    /// action 的启用开关（缺省开）。关掉后从 registry 的候选中消失：Jev 候选、
-    /// ⌥↕ 目标、capture 选项、本地关键词命中都不再包含它（见 registry 执行快照）。
     func isActionEnabled(_ id: String) -> Bool {
         actionConfiguration.isActionEnabled(id)
     }
@@ -350,33 +385,26 @@ final class AppState: NSObject {
         actionConfiguration.setActionEnabled(enabled, for: id)
     }
 
-    /// 用户手动分流规则（短语 → action id），仅本地保存，供设置页读写。
-    var intentRules: [IntentRule] { actionConfiguration.intentRules }
-
-    /// 加一条规则：trim 短语，空则忽略；同短语（忽略大小写）覆盖已有，追加在末尾。
-    func addIntentRule(phrase: String, actionID: String) {
-        actionConfiguration.addIntentRule(phrase: phrase, actionID: actionID)
-    }
-
-    /// 删除单条规则。
-    func removeIntentRule(id: UUID) {
-        actionConfiguration.removeIntentRule(id: id)
-    }
-
     /// 装配会话依赖；AppState 不拥有草稿，也不参与路由状态转换。
     func makeLauncherSession(
-        settings: JevSettings = .shared,
-        catalog: ApplicationCatalog = ApplicationCatalog(),
-        recognize: @escaping IntentRecognition.Recognize = { text, key, capture in
-            try await Jev.recognize(text: text, apiKey: key, capture: capture)
-        }
+        catalog: ApplicationCatalog = ApplicationCatalog()
     ) -> LauncherSession {
-        LauncherSession(registry: actionRegistry, recorder: operationRecorder,
-            catalog: catalog,
-            configuration: { .init(revision: settings.revision, hasAPIKey: settings.hasAPIKey) },
-            readKey: { try settings.currentAPIKey() }, recognize: recognize,
+        let session = LauncherSession(registry: actionRegistry, recorder: operationRecorder,
+            catalog: catalog, clipboard: clipboard, review: notesReview,
+            thinkingPromptFactory: { [models] in
+                let version = models.version(.fast)
+                return try models.text(.fast, validate: {
+                    guard await models.version(.fast) == version else { throw CancellationError() }
+                })
+            },
+            thinkingFastVersion: { [models] in models.version(.fast) },
+            automaticThinkingEnabled: { [weak self] in self?.automaticDraftThinkingPromptsEnabled ?? false },
             applicationUsage: { [weak self] in self?.applicationUsage ?? [:] },
-            recordApplicationOpen: { [weak self] in self?.recordApplicationOpen($0) ?? false })
+            recordApplicationOpen: { [weak self] in self?.recordApplicationOpen($0) ?? false },
+            templates: { [templateConfiguration] in templateConfiguration.templates },
+            recentSavedDocuments: recentSavedDocuments)
+        launcherSession = session
+        return session
     }
 
     // MARK: - 应用使用统计

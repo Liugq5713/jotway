@@ -3,58 +3,41 @@ import Foundation
 
 @MainActor
 struct BundledActionDependencies {
+    var makeNotes: (@MainActor (UserDefaults) -> AppleNotesModule)? = nil
     var notesRun: @MainActor @Sendable (AppleNotes.Request) async throws -> AppleNotes.Response = {
         try await AppleNotes.run($0)
-    }
-    var remindersRun: @MainActor @Sendable (AppleReminders.Request) async throws -> AppleReminders.Response = {
-        try await AppleReminders.run($0)
-    }
-    var calendarRun: @MainActor @Sendable (AppleCalendar.Request) async throws -> AppleCalendar.Response = {
-        try await AppleCalendar.run($0)
-    }
-    var chromeLocate: @MainActor @Sendable () -> URL? = {
-        NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome")
-    }
-    var chromeOpen: ChromeConnector.Open = { url, application, configuration in
-        _ = try await NSWorkspace.shared.open([url], withApplicationAt: application, configuration: configuration)
     }
 }
 
 @MainActor
 enum BundledActions {
-    static func modules(preferences: UserDefaults,
+    static func modules(preferences: UserDefaults, models suppliedModels: ModelConfiguration? = nil,
+                        clipboard: ClipboardHistory? = nil,
                         dependencies: BundledActionDependencies = .init()) -> [any ActionModule] {
-        [
-            AppleNotesModule(preferences: preferences, run: dependencies.notesRun),
-            AppleRemindersModule(preferences: preferences, run: dependencies.remindersRun),
-            AppleCalendarModule(preferences: preferences, run: dependencies.calendarRun),
-            ChromeModule(locate: dependencies.chromeLocate, open: dependencies.chromeOpen),
-            ChatGPTModule(),
+        let models = suppliedModels ?? ModelConfiguration(preferences: preferences)
+        let notes = dependencies.makeNotes?(preferences)
+            ?? AppleNotesModule(preferences: preferences, models: models, run: dependencies.notesRun)
+        return [
+            notes,
+            CodexModule(preferences: preferences),
+            ClipboardModule(history: clipboard ?? ClipboardHistory(preferences: preferences)),
         ]
     }
 }
 
-func actionTextProcessor(preferences: UserDefaults, id: String, mode: AITextProcessor.Mode) -> any ActionTextProcessor {
-    let enabledKey = "aiRewriteEnabled.\(id)"
-    let enabled = preferences.object(forKey: enabledKey) == nil || preferences.bool(forKey: enabledKey)
-    guard enabled else { return PassthroughTextProcessor() }
-    let deepSeek = DeepSeek.source()
-    let provider = AIProviderPlugin(configuration: { try deepSeek.configure(nil) })
-    let override = preferences.string(forKey: "aiRewritePrompt.\(id)")
-    return AITextProcessor(provider: provider, mode: mode,
-                           styleOverride: override?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                               ? override : nil)
-}
-
-func notesSupplementProcessor(preferences: UserDefaults, id: String) -> any NotesSupplementProcessor {
+@MainActor
+func notesSupplementProcessor(preferences: UserDefaults, frozen: ModelTextInvocation, id: String, retriever: NotesRetriever? = nil,
+                              historyUnavailable: NotesSupplementResult.Retrieval = .unavailable,
+                              retrievalQuery: String? = nil, excludedNoteID: String? = nil,
+                              validate: @escaping @Sendable () async throws -> Void = { try Task.checkCancellation() }) -> any NotesSupplementProcessor {
     let enabledKey = "aiRewriteEnabled.\(id)"
     let enabled = preferences.object(forKey: enabledKey) == nil || preferences.bool(forKey: enabledKey)
     guard enabled else { return NoNotesSupplementProcessor() }
-    let deepSeek = DeepSeek.source()
-    let provider = AIProviderPlugin(configuration: { try deepSeek.configure(nil) })
-    let autoTags = preferences.object(forKey: "notesAITagsEnabled") == nil || preferences.bool(forKey: "notesAITagsEnabled")
+    let provider = frozen.validating(validate)
     return AINotesSupplementProcessor(provider: provider,
-        preferenceOverride: preferences.string(forKey: "notesSupplementPrompt"), autoTags: autoTags)
+        preferenceOverride: preferences.string(forKey: "notesSupplementPrompt"),
+        retriever: retriever, historyUnavailable: historyUnavailable,
+        retrievalQuery: retrievalQuery, excludedNoteID: excludedNoteID, validate: validate)
 }
 
 func cleanActionTag(_ raw: String) -> String {

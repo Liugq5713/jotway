@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import Jotway
 
@@ -61,8 +62,10 @@ final class LauncherActionTests: XCTestCase {
 
     func testAppleNotesActionCreatesNoteFromPlainText() async throws {
         var captured: AppleNotes.Request?
+        var createCount = 0
         let action = AppleNotesAction(destination: destination) { request in
             captured = request
+            createCount += 1
             return .init(version: 1, requestID: request.requestID, status: "ok",
                          noteID: "note-1", folderID: request.folderID,
                          plaintext: nil)
@@ -71,10 +74,63 @@ final class LauncherActionTests: XCTestCase {
             identity: .init(draftID: UUID(), revision: 0), text: "明天要买牛奶"))
         let outcome = try await prepared.execute()
         XCTAssertEqual(outcome.localizedMessage, "Saved to Notes")
+        XCTAssertEqual(createCount, 1)
         XCTAssertEqual(captured?.operation, "create")
         XCTAssertEqual(captured?.folderID, destination.id)
-        // 标题独立展示，原文首行仍完整保留在正文。
-        XCTAssertTrue(captured?.html?.contains("明天要买牛奶") == true)
+        let html = try XCTUnwrap(captured?.html)
+        XCTAssertEqual(try renderedNotesText(html), NotesInitialTitleGenerator.placeholder(for: "明天要买牛奶") + "\n\n明天要买牛奶\n")
+        XCTAssertEqual(try renderedNotesText(html).components(separatedBy: "明天要买牛奶").count - 1, 1)
+    }
+
+    func testAppleNotesContentPreservesOriginalWithoutDuplicatingFirstLine() throws {
+        let fixtures: [(input: String, expected: String)] = [
+            ("甲", "甲"),
+            ("@notes 原文", "@notes 原文"), ("@codex 原文", "@codex 原文"),
+            ("@personal 原文", "@personal 原文"), ("@clipboard 原文", "@clipboard 原文"),
+            ("@calendar 明天开会", "@calendar 明天开会"),
+            ("@reminders 买牛奶", "@reminders 买牛奶"),
+            ("@reminder 买牛奶", "@reminder 买牛奶"),
+            ("@chrome Swift", "@chrome Swift"),
+            ("第一行\n第二行", "第一行\n第二行"),
+            ("重复\n重复", "重复\n重复"),
+            ("\n\n  第一行  \n\t第二行\n\n", "\n\n  第一行  \n\t第二行\n\n"),
+            ("<alpha>&beta", "<alpha>&beta"),
+            ("# 标题\n```swift\nlet value = 1\n```", "# 标题\n```swift\nlet value = 1\n```"),
+            ("第一行\r\n第二行\r第三行", "第一行\n第二行\n第三行"),
+        ]
+        for fixture in fixtures {
+            let content = AppleNotes.content(fromPlainText: fixture.input)
+            XCTAssertEqual(content.plaintext, fixture.expected + "\n", fixture.input.debugDescription)
+            // Native HTML import adds a final newline only when the original has none.
+            let rendered = fixture.expected.hasSuffix("\n") ? fixture.expected : fixture.expected + "\n"
+            XCTAssertEqual(try renderedNotesText(content.html), rendered,
+                           fixture.input.debugDescription)
+        }
+    }
+
+    func testAppleNotesContentAppendsSupplementAndTagsWithoutDuplicatingOriginal() throws {
+        let original = "第一行\n第二行 #已有 #已有"
+        let supplement = NotesSupplement(items: [.init(text: "需要确认哪些细节？")],
+                                         tags: ["新增", "已有"])
+        let content = AppleNotes.content(fromPlainText: original, supplement: supplement,
+                                         tags: ["已有", "固定", "固定"])
+        XCTAssertEqual(content.plaintext,
+                       original + "\n\n────────────────────────────\n\nAI 洞察\n\n需要确认哪些细节？\n")
+        let rendered = try renderedNotesText(content.html)
+        XCTAssertTrue(rendered.hasPrefix(original + "\n"))
+        XCTAssertEqual(rendered.components(separatedBy: "第一行").count - 1, 1)
+        XCTAssertEqual(rendered.components(separatedBy: "第二行").count - 1, 1)
+        XCTAssertEqual(rendered.components(separatedBy: "#已有").count - 1, 2)
+        XCTAssertEqual(rendered.components(separatedBy: "需要确认哪些细节？").count - 1, 1)
+        XCTAssertFalse(rendered.contains("#固定"))
+        XCTAssertFalse(rendered.contains("#新增"))
+    }
+
+    private func renderedNotesText(_ html: String) throws -> String {
+        try NSAttributedString(data: Data(html.utf8), options: [
+            .documentType: NSAttributedString.DocumentType.html,
+            .characterEncoding: String.Encoding.utf8.rawValue,
+        ], documentAttributes: nil).string
     }
 
     func testAppleNotesActionUnavailableWithoutDestination() async {
@@ -109,9 +165,20 @@ final class LauncherActionTests: XCTestCase {
         XCTAssertEqual(registry.executionSnapshots().map(\.id), ["apple-notes"])
         let decision = RouteResolver().resolve(RouteInput(
             draft: RecordDraft(content: "记一下"), actions: registry.executionSnapshots().map(\.descriptor),
-            userRules: [], explicitTargetID: nil, recognizedTargetID: nil, recognitionIsCurrent: false,
+            explicitTargetID: nil, recognizedTargetID: nil, recognitionIsCurrent: false,
             defaultActionID: registry.fallbackActionID, applicationIDs: []))
         XCTAssertEqual(decision, .action("apple-notes", source: .localKeyword))
+        for text in ["提醒我明天买牛奶", "Google 搜 Swift", "@calendar 明天开会",
+                     "@reminders 买牛奶", "@reminder 买牛奶", "@chrome Swift", "今天可以聊聊吗？",
+                     "@notes 原文", "@personal 原文", "@codex 原文", "@clipboard 原文"] {
+            let decision = RouteResolver().resolve(RouteInput(draft: RecordDraft(content: text),
+                actions: registry.executionSnapshots().map(\.descriptor), explicitTargetID: nil,
+                recognizedTargetID: nil, recognitionIsCurrent: false,
+                defaultActionID: registry.fallbackActionID, applicationIDs: []))
+            XCTAssertEqual(decision, .action("apple-notes", source: .fallback))
+            let input = ActionInput(identity: .init(draftID: UUID(), revision: 0), text: text)
+            XCTAssertEqual(input.originalText, text)
+        }
         registry.setEnabled(false, id: "apple-notes")
         XCTAssertEqual(registry.executionSnapshots().map(\.id), ["apple-notes"], "始终启用的 action 不接受公共开关")
         let unavailable = ProbeModule(action: AppleNotesAction(destination: nil),
@@ -119,26 +186,113 @@ final class LauncherActionTests: XCTestCase {
         XCTAssertTrue(ActionRegistry(modules: [unavailable]).executionSnapshots().isEmpty)
     }
 
-    func testRouteResolverUsesSingleDocumentedPriorityOrder() {
-        let actions = [descriptor("explicit"), descriptor("rule"), descriptor("keyword", keyword: "route"),
-                       descriptor("recognized"), descriptor("default")]
+    func testRouteResolverUsesSingleDocumentedPriorityOrder() async throws {
+        let actions = [descriptor("explicit"), descriptor("keyword", keyword: "route"),
+                       descriptor("recognized"), descriptor("default"), descriptor("codex", keyword: "@codex")]
         let resolver = RouteResolver()
         func resolve(text: String = "route this", explicit: String? = nil,
-                     rules: [IntentRule] = [], recognized: String? = "recognized",
+                     recognized: String? = "recognized",
                      current: Bool = true) -> RouteDecision {
             resolver.resolve(RouteInput(draft: RecordDraft(content: text), actions: actions,
-                userRules: rules, explicitTargetID: explicit, recognizedTargetID: recognized,
+                explicitTargetID: explicit, recognizedTargetID: recognized,
                 recognitionIsCurrent: current, defaultActionID: "default", applicationIDs: []))
         }
 
-        XCTAssertEqual(resolve(explicit: "explicit", rules: [.init(phrase: "route", actionID: "rule")]),
+        XCTAssertEqual(resolve(explicit: "explicit"),
                        .action("explicit", source: .explicit))
-        XCTAssertEqual(resolve(rules: [.init(phrase: "route", actionID: "rule")]), .action("rule", source: .userRule))
         XCTAssertEqual(resolve(), .action("keyword", source: .localKeyword))
+        XCTAssertEqual(resolve(text: "@codex task", current: false), .action("default", source: .fallback))
+        XCTAssertEqual(resolve(text: "@codex task", explicit: "explicit"), .action("explicit", source: .explicit))
         XCTAssertEqual(resolve(text: "ordinary"), .action("recognized", source: .recognition))
         XCTAssertEqual(resolve(text: "ordinary", current: false), .action("default", source: .fallback))
         XCTAssertEqual(resolve(text: "ordinary", explicit: "missing"),
                        .unavailable(.targetUnavailable("missing"), source: .explicit))
+
+        // Exercise target/template coordination without real actions, windows or clipboard data.
+        let suite = "Jotway.TemplateTargets." + UUID().uuidString
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer {
+            preferences.removePersistentDomain(forName: suite)
+            pasteboard.releaseGlobally()
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let history = ClipboardHistory(preferences: preferences,
+            store: ClipboardHistoryStore(url: directory.appendingPathComponent("history.sqlite")),
+            idleSeconds: { 0 }, recognize: { _ in XCTFail("Template selection must not recognize images"); return "" })
+        let clipboard = ClipboardService(pasteboard: pasteboard,
+            sourceSettings: BrowserSourceSettings(preferences: preferences), history: history,
+            preferences: preferences, foreground: { .init(bundle: nil, pid: 0) },
+            readSource: { _ in XCTFail("Template selection must not read a browser"); return nil })
+        let probe = PrepareProbe()
+        let registry = ActionRegistry(modules: [descriptor("apple-notes"),
+            CodexModule.moduleDescriptor,
+            ClipboardModule.moduleDescriptor].map { ProbeModule(action: ProbeAction(descriptor: $0, probe: probe)) })
+        let session = LauncherSession(registry: registry,
+            recorder: OperationRecorder(repository: .inMemory(), enabled: false),
+            catalog: ApplicationCatalog(applications: []), clipboard: clipboard,
+            applicationUsage: { [:] }, recordApplicationOpen: { _ in XCTFail("No app opening"); return false })
+        var insertions = 0
+        var acceptInsertion = true
+        var endedFilling = 0
+        session.handleEffect = { effect in
+            switch effect {
+            case .insertTemplate(_, let identity):
+                XCTAssertEqual(identity.draftID, session.draft.id)
+                XCTAssertEqual(identity.revision, session.draftRevision)
+                insertions += 1
+                return acceptInsertion
+            case .endTemplateEditing: endedFilling += 1
+            case .prepareSubmission, .showActionSetup, .openApplication:
+                XCTFail("Choosing a target or template must not execute or configure")
+            default: break
+            }
+            return true
+        }
+        XCTAssertTrue(session.prepare())
+        XCTAssertEqual(Set(session.state.intentCandidates.map(\.id)), Set(["codex", "apple-notes"]))
+        session.send(.inputChanged("draft"))
+        session.send(.selectTarget("clipboard"))
+        XCTAssertFalse(session.state.hasExplicitTarget)
+        let originalCopyVersion = pasteboard.changeCount
+        for targetID in ["apple-notes", "codex"] {
+            session.send(.inputChanged(targetID == "codex" ? "" : "draft"))
+            session.send(.selectTarget(targetID))
+            if targetID == "codex" {
+                XCTAssertTrue(session.state.showsCodexRecentTasks, "The explicit target exposes recent tasks without a prefix")
+            }
+            session.send(.inputChanged("@记录"))
+            let draftID = session.draft.id, revision = session.draftRevision
+            let template = try XCTUnwrap(session.state.templateCandidates.first)
+            XCTAssertFalse(session.state.showsCodexRecentTasks)
+            XCTAssertFalse(session.state.canConfirm)
+            acceptInsertion = false
+            session.send(.selectTemplate(template))
+            XCTAssertEqual(session.draft.content, "@记录", "Rejected native edits preserve the query")
+            XCTAssertEqual(session.draftRevision, revision)
+            acceptInsertion = true
+            session.send(.selectTemplate(template))
+            XCTAssertEqual(session.draft.content, try TemplateExpansion.parse(template.body).text)
+            XCTAssertEqual(session.draft.id, draftID)
+            XCTAssertEqual(session.draftRevision, revision + 1, "One accepted insertion commits exactly one draft update")
+            XCTAssertTrue(session.state.hasExplicitTarget)
+            XCTAssertEqual(session.state.intentCandidates.first(where: \.isSelected)?.id, targetID)
+            XCTAssertNil(session.state.clipboardHistory)
+            session.send(.inputChanged("@clipboard literal query"))
+            XCTAssertFalse(session.state.isTemplateMenuVisible)
+            XCTAssertEqual(session.draft.content, "@clipboard literal query")
+            XCTAssertEqual(session.state.intentCandidates.first(where: \.isSelected)?.id, targetID)
+        }
+        XCTAssertEqual(insertions, 4)
+        XCTAssertEqual(pasteboard.changeCount, originalCopyVersion, "Choosing templates never copies")
+        session.send(.toggleMode)
+        XCTAssertGreaterThan(endedFilling, 0)
+        XCTAssertFalse(session.state.isTemplateMenuVisible)
+        session.send(.panelDismissed)
+        try await Task.sleep(for: .milliseconds(50))
+        let executions = await probe.executeCount
+        XCTAssertEqual(executions, 0)
     }
 
     func testActionExecutorReusesPreparedActionForExecution() async throws {

@@ -17,6 +17,7 @@ import sys
 import tempfile
 from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
+from code_signing import resolve_identity, sign_app, signing_kind, verify_distribution_app
 
 ROOT = Path(__file__).resolve().parent.parent
 RELEASE = ROOT / "release"
@@ -221,6 +222,31 @@ def create_appcast(output, dmg, version, build, notes, public_key, private_key):
     return appcast
 
 
+def distribution_configuration(identity, profile):
+    if identity == "-" or not profile:
+        raise ValueError("公开发布要求固定 Developer ID 身份及 JOTWAY_NOTARY_PROFILE；不会降级。仅本地开发使用 --offline。")
+
+
+def notarize_and_staple(artifact, profile, *, application=False):
+    # Called only by the explicitly requested public release path, never build-app.sh.
+    with tempfile.TemporaryDirectory(prefix="jotway-notary-") as directory:
+        upload = artifact
+        if application:
+            upload = Path(directory) / "Jotway.zip"
+            run("ditto", "-c", "-k", "--keepParent", artifact, upload)
+        response = json.loads(run("xcrun", "notarytool", "submit", upload,
+                                  "--keychain-profile", profile, "--wait", "--output-format", "json", capture=True))
+        if response.get("status") != "Accepted" or not response.get("id"):
+            raise ValueError("Apple 公证尚未 Accepted，停止发布。")
+    run("xcrun", "stapler", "staple", artifact)
+    run("xcrun", "stapler", "validate", artifact)
+    if application:
+        run("spctl", "--assess", "--type", "execute", "--verbose=2", artifact)
+    else:
+        run("spctl", "--assess", "--type", "open", "--context", "context:primary-signature", "--verbose=2", artifact)
+    return response["id"]
+
+
 def release(args):
     # Keep the secret out of every child process's environment, including dry runs.
     environment_key = os.environ.pop("SPARKLE_PRIVATE_KEY", None)
@@ -244,6 +270,10 @@ def release(args):
             print(f"预览：校验签名密钥 → release App → DMG → 已签名 appcast.xml → 发行记录；更新源 {update_config[0]}。")
         print("预览不读取或验证私钥、不构建、不写入文件、不上传。")
         return
+    identity = resolve_identity()
+    profile = os.environ.get("JOTWAY_NOTARY_PROFILE", "").strip()
+    if not args.offline:
+        distribution_configuration(identity, profile)
     private_key = load_private_key(environment_key) if update_config else None
     RELEASE.mkdir(exist_ok=True)
     # Only one release can build and write release metadata at a time.
@@ -260,7 +290,8 @@ def release(args):
             print("==> 验证更新签名密钥", flush=True)
             check_signing_key(update_config[1], private_key)
         print("==> 构建 release 包", flush=True)
-        run(ROOT / "scripts/build-app.sh", "release")
+        run(ROOT / "scripts/build-app.sh", "release",
+            env={**os.environ, "JOTWAY_SIGNING_IDENTITY": identity})
         output.mkdir()
         with tempfile.TemporaryDirectory(prefix=".stage-", dir=output) as temp:
             stage = Path(temp)
@@ -276,18 +307,21 @@ def release(args):
             elif update_configuration(info) != update_config:
                 raise ValueError("构建产物的更新配置与发行前校验的配置不一致。")
             bundled_info.write_bytes(plistlib.dumps(info, sort_keys=False))
-            run("codesign", "--force", "--sign", "-", "--entitlements", ROOT / "Resources/Jotway.entitlements", app)
-            run("codesign", "--verify", "--deep", "--strict", app)
-            signature = subprocess.run(["codesign", "-dv", "--verbose=4", str(app)],
-                                       check=True, text=True, capture_output=True).stderr
-            if "Signature=adhoc" not in signature:
-                raise ValueError("本地发行流程预期 ad-hoc 签名，但产物签名不匹配。")
+            sign_app(app, identity)
+            code_signing = signing_kind(app)
+            notary_ids = []
+            if not args.offline:
+                verify_distribution_app(app)
+                notary_ids.append(notarize_and_staple(app, profile, application=True))
             architecture = run("lipo", "-archs", app / "Contents/MacOS/Jotway", capture=True).strip()
             if architecture != "arm64":
                 raise ValueError(f"发行包须仅包含 arm64，实际为 {architecture}。")
             dmg = output / f"{APP_NAME}-{version}-{build}-arm64.dmg"
             create_dmg(stage, dmg)
         run("hdiutil", "verify", dmg)
+        if not args.offline:
+            run("codesign", "--sign", identity, "--timestamp", dmg)
+            notary_ids.append(notarize_and_staple(dmg, profile))
         appcast = None
         if update_config:
             appcast = create_appcast(output, dmg, version, build, notes, update_config[1], private_key)
@@ -297,13 +331,15 @@ def release(args):
                     "bytes": dmg.stat().st_size, "architecture": architecture,
                     "minimumMacOS": info["LSMinimumSystemVersion"],
                     "createdAt": datetime.now(timezone.utc).isoformat(),
-                    "codeSigning": "ad-hoc", "notarized": False, "published": False,
+                    "codeSigning": code_signing, "notarized": not args.offline, "published": False,
+                    "distributionVerified": not args.offline, "notarySubmissionIDs": notary_ids,
+                    "stapled": not args.offline, "gatekeeperAccepted": not args.offline,
                     "updatesEnabled": not args.offline}
         (output / "release.json").write_text(json.dumps(metadata, indent=2, ensure_ascii=False) + "\n")
         print(f"\n本地 DMG：{dmg}\nSHA-256：{digest}\n发行记录：{output / 'release.json'}")
         if appcast:
             print(f"已验证签名的更新清单：{appcast}")
-        print(f"应用包为 ad-hoc 签名，未公证；未上传，在线更新{'关闭' if args.offline else '已启用'}。")
+        print(f"应用包签名：{code_signing}，{'开发包，未公证，不可公开发布' if args.offline else '已通过公证、staple 与 Gatekeeper'}；未发布，在线更新{'关闭' if args.offline else '已启用'}。")
     finally:
         lock.unlink()
 

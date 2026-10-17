@@ -1,9 +1,11 @@
 import Foundation
 
 enum LauncherEvent {
+    case toggleMode
     case inputChanged(String)
     case panelPrepared(quote: String?)
     case panelPresented
+    case selectedTextPermissionNotice(String)
     case panelDismissed
     case panelVisibilityChanged(Bool)
     case compositionChanged(Bool)
@@ -13,9 +15,30 @@ enum LauncherEvent {
     case toggleTargetMenu
     case useAutomatic(trigger: OperationSelectionTrigger = .button)
     case candidateMenuChanged(Bool)
+    case selectTemplate(InputTemplate)
+    case templateFillingChanged(Bool)
+    case clipboardSelect(String)
+    case clipboardMove(forward: Bool)
+    case codexRecentTaskOpened
+    case toggleReview(NotesReviewPeriod)
+    case closeReview
+    case requestThinkingPrompt
+    case closeThinkingPrompt
+    case thinkingSettingsOpened
+    case automaticThinkingPreferenceChanged
+    case thinkingPreferencesChanged
+    case toggleRecentDocuments
+    case navigateRecentDocument(older: Bool)
+    case recentDocumentDateChanged
+    case selectRecentDocument(String)
+    case retryRecentDocument
+    case closeRecentDocument
+    case dismissTemplateMenu
     case readingGettingStartedChanged(Bool)
     case externalFocusChanged
     case refreshConfiguration
+    case refreshTemplates
+    case externalAvailabilityChanged
     case preserveDraft
     case captureBeforeTermination
     case cancel
@@ -23,12 +46,13 @@ enum LauncherEvent {
     case cancelApplicationPreload
     case restoreFailedSubmission
     case actionSetupFinished(UUID, ActionSetupResult)
-    case planPresented(planID: UUID, panelSessionID: UUID)
-    case timeContextChanged
 }
 
 enum LauncherEffect {
+    case changeMode(LauncherMode)
     case replaceEditor(String, LauncherSession.ReplacementReason)
+    case insertTemplate(TemplateExpansion, expected: ActionInput.Identity)
+    case endTemplateEditing
     case prepareSubmission
     case cancelSubmission
     case hidePanel(submitted: Bool, presentationPolicy: PresentationPolicy)
@@ -37,21 +61,21 @@ enum LauncherEffect {
     case showActionSetup(ActionSetupRequest)
     case closeActionSetup(UUID)
     case restoreEditorAfterSetup
+    case restoreEditorAfterRecentDocumentRemoval
+    case showCompletionNotice(String, destination: ActionCompletionDestination?)
     case openApplication(URL, dispatched: @MainActor () -> Void, completion: @MainActor (Result<Void, Error>) -> Void)
 }
 
 /// 启动器会话：拥有草稿、意图、路由和提交任务，不持有窗口或原生编辑器。
 @MainActor
 final class LauncherSession {
-    struct Configuration {
-        let revision: UUID
-        let hasAPIKey: Bool
-    }
-
     enum ReplacementReason { case restoreDraft, newDraft }
 
     let state = LauncherViewState()
     let catalog: ApplicationCatalog
+    let thinkingPrompt: DraftThinkingPromptSession
+    private let automaticThinkingEnabled: () -> Bool
+    private let thinkingFastVersion: () -> String
     private(set) var draft = RecordDraft()
     private(set) var hasPreparedDraft = false
     private(set) var activeSubmissionCount = 0
@@ -65,11 +89,22 @@ final class LauncherSession {
         return true
     }
 
+    private let clipboard: ClipboardService?
+    private let review: NotesReview?
+    private var clipboardConfirmation: UUID? {
+        didSet { updateSubmissionTransition() }
+    }
     private let registry: ActionRegistry
+    private let readTemplates: () -> [InputTemplate]
+    private let recentSavedDocuments: RecentSavedDocuments
+    private let readSavedDocument: @MainActor @Sendable (String) async throws -> String
+    private var recentDocumentTask: Task<Void, Never>?
+    private var recentDocumentRequestID: UUID?
+    private let recentDocumentNow: () -> Date
+    private let recentDocumentTimeZone: () -> TimeZone
+    private var recentDocumentDayTask: Task<Void, Never>?
+    private(set) var nextRecentDocumentRefresh: Date?
     private let recorder: OperationRecorder
-    private let configuration: () -> Configuration
-    private let readKey: @MainActor @Sendable () throws -> String?
-    private let recognize: IntentRecognition.Recognize
     private let applicationUsage: () -> [String: ApplicationUsage]
     private let recordApplicationOpen: (URL) -> Bool
     private let routeResolver = RouteResolver()
@@ -78,10 +113,20 @@ final class LauncherSession {
     private var panelSession = 0
     private var acceptsIntentSuggestions = false
     private var isReplacingEditor = false
-    private var isSubmitting = false
+    private var isSubmitting = false {
+        didSet { updateSubmissionTransition() }
+    }
+    private struct ApplicationEvaluationCache {
+        let draftID: UUID
+        let revision: Int
+        let catalogRevision: Int
+        let evaluation: ApplicationMatcher.Evaluation
+        let applications: [IntentRecognition.Application]
+        let ranks: [String: IntentRecognition.ApplicationRank]
+    }
+    private var applicationEvaluationCache: ApplicationEvaluationCache?
     private var applicationOpenID: UUID?
     private var applicationNotice: String?
-    private var recognizingHintTask: Task<Void, Never>?
     private var submissions: [UUID: Task<Void, Never>] = [:]
     private var explicitTarget: DraftTargetSelection?
     private var explicitTargetDraftID: UUID?
@@ -90,16 +135,13 @@ final class LauncherSession {
     private var draftEditingStartRevision = 0
     private var committedDraftHasContent = false
     private var correctionTargetID: String?
-    private let now: @MainActor () -> Date
-    private let timeZone: @MainActor () -> TimeZone
-    private var preparationClockTask: Task<Void, Never>?
+    private var dismissedTemplateText: String?
     private struct PendingActionConfirmation {
         let snapshot: ActionExecutionSnapshot
         let input: ActionInput
         let planID: UUID
         let generation: UUID
         let panelSessionID: UUID
-        let configuration: UUID
         let source: IntentRecognition.ConfirmationSource
         let decision: RouteDecision
     }
@@ -125,6 +167,7 @@ final class LauncherSession {
     private var lastAttemptID: String?
     private var firstChoiceEventID: String?
     private var selectionIsInherited = false
+    private var thinkingSettingsActive = false
     private var panelIsVisible = false
     private var presentationID = UUID().uuidString
     private var renderedDecision: RouteDecision?
@@ -137,7 +180,6 @@ final class LauncherSession {
     private var presentedRoute: PresentedRoute?
     private var lastVisibleToken: OperationToken?
     private var clearedVisibleToken: OperationToken?
-    private var recognitionTokens: [UUID: (token: OperationToken, started: UInt64)] = [:]
 
     private lazy var actionExecutor: ActionExecutor = {
         let executor = ActionExecutor()
@@ -145,33 +187,49 @@ final class LauncherSession {
         return executor
     }()
     private lazy var recognition = IntentRecognition(
-        readKey: readKey, recognize: recognize,
         isCurrent: { [weak self] in self?.currentIntentSnapshot == $0 },
         changed: { [weak self] in self?.renderIntentSuggestion() },
-        requestStarted: { [weak self] in self?.recordRecognitionStarted($0, trace: $1) },
-        requestFinished: { [weak self] in self?.recordRecognitionFinished($0, trace: $1, outcome: $2, action: $3, actualModel: $4) })
+        evaluated: { [weak self] in self?.recordLocalRecognition($0, summary: $1, action: $2, reason: $3) })
 
     init(registry: ActionRegistry, recorder: OperationRecorder,
-         catalog: ApplicationCatalog,
-         configuration: @escaping () -> Configuration,
-         readKey: @escaping @MainActor @Sendable () throws -> String?,
-         recognize: @escaping IntentRecognition.Recognize,
+         catalog: ApplicationCatalog, clipboard: ClipboardService? = nil,
+         review: NotesReview? = nil,
+         thinkingPromptFactory: @escaping @MainActor () throws -> ModelTextInvocation = {
+             throw AIProviderPlugin.Failure(message: "Thinking prompts are not configured", runtimeLogCode: .configuration)
+         },
+         thinkingFastVersion: @escaping @MainActor () -> String = { "unconfigured" },
+         automaticThinkingEnabled: @escaping @MainActor () -> Bool = { false },
          applicationUsage: @escaping () -> [String: ApplicationUsage],
          recordApplicationOpen: @escaping (URL) -> Bool,
-         now: @escaping @MainActor () -> Date = { Date() },
-         timeZone: @escaping @MainActor () -> TimeZone = { .current }) {
+         templates: @escaping () -> [InputTemplate] = { InputTemplate.builtIns },
+         recentSavedDocuments: RecentSavedDocuments = RecentSavedDocuments(),
+         recentDocumentNow: @escaping @MainActor () -> Date = { Date() },
+         recentDocumentTimeZone: @escaping @MainActor () -> TimeZone = { .current },
+         readSavedDocument: @escaping @MainActor @Sendable (String) async throws -> String = {
+             try await AppleNotesReader().body(noteID: $0).text
+         }) {
+        self.thinkingFastVersion = thinkingFastVersion
+        self.automaticThinkingEnabled = automaticThinkingEnabled
+        self.thinkingPrompt = DraftThinkingPromptSession(factory: thinkingPromptFactory, currentVersion: thinkingFastVersion)
+        state.thinkingPrompt = thinkingPrompt
+        self.clipboard = clipboard
+        self.review = review
         self.registry = registry
+        self.readTemplates = templates
+        self.recentDocumentNow = recentDocumentNow
+        self.recentDocumentTimeZone = recentDocumentTimeZone
+        self.recentSavedDocuments = recentSavedDocuments
+        self.readSavedDocument = readSavedDocument
+        state.recentDocuments = recentSavedDocuments.documents
         self.recorder = recorder
         self.operationGeneration = recorder.currentGeneration
         self.operationLineageID = recorder.newLineageID()
         self.catalog = catalog
-        self.configuration = configuration
-        self.readKey = readKey
-        self.recognize = recognize
         self.applicationUsage = applicationUsage
         self.recordApplicationOpen = recordApplicationOpen
-        self.now = now
-        self.timeZone = timeZone
+        refreshRecentDocumentEligibility()
+        clipboard?.history.onChange = { [weak self] in self?.renderIntentSuggestion() }
+        review?.onChange = { [weak self] in self?.syncReview() }
         catalog.changed = { [weak self] in
             guard let self else { return }
             self.refresh()
@@ -179,20 +237,28 @@ final class LauncherSession {
     }
 
     isolated deinit {
-        recognizingHintTask?.cancel()
         stableInputTask?.cancel()
-        preparationClockTask?.cancel()
+        recentDocumentTask?.cancel()
+        recentDocumentDayTask?.cancel()
         // 已提交的外部写入不随窗口隐藏或会话释放而取消。
     }
 
+    var draftRevision: Int { revision }
     var hasUnsavedChanges: Bool { revision != savedRevision }
 
     func send(_ event: LauncherEvent) {
         state.lastEventSucceeded = true
+        defer { refreshThinkingPrompt() }
         switch event {
+        case .toggleMode: toggleMode()
         case .inputChanged(let text): updateInput(text)
         case .panelPrepared(let quote): state.lastEventSucceeded = prepare(quote: quote)
-        case .panelPresented: activate()
+        case .panelPresented:
+            refreshRecentDocumentDate()
+            catalog.refreshIfNeeded()
+            activate()
+        case .selectedTextPermissionNotice(let message):
+            if state.message == nil { state.message = message }
         case .panelDismissed: panelClosed()
         case .panelVisibilityChanged(let visible): recordPanelVisibility(visible)
         case .compositionChanged(let composing):
@@ -203,6 +269,7 @@ final class LauncherSession {
                 state.canChooseTarget = false
                 state.canConfirm = false
                 state.intentCanCycle = false
+                state.templateCandidates = []
             }
             else { finishCommittedEdit(); trackOperationText(draft.content); refresh() }
         case .confirm(let source): confirm(source)
@@ -210,22 +277,116 @@ final class LauncherSession {
         case .selectTarget(let id, let trigger): selectTarget(id: id, trigger: trigger)
         case .toggleTargetMenu:
             guard state.canChooseTarget, !state.isComposingText else { return }
+            closeRecentDocument()
+            closeReview()
             cancelPendingConfirmation()
             state.isIntentCandidateMenuVisible.toggle()
         case .useAutomatic(let trigger): useAutomatic(trigger: trigger)
         case .candidateMenuChanged(let visible):
-            if visible { cancelPendingConfirmation() }
+            if visible { closeRecentDocument(); closeReview(); cancelPendingConfirmation() }
             state.isIntentCandidateMenuVisible = visible && state.canChooseTarget
+            refresh()
+        case .selectTemplate(let template): selectTemplate(template)
+        case .templateFillingChanged(let active):
+            state.isFillingTemplate = active
+            if !isReplacingEditor { refresh() }
+        case .clipboardSelect(let id):
+            guard state.mode == .quickInput, !state.isComposingText else { return }
+            clipboard?.history.select(id)
+        case .clipboardMove(let forward):
+            guard state.mode == .quickInput, !state.isComposingText else { return }
+            clipboard?.history.move(forward: forward)
+        case .codexRecentTaskOpened:
+            guard state.mode == .quickInput else { return }
+            state.lastEventSucceeded = clearDraft()
+            refresh()
+        case .requestThinkingPrompt:
+            refreshThinkingPrompt()
+            guard thinkingPrompt.blockReason == nil else { return }
+            closeRecentDocument()
+            closeReview()
+            refreshThinkingPrompt()
+            thinkingPrompt.requestManually()
+        case .closeThinkingPrompt:
+            guard !state.isComposingText else { return }
+            thinkingPrompt.closeByUser()
+        case .thinkingSettingsOpened:
+            thinkingPrompt.invalidate()
+            // Settings leave the writing surface; resume only on the next panel activation.
+            thinkingSettingsActive = true
+        case .automaticThinkingPreferenceChanged:
+            thinkingSettingsActive = true
+        case .thinkingPreferencesChanged:
+            break
+        case .toggleReview(let period):
+            guard state.mode == .quickInput, state.modeSwitchBlockReason == nil else { return }
+            if state.showsReview, state.reviewPeriod == period { closeReview(); refresh() }
+            else {
+                closeReview()
+                closeRecentDocument()
+                cancelPendingConfirmation()
+                state.isIntentCandidateMenuVisible = false
+                state.templateCandidates = []
+                thinkingPrompt.invalidate()
+                state.reviewPeriod = period
+                state.showsReview = true
+                if let review {
+                    review.load(period: period, force: false)
+                    syncReview()
+                } else {
+                    state.reviewUnavailableReason = L10n.text("notes.review.unavailable.not_ready")
+                }
+            }
+        case .closeReview:
+            guard !state.isComposingText else { return }
+            closeReview()
+            refresh()
+        case .recentDocumentDateChanged:
+            refreshRecentDocumentDate()
+            refreshThinkingPrompt()
+        case .toggleRecentDocuments:
+            refreshRecentDocumentDate()
+            guard state.canShowRecentDocuments, state.modeSwitchBlockReason == nil else { return }
+            if state.selectedRecentDocumentID != nil { closeRecentDocument(); refresh() }
+            else if let id = state.recentDocuments.first?.id { showRecentDocument(id) }
+        case .navigateRecentDocument(let older):
+            refreshRecentDocumentDate()
+            guard state.canShowRecentDocuments, state.modeSwitchBlockReason == nil,
+                  let position = state.recentDocumentPosition else { return }
+            let next = position + (older ? 1 : -1)
+            guard state.recentDocuments.indices.contains(next) else { return }
+            showRecentDocument(state.recentDocuments[next].id)
+        case .selectRecentDocument(let id):
+            refreshRecentDocumentDate()
+            guard state.canShowRecentDocuments, state.modeSwitchBlockReason == nil,
+                  state.recentDocuments.contains(where: { $0.id == id }) else { return }
+            if state.selectedRecentDocumentID == id { closeRecentDocument(); refresh() }
+            else { showRecentDocument(id) }
+        case .retryRecentDocument:
+            refreshRecentDocumentDate()
+            guard state.canShowRecentDocuments, state.modeSwitchBlockReason == nil,
+                  let id = state.selectedRecentDocumentID else { return }
+            showRecentDocument(id)
+        case .closeRecentDocument:
+            guard !state.isComposingText else { return }
+            closeRecentDocument()
+            refresh()
+        case .dismissTemplateMenu:
+            dismissedTemplateText = draft.content
+            state.templateCandidates = []
             refresh()
         case .readingGettingStartedChanged(let reading):
             state.isReadingGettingStarted = reading
             if reading { suspend() } else { refresh() }
         case .externalFocusChanged: suspend()
-        case .refreshConfiguration: refresh()
+        case .refreshConfiguration, .refreshTemplates: refresh()
+        case .externalAvailabilityChanged: registry.requestAvailabilityRefresh(invalidate: true)
         case .preserveDraft:
             cancelPendingConfirmation()
             state.lastEventSucceeded = preserveDraft()
         case .captureBeforeTermination:
+            thinkingSettingsActive = true
+            thinkingPrompt.invalidate()
             guard !state.isComposingText else { return }
             _ = captureOperation(.stableInput, userInitiated: true, allowEmpty: true)
         case .cancel: cancel()
@@ -233,21 +394,55 @@ final class LauncherSession {
         case .cancelApplicationPreload: cancelApplicationPreload()
         case .restoreFailedSubmission: state.lastEventSucceeded = restoreFailedSubmission()
         case .actionSetupFinished(let id, let result): finishSetup(id: id, result: result)
-        case .planPresented(let planID, let sessionID):
-            acknowledgePresentedPlan(planID, panelSessionID: sessionID)
-        case .timeContextChanged:
-            invalidatePreparation()
-            refresh()
         }
     }
 
+    private func updateSubmissionTransition() {
+        state.isAcceptingSubmission = isSubmitting || clipboardConfirmation != nil
+        if state.isAcceptingSubmission { thinkingPrompt.invalidate() }
+    }
+
+    private func toggleMode() {
+        guard state.modeSwitchBlockReason == nil else {
+            state.lastEventSucceeded = false
+            return
+        }
+        let previous = state.mode
+        state.mode = previous == .quickInput ? .sticky : .quickInput
+        thinkingPrompt.invalidate()
+        state.modeGeneration = UUID()
+        guard handleEffect(.changeMode(state.mode)) else {
+            state.mode = previous
+            state.modeGeneration = UUID()
+            state.lastEventSucceeded = false
+            return
+        }
+        // Keep draft identity, revision, editor selection and explicit routing intact.
+        // A new panel session invalidates preparations from the old panel.
+        state.panelSessionID = UUID()
+        panelSession += 1
+        closeRecentDocument()
+        suspend()
+        state.isIntentCandidateMenuVisible = false
+        dismissedTemplateText = nil
+        activate()
+    }
+
     func updateInput(_ text: String) {
+        let timing = InputPerformance.begin()
+        defer { InputPerformance.end("input", timing) }
         guard !isReplacingEditor else { return }
+        // NSTextView supplies a bridged NSString. Materialize it once so the draft,
+        // operation state and observable view state reuse the same UTF-8 storage.
+        var text = text
+        text.makeContiguousUTF8()
         if draft.content != text {
             invalidatePreparation()
             invalidateSetup()
+            dismissedTemplateText = nil
             draft.content = text
             revision += 1
+            if state.showsReview { closeReview() }   // typing yields the panel back to capture
         }
         if !state.isComposingText { finishCommittedEdit(); trackOperationText(text) }
         synchronizeDraftState()
@@ -258,7 +453,12 @@ final class LauncherSession {
     @discardableResult
     func prepare(quote: String? = nil) -> Bool {
         guard !state.isComposingText else { return false }
+        if state.mode == .sticky {
+            resumePresentation()
+            return true
+        }
         invalidatePreparation()
+        registry.requestAvailabilityRefresh()
         state.panelSessionID = UUID()
         invalidateSetup()
         var content = draft.content
@@ -281,6 +481,7 @@ final class LauncherSession {
 
     func resumePresentation() {
         invalidatePreparation()
+        registry.requestAvailabilityRefresh()
         state.panelSessionID = UUID()
         invalidateSetup()
         panelSession += 1
@@ -288,29 +489,64 @@ final class LauncherSession {
     }
 
     func activate() {
+        thinkingSettingsActive = false
         guard pendingSetup == nil else { return }
-        acceptsIntentSuggestions = true
+        acceptsIntentSuggestions = state.mode == .quickInput
         refresh()
     }
 
     func suspend() {
+        _ = handleEffect(.endTemplateEditing)
+        clipboardConfirmation = nil
+        clipboard?.history.setQuery(nil)
+        state.clipboardHistory = nil
+        closeReview()
         acceptsIntentSuggestions = false
         state.canChooseTarget = false
         state.canConfirm = false
         state.intentCanCycle = false
+        state.templateCandidates = []
         invalidatePreparation()
         recognition.update(nil)
-        cancelRecognizingHint()
     }
 
     func panelClosed() {
+        thinkingPrompt.invalidate()
         recordPanelVisibility(false)
+        closeRecentDocument()
         invalidateSetup()
         suspend()
         actionExecutor.reset()
         state.intentCandidates = []
         state.isIntentCandidateMenuVisible = false
         state.displayedActionTitle = nil
+        state.displayedActionIcon = nil
+    }
+
+    /// Mirror the review service's observable state into the view state the panel reads.
+    private func syncReview() {
+        guard state.showsReview, let review, review.period == state.reviewPeriod else { return }
+        state.isLoadingReview = review.isLoading
+        state.reviewSummary = review.summary
+        state.reviewPreview = review.preview
+        state.reviewRequestMetadata = review.requestMetadata
+        state.reviewFailed = review.failed
+        state.reviewCoverageIncomplete = review.coverageIncomplete
+        state.reviewUnavailableReason = review.unavailableText
+    }
+
+    private func closeReview() {
+        guard state.showsReview || state.reviewUnavailableReason != nil || state.reviewSummary != nil
+                || state.reviewPreview != nil || state.reviewRequestMetadata != nil || state.isLoadingReview else { return }
+        state.showsReview = false
+        state.reviewSummary = nil
+        state.reviewPreview = nil
+        state.reviewRequestMetadata = nil
+        state.isLoadingReview = false
+        state.reviewFailed = false
+        state.reviewCoverageIncomplete = false
+        state.reviewUnavailableReason = nil
+        review?.cancel()
     }
 
     func preloadApplications() { catalog.preload() }
@@ -330,8 +566,22 @@ final class LauncherSession {
 
     private func cancel() {
         guard !state.isComposingText else { state.lastEventSucceeded = false; return }
+        if state.showsReview {
+            closeReview()
+            refresh()
+            return
+        }
         if state.isIntentCandidateMenuVisible {
             state.isIntentCandidateMenuVisible = false
+            return
+        }
+        if thinkingPrompt.display.isOpen {
+            thinkingPrompt.closeByUser()
+            return
+        }
+        if state.selectedRecentDocumentID != nil {
+            closeRecentDocument()
+            refresh()
             return
         }
         if let pendingSetup {
@@ -347,65 +597,192 @@ final class LauncherSession {
         _ = handleEffect(.hidePanel(submitted: false, presentationPolicy: .returnToPreviousApplication))
     }
 
+    private var recentDocumentDay: DateInterval? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = recentDocumentTimeZone()
+        return calendar.dateInterval(of: .day, for: recentDocumentNow())
+    }
+
+    private func refreshRecentDocumentEligibility() {
+        let wasAvailable = state.canShowRecentDocuments
+        state.recentDocuments = recentSavedDocuments.documents
+        let day = recentDocumentDay
+        state.canShowRecentDocuments = state.recentDocuments.contains { document in
+            guard let day else { return false }
+            return document.savedAt >= day.start && document.savedAt < day.end
+        }
+        let selectionWasRemoved = state.selectedRecentDocumentID != nil && state.selectedRecentDocument == nil
+        if !state.canShowRecentDocuments || selectionWasRemoved {
+            closeRecentDocument()
+            if wasAvailable && !state.canShowRecentDocuments || selectionWasRemoved {
+                _ = handleEffect(.restoreEditorAfterRecentDocumentRemoval)
+            }
+        }
+    }
+
+    private func refreshRecentDocumentDate() {
+        refreshRecentDocumentEligibility()
+        recentDocumentDayTask?.cancel()
+        recentDocumentDayTask = nil
+        nextRecentDocumentRefresh = nil
+        guard panelIsVisible, let midnight = recentDocumentDay?.end else { return }
+        nextRecentDocumentRefresh = midnight
+        let delay = max(0.05, midnight.timeIntervalSince(recentDocumentNow()))
+        recentDocumentDayTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+            guard !Task.isCancelled, let self, self.panelIsVisible else { return }
+            self.send(.recentDocumentDateChanged)
+        }
+    }
+
+    /// Reading a saved document never replaces or submits the current draft.
+    private func showRecentDocument(_ id: String) {
+        guard state.canShowRecentDocuments, state.recentDocuments.contains(where: { $0.id == id }) else { return }
+        thinkingPrompt.invalidate()
+        closeReview()
+        cancelPendingConfirmation()
+        cancelRecentDocumentRead()
+        // Keep the lower region open while changing IDs; only the content is replaced.
+        state.selectedRecentDocumentID = id
+        state.isIntentCandidateMenuVisible = false
+        state.isLoadingRecentDocument = true
+        let requestID = UUID()
+        recentDocumentRequestID = requestID
+        refresh()
+        recentDocumentTask = Task { [weak self, readSavedDocument] in
+            do {
+                let text = try await readSavedDocument(id)
+                guard !Task.isCancelled, let self, self.recentDocumentRequestID == requestID else { return }
+                self.state.recentDocumentText = text
+                self.state.isLoadingRecentDocument = false
+                self.recentDocumentTask = nil
+            } catch {
+                guard !Task.isCancelled, let self, self.recentDocumentRequestID == requestID else { return }
+                self.state.recentDocumentError = L10n.text("recent_documents.load_failed")
+                self.state.isLoadingRecentDocument = false
+                self.recentDocumentTask = nil
+            }
+        }
+    }
+
+    private func cancelRecentDocumentRead() {
+        recentDocumentRequestID = nil
+        recentDocumentTask?.cancel()
+        recentDocumentTask = nil
+        state.recentDocumentText = nil
+        state.recentDocumentError = nil
+        state.isLoadingRecentDocument = false
+    }
+
+    private func closeRecentDocument() {
+        cancelRecentDocumentRead()
+        state.selectedRecentDocumentID = nil
+    }
+
+    private func refreshThinkingPrompt() {
+        let empty = draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hardBlocked = !panelIsVisible || empty || isClipboardInput || thinkingSettingsActive
+            || state.isReadingGettingStarted || state.isConfiguringAction || state.isAcceptingSubmission
+            || state.isOpeningApplication || pendingActionConfirmation != nil
+        let menuBlocked = state.isTemplateMenuVisible || state.isFillingTemplate || state.isIntentCandidateMenuVisible
+        if hardBlocked || menuBlocked { thinkingPrompt.invalidate() }
+        let reason: String?
+        if let protected = state.modeSwitchBlockReason { reason = protected }
+        else if pendingActionConfirmation != nil { reason = L10n.text("launcher.mode.blocked.submission") }
+        else if empty { reason = L10n.text("thinking.blocked.empty") }
+        else if isClipboardInput { reason = L10n.text("thinking.blocked.clipboard") }
+        else if menuBlocked { reason = L10n.text("thinking.blocked.menu") }
+        else if !panelIsVisible || thinkingSettingsActive { reason = L10n.text("thinking.blocked.unavailable") }
+        else { reason = nil }
+        thinkingPrompt.update(.init(draftID: draft.id, revision: revision, text: draft.content,
+            panelSessionID: state.panelSessionID, modeGeneration: state.modeGeneration,
+            fastVersion: thinkingFastVersion(), manualBlockReason: reason,
+            automaticBlocked: hardBlocked || menuBlocked || state.isComposingText
+                || state.selectedRecentDocumentID != nil || state.showsReview),
+            automaticEnabled: automaticThinkingEnabled())
+    }
+
+    private func recordSavedDocument(_ id: String) {
+        guard NotesSourceLink.url(noteID: id) != nil else { return }
+        recentSavedDocuments.record(noteID: id, at: recentDocumentNow())
+        refreshRecentDocumentDate()
+        if state.selectedRecentDocumentID == id { showRecentDocument(id) }
+    }
+
     func refresh() {
+        defer { refreshThinkingPrompt() }
+        let timing = InputPerformance.begin()
+        defer { InputPerformance.end("refresh", timing) }
         guard !isReplacingEditor else { return }
-        registry.refreshAvailability()
+        guard state.mode == .quickInput else {
+            clearStickyAssistance()
+            return
+        }
         if let pending = pendingActionConfirmation,
-           pending.configuration != configuration().revision
-            || registry.executionSnapshot(for: pending.snapshot.id)?.configurationIdentity != pending.snapshot.configurationIdentity {
+           registry.executionSnapshot(for: pending.snapshot.id)?.configurationIdentity != pending.snapshot.configurationIdentity {
             invalidatePreparation()
         }
-        _ = checkPreparationContext()
         if let pendingSetup, !registry.containsModule(id: pendingSetup.request.snapshot.id,
                                                       instance: pendingSetup.request.snapshot.moduleInstance) {
             invalidateSetup()
         }
         state.isIntentRecognitionEnabled = true
-        if configuration().hasAPIKey, acceptsIntentSuggestions, hasPreparedDraft,
-           catalog.applications == nil, !catalog.isLoading {
-            catalog.preload()
-        }
-        recognition.update(currentIntentSnapshot)
+        recognition.update(isClipboardInput ? nil : currentIntentSnapshot)
         renderIntentSuggestion()
-        updateRecognizingHint()
     }
 
     private var currentIntentSnapshot: IntentRecognition.Snapshot? {
-        guard acceptsIntentSuggestions, hasPreparedDraft, !isSubmitting,
+        guard state.mode == .quickInput, !isClipboardInput, acceptsIntentSuggestions, hasPreparedDraft, !isSubmitting,
               pendingSetup == nil,
               !state.isReadingGettingStarted, !state.isComposingText,
               !state.isOpeningApplication, applicationOpenID == nil,
               !draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         let available = registry.executionSnapshots()
         let defaultActionID = registry.fallbackActionID ?? ""
-        let availableActions = available
+        let availableActions = available.filter { !$0.descriptor.requiresExplicitSelection }
             .map { IntentRecognition.ActionTarget(id: $0.id, title: $0.descriptor.localizedTitle) }
-        let captureOptions = available.compactMap { snapshot -> Jev.CaptureOption? in
-            guard case .capture(let criteria) = snapshot.descriptor.intentHints.modelBinding else { return nil }
-            return Jev.CaptureOption(id: snapshot.id, criteria: criteria)
+        let matching = currentApplicationEvaluation
+        var applications = matching.applications
+        if let selected = currentExplicitTarget, selected.kind == .application,
+           !applications.contains(where: { $0.id == selected.targetID }),
+           let installed = catalog.applications?.first(where: { $0.launcherID == selected.targetID }) {
+            applications.append(IntentRecognition.application(installed))
         }
-        let webSearchActionID = available.first {
-            $0.descriptor.intentHints.modelBinding == .webSearch
-        }?.id
-        let conversationActionID = available.first {
-            $0.descriptor.intentHints.modelBinding == .conversation
-        }?.id
-        let applications = draft.content.utf8.count <= Jev.maximumTextBytes
-            ? IntentRecognition.applicationCandidates(in: draft.content, from: catalog.applications ?? []) : []
-        let usage = applicationUsage()
-        let ranks = Dictionary(applications.compactMap { application -> (String, IntentRecognition.ApplicationRank)? in
-            guard let value = usage[application.url.resolvingSymlinksInPath().path] else { return nil }
-            return (application.id, .init(openCount: value.openCount, lastOpenedAt: value.lastOpenedAt))
-        }, uniquingKeysWith: { first, _ in first })
         return .init(draftID: draft.id, revision: revision, panelSession: panelSession,
-            configuration: configuration().revision, registryRevision: registry.revision, text: draft.content,
-            applications: applications, applicationRanks: ranks, availableActions: availableActions,
-            defaultActionID: defaultActionID, captureOptions: captureOptions,
-            webSearchActionID: webSearchActionID, conversationActionID: conversationActionID)
+            registryRevision: registry.revision, text: draft.content,
+            applications: applications, applicationRanks: matching.ranks, applicationEvaluation: matching.evaluation,
+            availableActions: availableActions,
+            defaultActionID: defaultActionID)
+    }
+
+    /// One evaluation per draft/catalog revision, shared by recognition, presentation and confirmation.
+    private var currentApplicationEvaluation: ApplicationEvaluationCache {
+        if let cached = applicationEvaluationCache, cached.draftID == draft.id,
+           cached.revision == revision, cached.catalogRevision == catalog.revision { return cached }
+        let installed = catalog.applications ?? []
+        let usage = applicationUsage()
+        let ranks = Dictionary(installed.compactMap { application -> (String, IntentRecognition.ApplicationRank)? in
+            guard let value = usage[application.url.path] else { return nil }
+            return (application.launcherID, .init(openCount: value.openCount, lastOpenedAt: value.lastOpenedAt))
+        }, uniquingKeysWith: { first, _ in first })
+        let evaluation = draft.content.utf8.count <= ApplicationMatcher.maximumTextBytes
+            ? ApplicationMatcher.evaluate(draft.content, candidates: installed.map {
+                .init(id: $0.launcherID, profile: $0.searchProfile)
+            }, usage: ranks)
+            : .init(resolution: .notApplicable, matches: [], isPureLaunch: false)
+        let byID = Dictionary(installed.map { ($0.launcherID, $0) }, uniquingKeysWith: { first, _ in first })
+        let applications = evaluation.matches.compactMap { byID[$0.id].map(IntentRecognition.application) }
+        let result = ApplicationEvaluationCache(draftID: draft.id, revision: revision, catalogRevision: catalog.revision,
+            evaluation: evaluation, applications: applications, ranks: ranks)
+        applicationEvaluationCache = result
+        return result
     }
 
     /// 展示、预览和提交每次都消费同一个值类型决策。
     private var routeDecision: RouteDecision {
+        if clipboardQuery != nil {
+            return .action("clipboard", source: .explicit)
+        }
         if let pendingActionConfirmation { return pendingActionConfirmation.decision }
         let snapshot = currentIntentSnapshot
         let selectedID = currentExplicitTarget?.targetID ?? correctionTargetID
@@ -413,7 +790,6 @@ final class LauncherSession {
         return routeResolver.resolve(RouteInput(
             draft: draft,
             actions: registry.executionSnapshots().map(\.descriptor),
-            userRules: registry.currentUserRules,
             explicitTargetID: selectedID,
             recognizedTargetID: recognizedID,
             recognitionIsCurrent: recognition.suggestion?.snapshot == snapshot,
@@ -424,8 +800,36 @@ final class LauncherSession {
     }
 
     private func renderIntentSuggestion() {
-        updateRecognizingHint()
+        defer { refreshThinkingPrompt() }
+        guard state.mode == .quickInput else { return }
         guard !state.isComposingText, pendingSetup == nil else { return }
+        // The review overlay is modal: hold it steady and skip intent/target/template rendering.
+        guard !state.showsReview else { return }
+        state.templateCandidates = makeTemplateCandidates()
+        if let query = clipboardQuery, let clipboard, hasPreparedDraft, acceptsIntentSuggestions,
+           !state.isReadingGettingStarted {
+            recognition.update(nil)
+            actionExecutor.reset()
+            clipboard.history.setQuery(query)
+            state.clipboardHistory = clipboard.history
+            state.showsCodexRecentTasks = false
+            state.intentTitle = L10n.text("clipboard.title")
+            state.displayedActionTitle = L10n.text("clipboard.title")
+            state.displayedActionIcon = "clipboard"
+            state.canChooseTarget = !state.isTemplateMenuVisible
+            state.hasExplicitTarget = currentExplicitTarget != nil
+            state.intentCanCycle = false
+            state.intentDeviated = true
+            state.intentIssue = nil
+            state.canConfirm = !state.isTemplateMenuVisible && clipboard.history.selectedID != nil && clipboardConfirmation == nil
+            state.intentCandidates = makeIntentCandidates().map { IntentCandidate(id: $0.id, title: $0.title, isSelected: $0.id == "clipboard") }
+            renderedDecision = routeDecision
+            renderedInputIdentity = actionInput().identity
+            recordPresentedRoute()
+            return
+        }
+        clipboard?.history.setQuery(nil)
+        state.clipboardHistory = nil
         let decision = routeDecision
         let candidates = makeIntentCandidates()
         let routeTargetID = decision.targetID
@@ -434,18 +838,29 @@ final class LauncherSession {
         state.intentTitle = selectedID.flatMap(targetTitle) ?? recognition.suggestion?.title
         let interactive = hasPreparedDraft && acceptsIntentSuggestions && !isSubmitting
             && !state.isReadingGettingStarted
-        state.canChooseTarget = interactive && (!candidates.isEmpty || explicitID != nil)
-        state.intentCanCycle = interactive && candidates.contains { $0.id != selectedID }
+        let choosingTemplate = state.isTemplateMenuVisible
+        state.showsCodexRecentTasks = explicitID == "codex" && !choosingTemplate
+        state.canChooseTarget = interactive && !choosingTemplate
+            && (!candidates.isEmpty || explicitID != nil)
+        state.intentCanCycle = interactive && !choosingTemplate
+            && candidates.contains { $0.id != selectedID }
         state.hasExplicitTarget = explicitID != nil
         state.intentDeviated = state.hasExplicitTarget
-        state.canConfirm = interactive && !state.isOpeningApplication
+        state.canConfirm = interactive && !state.isOpeningApplication && !choosingTemplate
             && !draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let issue = recognition.issue
-        state.intentIssue = issue == JevDiagnostics.Reason.missingKey.userMessage ? nil : issue
+        state.intentIssue = nil
         state.intentCandidates = candidates.map {
             IntentCandidate(id: $0.id, title: $0.title, isSelected: $0.id == selectedID)
         }
         if !state.canChooseTarget { state.isIntentCandidateMenuVisible = false }
+        if choosingTemplate {
+            state.displayedActionTitle = nil
+            state.displayedActionIcon = nil
+            renderedDecision = nil
+            renderedInputIdentity = nil
+            actionExecutor.reset()
+            return
+        }
         guard case .empty = decision else {
             render(decision)
             renderedDecision = decision
@@ -454,9 +869,25 @@ final class LauncherSession {
             return
         }
         state.displayedActionTitle = explicitID.flatMap(targetTitle)
+        state.displayedActionIcon = state.displayedActionTitle == nil ? nil : explicitID.map(targetIcon)
         renderedDecision = decision
         renderedInputIdentity = actionInput().identity
         actionExecutor.reset()
+    }
+
+    private func clearStickyAssistance() {
+        suspend()
+        state.isIntentRecognitionEnabled = false
+        state.intentCandidates = []
+        state.isIntentCandidateMenuVisible = false
+        state.showsCodexRecentTasks = false
+        state.displayedActionTitle = nil
+        state.displayedActionIcon = nil
+        state.intentTitle = nil
+        state.intentStatus = nil
+        state.intentIssue = nil
+        renderedDecision = nil
+        renderedInputIdentity = nil
     }
 
     private func render(_ decision: RouteDecision) {
@@ -464,22 +895,27 @@ final class LauncherSession {
         case .action(let id, _):
             guard let snapshot = registry.executionSnapshot(for: id) else {
                 state.displayedActionTitle = nil
+                state.displayedActionIcon = nil
                 actionExecutor.reset()
                 return
             }
             state.displayedActionTitle = snapshot.descriptor.localizedTitle
+            state.displayedActionIcon = snapshot.descriptor.systemImageName
             guard acceptsIntentSuggestions, !isSubmitting else { actionExecutor.reset(); return }
             actionExecutor.schedule(snapshot: snapshot, input: actionInput(),
-                context: ScheduleContext(referenceDate: now(), timeZone: timeZone()), panelSessionID: state.panelSessionID)
+                panelSessionID: state.panelSessionID)
         case .application(let id, _):
             let application = currentIntentSnapshot?.applications.first { $0.id == id }
             state.displayedActionTitle = application.map { L10n.text("launcher.open_application", $0.name) }
+            state.displayedActionIcon = application == nil ? nil : "app"
             actionExecutor.reset()
         case .setup(let id, _):
             state.displayedActionTitle = registry.setupSnapshot(for: id)?.setup.title
+            state.displayedActionIcon = state.displayedActionTitle == nil ? nil : targetIcon(id)
             actionExecutor.reset()
         case .unavailable(let failure, _):
             state.displayedActionTitle = decision.targetID.flatMap(targetTitle)
+            state.displayedActionIcon = state.displayedActionTitle == nil ? nil : decision.targetID.map(targetIcon)
             switch failure {
             case .targetUnavailable(let id):
                 state.intentIssue = registry.settingsEntry(for: id)?.state.availability.message
@@ -489,32 +925,32 @@ final class LauncherSession {
             actionExecutor.reset()
         case .empty:
             state.displayedActionTitle = nil
+            state.displayedActionIcon = nil
             actionExecutor.reset()
         }
     }
 
-    private func updateRecognizingHint() {
-        let wantsHint = recognition.isRecognizing && !state.isComposingText
-            && !state.isIntentCandidateMenuVisible
-        guard wantsHint else {
-            cancelRecognizingHint()
-            state.intentStatus = nil
-            return
-        }
-        guard recognizingHintTask == nil else { return }
-        let session = panelSession
-        recognizingHintTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(600))
-            guard !Task.isCancelled, let self, self.panelSession == session,
-                  self.recognition.isRecognizing else { return }
-            self.recognizingHintTask = nil
-            self.state.intentStatus = L10n.text("launcher.recognizing")
-        }
+    private func makeTemplateCandidates() -> [InputTemplate] {
+        guard state.mode == .quickInput, hasPreparedDraft, acceptsIntentSuggestions,
+              state.selectedRecentDocumentID == nil,
+              !state.isComposingText, !state.isFillingTemplate, !state.isReadingGettingStarted,
+              pendingSetup == nil, !isSubmitting, !state.isOpeningApplication,
+              dismissedTemplateText != draft.content, !draft.content.contains(where: { $0.isNewline }) else { return [] }
+        let query = draft.content.drop(while: { $0.isWhitespace })
+        guard query.first == "@" else { return [] }
+        let name = String(query.dropFirst())
+        return readTemplates().filter { name.isEmpty || $0.name.localizedCaseInsensitiveContains(name) }
     }
 
-    private func cancelRecognizingHint() {
-        recognizingHintTask?.cancel()
-        recognizingHintTask = nil
+    private func selectTemplate(_ template: InputTemplate) {
+        guard state.isTemplateMenuVisible, makeTemplateCandidates().contains(template),
+              let expansion = try? TemplateExpansion.parse(template.body) else { return }
+        let identity = actionInput().identity
+        isReplacingEditor = true
+        let accepted = handleEffect(.insertTemplate(expansion, expected: identity))
+        isReplacingEditor = false
+        guard accepted, identity == actionInput().identity else { return }
+        updateInput(expansion.text)
     }
 
     private func makeIntentCandidates() -> [(id: String, title: String)] {
@@ -522,9 +958,13 @@ final class LauncherSession {
         let defaultID = registry.fallbackActionID
         var values: [(String, String)] = []
         func append(_ id: String, _ title: String) {
+            // 手动切换只开放 Notes 和 Codex；本地应用仍可按草稿自动匹配。
+            guard id == "apple-notes" || id == "codex" else { return }
             if !values.contains(where: { $0.0 == id }) { values.append((id, title)) }
         }
+        let pinnedApplicationID = currentExplicitTarget?.kind == .application ? currentExplicitTarget?.targetID : nil
         if let suggestion = recognition.suggestion,
+           pinnedApplicationID == nil || suggestion.targetID == pinnedApplicationID,
            suggestion.snapshot == currentIntentSnapshot,
            registry.executionSnapshot(for: suggestion.targetID) != nil
             || currentIntentSnapshot?.applications.contains(where: { $0.id == suggestion.targetID }) == true {
@@ -546,6 +986,14 @@ final class LauncherSession {
         return values
     }
 
+    private func targetIcon(_ id: String) -> String {
+        if let descriptor = registry.descriptor(for: id) { return descriptor.systemImageName }
+        if id.hasPrefix("app_") || currentIntentSnapshot?.applications.contains(where: { $0.id == id }) == true {
+            return "app"
+        }
+        return "square.grid.2x2"
+    }
+
     private func targetTitle(_ id: String) -> String? {
         if let snapshot = registry.setupSnapshot(for: id) { return snapshot.setup.title }
         if let descriptor = registry.descriptor(for: id) { return descriptor.localizedTitle }
@@ -555,7 +1003,8 @@ final class LauncherSession {
     }
 
     func cycleTarget(forward: Bool) {
-        guard !state.isComposingText, pendingSetup == nil, !isSubmitting else { return }
+        guard state.mode == .quickInput, !state.isComposingText, pendingSetup == nil, !isSubmitting,
+              !state.isTemplateMenuVisible else { return }
         let candidates = makeIntentCandidates()
         guard !candidates.isEmpty else { return }
         let current = currentExplicitTarget?.targetID ?? routeDecision.targetID
@@ -570,7 +1019,9 @@ final class LauncherSession {
 
     func selectTarget(id: String, trigger: OperationSelectionTrigger = .button) {
         guard !state.isComposingText, acceptsIntentSuggestions, pendingSetup == nil,
-              !isSubmitting, let candidate = makeIntentCandidates().first(where: { $0.id == id }) else { return }
+              !isSubmitting, !state.isTemplateMenuVisible,
+              let candidate = makeIntentCandidates().first(where: { $0.id == id }) else { return }
+        _ = handleEffect(.endTemplateEditing)
         invalidatePreparation()
         let token = captureOperation(.selection, userInitiated: true, allowEmpty: true)
         recordPresentedRoute(token: token)
@@ -584,7 +1035,9 @@ final class LauncherSession {
 
     private func useAutomatic(trigger: OperationSelectionTrigger) {
         guard !state.isComposingText, acceptsIntentSuggestions, pendingSetup == nil,
-              !isSubmitting, currentExplicitTarget != nil else { return }
+              !isSubmitting, !state.isTemplateMenuVisible,
+              currentExplicitTarget != nil else { return }
+        _ = handleEffect(.endTemplateEditing)
         invalidatePreparation()
         let token = captureOperation(.selection, userInitiated: true, allowEmpty: true)
         recordPresentedRoute(token: token)
@@ -601,13 +1054,15 @@ final class LauncherSession {
     }
 
     func confirm(_ source: IntentRecognition.ConfirmationSource) {
+        guard state.mode == .quickInput else { return }
+        guard !state.isTemplateMenuVisible else { return }
         if state.isIntentCandidateMenuVisible {
             state.isIntentCandidateMenuVisible = false
             return
         }
         if pendingActionConfirmation != nil { return }
-        let enteredPlanID = state.currentPlanID
-        let enteredSessionID = state.panelSessionID
+        let enteredDecision = renderedDecision
+        let enteredIdentity = renderedInputIdentity
         guard hasPreparedDraft, acceptsIntentSuggestions, !isSubmitting,
               pendingSetup == nil,
               !state.isOpeningApplication, !state.isComposingText,
@@ -615,6 +1070,7 @@ final class LauncherSession {
             recordBlockedConfirmation(state.isComposingText ? "composition_active" : pendingSetup != nil ? "setup_active" : "session_unavailable")
             return
         }
+        if clipboardQuery != nil { confirmClipboard(source); return }
         if draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             recordBlockedConfirmation("empty_input")
             guard preserveDraft() else { return }
@@ -623,9 +1079,18 @@ final class LauncherSession {
             return
         }
         registry.refreshAvailability()
-        let contextChanged = checkPreparationContext()
         guard let intentSnapshot = currentIntentSnapshot else { return }
         let resolved = routeDecision
+        // Refresh can synchronously publish registry changes and render a fallback. Keep the
+        // destination the user confirmed before probing, including its action/setup kind.
+        guard enteredIdentity == actionInput().identity,
+              let enteredDecision, sameDestination(enteredDecision, resolved) else {
+            invalidatePreparation()
+            refresh()
+            state.message = L10n.text("launcher.target_unavailable")
+            recordBlockedConfirmation("target_changed")
+            return
+        }
         switch resolved {
         case .setup(let id, _):
             guard let snapshot = registry.setupSnapshot(for: id) else { return }
@@ -636,8 +1101,7 @@ final class LauncherSession {
                 recordBlockedConfirmation("target_unavailable")
                 return
             }
-            confirmAction(snapshot, decision: resolved, source: source,
-                          enteredPlanID: contextChanged ? nil : enteredPlanID, enteredSessionID: enteredSessionID)
+            confirmAction(snapshot, decision: resolved, source: source)
         case .application(let id, _):
             guard let application = intentSnapshot.applications.first(where: { $0.id == id }) else {
                 state.message = L10n.text("launcher.application_unavailable")
@@ -659,6 +1123,62 @@ final class LauncherSession {
         case .unavailable(.noDefaultAction, _), .empty:
             state.message = L10n.text("launcher.no_default_action")
             recordBlockedConfirmation("no_default_action")
+        }
+    }
+
+    private var isClipboardInput: Bool {
+        return currentExplicitTarget?.targetID == "clipboard"
+    }
+
+    private var clipboardQuery: String? {
+        guard isClipboardInput, clipboard != nil, registry.executionSnapshot(for: "clipboard") != nil else { return nil }
+        return actionInput().text
+    }
+
+    private func confirmClipboard(_ source: IntentRecognition.ConfirmationSource) {
+        guard clipboardConfirmation == nil, let clipboard,
+              let selected = clipboard.history.entries.first(where: { $0.id == clipboard.history.selectedID }) else { return }
+        let identity = actionInput().identity, session = state.panelSessionID, confirmation = UUID()
+        clipboardConfirmation = confirmation
+        state.canConfirm = false
+        let decision = RouteDecision.action("clipboard", source: .explicit)
+        let attempt = recordAttempt(targetKind: .action, targetID: "clipboard", decision: decision, source: source)
+        recordSubmission(attempt, accepted: true)
+        Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if self.clipboardConfirmation == confirmation { self.clipboardConfirmation = nil }
+                self.refresh()
+            }
+            do {
+                try await clipboard.history.restore(selected, through: clipboard) { [weak self] in
+                    guard let self else { return false }
+                    return self.clipboardConfirmation == confirmation && self.actionInput().identity == identity
+                        && self.state.panelSessionID == session && self.acceptsIntentSuggestions
+                        && self.clipboardQuery != nil && !self.state.isComposingText
+                        && clipboard.history.selectedID == selected.id
+                }
+                self.recordExecution(attempt, outcome: .completed)
+                guard self.clearDraft() else { return }
+                self.suspend()
+                _ = self.handleEffect(.hidePanel(submitted: true, presentationPolicy: .returnToPreviousApplication))
+            } catch {
+                if self.clipboardConfirmation == confirmation {
+                    self.state.message = L10n.text((error as? ClipboardFailure)?.key ?? "clipboard.copy_failed")
+                }
+                self.recordExecution(attempt, outcome: .failed)
+            }
+        }
+    }
+
+    private func sameDestination(_ lhs: RouteDecision, _ rhs: RouteDecision) -> Bool {
+        switch (lhs, rhs) {
+        case (.action(let a, _), .action(let b, _)),
+             (.setup(let a, _), .setup(let b, _)),
+             (.application(let a, _), .application(let b, _)):
+            return a == b
+        case (.unavailable, .unavailable): return lhs == rhs
+        default: return false
         }
     }
 
@@ -732,7 +1252,6 @@ final class LauncherSession {
             activate()
             return
         }
-        let execution = actionExecutor.executionTask(prepared: prepared, planID: planID, snapshot: snapshot, input: input)
         recordSubmission(operation, accepted: true)
         let emptyDraftID = draft.id
         let emptyRevision = revision
@@ -742,14 +1261,27 @@ final class LauncherSession {
         log.module = .app
         log.operation = .action
         log.emit(.requestStarted, .init(bytes: input.text.utf8.count, actionID: snapshot.id, attemptID: operation?.attempt.id))
+        let execution = RuntimeLog.$current.withValue(log) {
+            actionExecutor.executionTask(prepared: prepared, planID: planID, snapshot: snapshot, input: input)
+        }
         _ = handleEffect(.hidePanel(submitted: true,
             presentationPolicy: snapshot.descriptor.presentationPolicy))
         activeSubmissionCount += 1
         submissions[requestID] = Task { [weak self] in
             do {
                 let outcome = try await execution.value
-                self?.applicationNotice = outcome.localizedMessage
+                if snapshot.id == "apple-notes", outcome.effect == .completed, let noteID = outcome.savedNoteID {
+                    self?.recordSavedDocument(noteID)
+                }
                 self?.recordExecution(operation, outcome: outcome.effect)
+                if outcome.showsCompletionNotice, let message = outcome.localizedMessage {
+                    let destination = outcome.completionDestination
+                        ?? snapshot.descriptor.applicationBundleIdentifier.map { .application(bundleIdentifier: $0) }
+                    _ = self?.handleEffect(.showCompletionNotice(message,
+                        destination: destination))
+                } else {
+                    self?.applicationNotice = outcome.localizedMessage
+                }
                 log.emit(.requestFinished, .init(outcome: .success, actionID: snapshot.id, attemptID: operation?.attempt.id))
             } catch {
                 let failure = ActionFailure.presentation(for: error)
@@ -772,7 +1304,7 @@ final class LauncherSession {
             selectionIsInherited: operation?.selectionIsInherited ?? true,
             operationInput: operation?.token.input, operationGeneration: operation?.token.generation,
             sourceAttemptID: operation?.attempt.id, firstChoiceEventID: operation?.attempt.firstChoiceEventID)
-        guard !state.isComposingText, draft.id == emptyDraftID, revision == emptyRevision,
+        guard state.mode == .quickInput, !state.isComposingText, draft.id == emptyDraftID, revision == emptyRevision,
               routingInteractionRevision == emptyRoutingRevision else {
             failedSubmission = failed
             state.hasFailedSubmission = true
@@ -878,8 +1410,8 @@ final class LauncherSession {
                 }
             case .success:
                 _ = self.recordApplicationOpen(application.url)
-                if ownsInput, IntentRecognition.isPureApplicationLaunch(snapshot.text, application: application,
-                                                                       ranks: snapshot.applicationRanks) {
+                self.applicationEvaluationCache = nil
+                if ownsInput, snapshot.applicationEvaluation?.clearsDraft(for: application.id) == true {
                     if !self.clearDraft(recordOperation: operation.map { self.recorder.isCurrent($0.token) } ?? false) {
                         self.applicationNotice = L10n.text("launcher.opened_clear_failed")
                     }
@@ -914,11 +1446,13 @@ final class LauncherSession {
         draftEditingStartRevision = revision
         savedRevision = revision
         synchronizeDraftState()
-        cancelRecognizingHint()
         state.message = nil
         state.intentCandidates = []
         state.isIntentCandidateMenuVisible = false
         state.displayedActionTitle = nil
+        state.displayedActionIcon = nil
+        state.templateCandidates = []
+        closeReview()
         return true
     }
 
@@ -927,10 +1461,13 @@ final class LauncherSession {
         isReplacingEditor = true
         defer { isReplacingEditor = false }
         guard handleEffect(.replaceEditor(text, reason)) else { return false }
+        thinkingPrompt.invalidate()
         if draft.content != text {
             invalidatePreparation()
+            dismissedTemplateText = nil
             draft.content = text
             revision += 1
+            closeReview()
         }
         committedDraftHasContent = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         trackOperationText(text)
@@ -953,150 +1490,64 @@ final class LauncherSession {
 
     private func invalidatePreparation() {
         cancelPendingConfirmation()
-        preparationClockTask?.cancel()
-        preparationClockTask = nil
-        state.presentedPlanID = nil
         actionExecutor.reset()
     }
 
     private func preparationChanged(_ preparation: ActionExecutor.Preparation?) {
-        if let preparation {
-            let date = now(), zone = timeZone()
-            let valid = preparation.status.plan?.isCurrent(at: date, timeZone: zone)
-                ?? preparation.context.isCurrent(at: date, timeZone: zone)
-            if !valid {
-                invalidatePreparation()
-                renderIntentSuggestion()
-                return
-            }
-        }
-        let plan = preparation?.status.plan
-        if state.currentPlanID != plan?.id { state.presentedPlanID = nil }
-        state.currentPlanID = plan?.id
-        state.planSummary = plan?.summary
-        state.planContext = plan?.context
-        state.timeIssue = nil
+        defer { refreshThinkingPrompt() }
+        guard state.mode == .quickInput || preparation == nil else { return }
         state.preparationFailure = nil
-        state.isCheckingActionPlan = false
         guard let preparation else {
             cancelPendingConfirmation()
-            preparationClockTask?.cancel()
-            preparationClockTask = nil
             return
         }
         if let pending = pendingActionConfirmation, pending.generation != preparation.generation {
             cancelPendingConfirmation()
         }
         switch preparation.status {
-        case .needsInput(let issue):
-            state.timeIssue = issue
-            cancelPendingConfirmation()
         case .failed(let failure):
             state.preparationFailure = failure.message
             cancelPendingConfirmation()
         case .preparing: break
         case .ready: finishPendingConfirmation()
         }
-        startPreparationClock()
-    }
-
-    private func startPreparationClock() {
-        guard preparationClockTask == nil, actionExecutor.current != nil else { return }
-        preparationClockTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(1)) } catch { return }
-                guard let self, !Task.isCancelled else { return }
-                if self.checkPreparationContext() { self.refresh() }
-            }
-        }
-    }
-
-    @discardableResult
-    private func checkPreparationContext() -> Bool {
-        guard let preparation = actionExecutor.current else { return false }
-        let date = now(), zone = timeZone()
-        let valid = preparation.status.plan?.isCurrent(at: date, timeZone: zone)
-            ?? preparation.context.isCurrent(at: date, timeZone: zone)
-        guard !valid else { return false }
-        invalidatePreparation()
-        return true
-    }
-
-    private func acknowledgePresentedPlan(_ planID: UUID, panelSessionID: UUID) {
-        guard panelIsVisible, acceptsIntentSuggestions, pendingSetup == nil,
-              !state.isComposingText, !state.isReadingGettingStarted,
-              state.panelSessionID == panelSessionID, state.currentPlanID == planID,
-              let preparation = actionExecutor.current, let plan = preparation.status.plan,
-              preparation.identity.inputIdentity == actionInput().identity,
-              preparation.identity.panelSessionID == panelSessionID, plan.id == planID, plan.summary != nil else { return }
-        if checkPreparationContext() { refresh(); return }
-        state.presentedPlanID = planID
     }
 
     private func confirmAction(_ snapshot: ActionExecutionSnapshot, decision: RouteDecision,
-                               source: IntentRecognition.ConfirmationSource,
-                               enteredPlanID: UUID?, enteredSessionID: UUID) {
+                               source: IntentRecognition.ConfirmationSource) {
         let input = actionInput()
         actionExecutor.schedule(snapshot: snapshot, input: input,
-            context: ScheduleContext(referenceDate: now(), timeZone: timeZone()), panelSessionID: state.panelSessionID)
+            panelSessionID: state.panelSessionID, confirmed: true)
         guard let preparation = actionExecutor.current else {
             recordBlockedConfirmation("preparation_unavailable")
             return
         }
         switch preparation.status {
-        case .needsInput(let issue):
-            correctionTargetID = snapshot.id
-            recordBlockedConfirmation(issue.reasonCode)
-            return
         case .failed:
             correctionTargetID = snapshot.id
             recordBlockedConfirmation("preparation_failed")
             return
         case .preparing, .ready: break
         }
-        guard let plan = preparation.status.plan, plan.isCurrent(at: now(), timeZone: timeZone()) else {
-            correctionTargetID = snapshot.id
-            recordBlockedConfirmation("time_expired")
-            invalidatePreparation()
-            renderIntentSuggestion()
-            return
-        }
-        if plan.summary != nil {
-            guard panelIsVisible, enteredPlanID == plan.id, state.presentedPlanID == plan.id,
-                  enteredSessionID == state.panelSessionID else {
-                correctionTargetID = snapshot.id
-                recordBlockedConfirmation("time_not_presented")
-                return
-            }
-        }
+        guard let plan = preparation.status.plan else { return }
         pendingActionConfirmation = PendingActionConfirmation(snapshot: snapshot, input: input, planID: plan.id,
             generation: preparation.generation, panelSessionID: state.panelSessionID,
-            configuration: configuration().revision, source: source, decision: decision)
+            source: source, decision: decision)
         state.isPreparingAction = true
         finishPendingConfirmation()
     }
 
     private func finishPendingConfirmation() {
         guard let pending = pendingActionConfirmation else { return }
-        guard acceptsIntentSuggestions, !state.isComposingText, !state.isReadingGettingStarted,
+        guard state.mode == .quickInput, acceptsIntentSuggestions, !state.isComposingText, !state.isReadingGettingStarted,
               pending.input.identity == actionInput().identity, pending.input.text == actionInput().text,
-              pending.panelSessionID == state.panelSessionID, pending.configuration == configuration().revision,
+              pending.panelSessionID == state.panelSessionID,
               let freshSnapshot = registry.executionSnapshot(for: pending.snapshot.id),
               freshSnapshot.configurationIdentity == pending.snapshot.configurationIdentity,
               let preparation = actionExecutor.current, preparation.generation == pending.generation,
               let plan = preparation.status.plan, plan.id == pending.planID else {
             invalidatePreparation()
             renderIntentSuggestion()
-            return
-        }
-        guard plan.isCurrent(at: now(), timeZone: timeZone()) else {
-            recordBlockedConfirmation("time_expired")
-            invalidatePreparation()
-            renderIntentSuggestion()
-            return
-        }
-        guard plan.summary == nil || (panelIsVisible && state.presentedPlanID == plan.id) else {
-            cancelPendingConfirmation()
             return
         }
         guard let prepared = actionExecutor.prepared(planID: pending.planID, snapshot: freshSnapshot,
@@ -1174,31 +1625,17 @@ final class LauncherSession {
             case .needsConfiguration: "needs_configuration"
             case .unavailable: "unavailable"
             }
-            let binding: String
-            let criteria: String?
-            switch entry.descriptor.intentHints.modelBinding {
-            case .none: binding = "none"; criteria = nil
-            case .capture(let value): binding = "capture"; criteria = value
-            case .webSearch: binding = "web_search"; criteria = nil
-            case .conversation: binding = "conversation"; criteria = nil
-            }
             return .init(id: entry.id, localKeywords: entry.descriptor.intentHints.localKeywords,
-                         modelBinding: binding, modelCriteria: criteria, isEnabled: entry.isEnabled,
+                         modelBinding: "none", modelCriteria: nil, isEnabled: entry.isEnabled,
                          availability: availability, unavailableReasonCode: availability == "ready" ? nil : availability,
                          fallbackPriority: entry.descriptor.fallbackPriority)
         }
-        let thresholds = Jev.Thresholds.trial
         return try? OperationContext(capturedAt: OperationRecorder.nowMilliseconds(),
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
             appBuild: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
-            ruleVersion: Jev.ruleVersion, requestedModel: Jev.model,
-            configuration: .init(localRules: registry.currentUserRules.map { .init(phrase: $0.phrase, targetID: $0.actionID) },
-                actions: actions, defaultTargetID: registry.fallbackActionID ?? registry.fallbackSetupActionID,
-                recognitionEnabled: configuration().hasAPIKey,
-                recognitionQuestion: (try? Jev.ruleDefinitionData()).flatMap { String(data: $0, encoding: .utf8) },
-                thresholds: [.init(name: "current_request", value: thresholds.currentRequest),
-                             .init(name: "choice_confidence", value: thresholds.choiceConfidence),
-                             .init(name: "choice_probability", value: thresholds.choiceProbability)]))
+            ruleVersion: nil, requestedModel: nil,
+            configuration: .init(localRules: [], actions: actions, defaultTargetID: registry.fallbackActionID ?? registry.fallbackSetupActionID,
+                recognitionEnabled: false, recognitionQuestion: nil, thresholds: []))
     }
 
     private func captureOperation(_ trigger: OperationCaptureTrigger, userInitiated: Bool = false,
@@ -1235,10 +1672,9 @@ final class LauncherSession {
     private func operationSource(_ source: RouteSource?) -> OperationRouteSource? {
         switch source {
         case .explicit: .explicit
-        case .userRule: .userRule
         case .localKeyword: .localKeyword
         case .fallback: .fallback
-        case .recognition: recognition.suggestion?.recognition.source == .localAppName ? .localApplication : .model
+        case .recognition: .localApplication
         case nil: nil
         }
     }
@@ -1254,6 +1690,8 @@ final class LauncherSession {
     }
 
     private func recordPanelVisibility(_ visible: Bool) {
+        defer { refreshRecentDocumentDate(); refreshThinkingPrompt() }
+        if !visible { thinkingPrompt.invalidate(); closeRecentDocument(); closeReview() }
         guard panelIsVisible != visible else { return }
         if visible {
             panelIsVisible = true
@@ -1334,7 +1772,7 @@ final class LauncherSession {
 
     private func recordAttempt(targetKind: OperationTargetKind, targetID: String, decision: RouteDecision,
                                source: IntentRecognition.ConfirmationSource) -> RecordedAttempt? {
-        guard let token = captureOperation(.confirmation, userInitiated: true),
+        guard let token = captureOperation(.confirmation, userInitiated: true, allowEmpty: targetID == "clipboard"),
               let routeSource = operationSource(decision.source) else { return nil }
         recordPresentedRoute(token: token)
         let confirmation: OperationConfirmationSource = switch source {
@@ -1355,8 +1793,8 @@ final class LauncherSession {
         let event = OperationEvent(id: UUID().uuidString, inputID: token.inputID, contextID: token.contextID,
             runID: token.runID, occurredAt: OperationRecorder.nowMilliseconds(), kind: .confirmRequested,
             attemptID: attempt.id, details: .confirmation(.init(
-                textTransform: targetKind == .application || registry.descriptor(for: targetID)?.preservesOriginalText == true
-                    ? .unchanged : .trimWhitespaceAndNewlines,
+                textTransform: (targetKind == .application || registry.descriptor(for: targetID)?.preservesOriginalText == true
+                        ? .unchanged : .trimWhitespaceAndNewlines),
                 selectionContinuity: decision.source == .explicit && currentExplicitTarget != nil
                     ? (selectionIsInherited ? .inherited : .direct) : nil)))
         guard recorder.confirm(attempt, event: event, token: token) else { return nil }
@@ -1422,46 +1860,27 @@ final class LauncherSession {
                                        mode: merged ? .merge : .restore)))
     }
 
-    private func recognitionDetails(_ snapshot: IntentRecognition.Snapshot, trace: JevTrace) -> OperationRecognitionDetails {
-        var details = trace.operationDetails
-        let captureIDs = Set(snapshot.captureOptions.map(\.id))
-        details.options.removeAll { $0.question == JevDiagnostics.QuestionID.captureKind.rawValue && !captureIDs.contains($0.id) }
-        details.candidates = snapshot.applications.enumerated().map { index, application in
+    private func recordLocalRecognition(_ snapshot: IntentRecognition.Snapshot, summary: RecognitionSummary,
+                                        action: IntentRecognition.Action?, reason: String?) {
+        guard !state.isComposingText, snapshot.text == operationText,
+              let token = captureOperation(.recognition), let identifier = summary.requestID?.uuidString else { return }
+        let matches = snapshot.applicationEvaluation.map { Dictionary(uniqueKeysWithValues: $0.matches.map { ($0.id, $0.kind.rawValue) }) }
+        var details = OperationRecognitionDetails()
+        details.candidates = snapshot.applications.filter { matches == nil || matches?[$0.id] != nil }
+            .enumerated().map { index, application in
             .init(id: application.id, name: application.name, bundleIdentifier: application.bundleIdentifier,
-                  rank: index, match: trace.recognitionSummary.applicationMatch?.rawValue,
+                  rank: index, match: matches?[application.id] ?? summary.applicationMatch?.rawValue,
                   openCount: snapshot.applicationRanks[application.id]?.openCount,
                   lastOpenedAt: snapshot.applicationRanks[application.id].map { Int64($0.lastOpenedAt.timeIntervalSince1970 * 1000) })
         }
-        return details
-    }
-
-    private func recordRecognitionStarted(_ snapshot: IntentRecognition.Snapshot, trace: JevTrace) {
-        guard !state.isComposingText, snapshot.text == operationText,
-              let token = captureOperation(.recognition) else { return }
-        recognitionTokens[trace.context.requestID] = (token, RuntimeLog.ticks())
-        recordEvent(.recognitionStarted, token: token, requestID: trace.context.requestID.uuidString,
-                    details: .recognition(recognitionDetails(snapshot, trace: trace)))
-        recorder.markInflight(token, activityID: trace.context.requestID.uuidString, active: true)
+        recordEvent(.recognitionStarted, token: token, requestID: identifier,
+                    details: .recognition(details))
+        let target: String? = action.map { switch $0 { case .openApplication(let id): id } }
+        recordEvent(.recognitionFinished, token: token, requestID: identifier,
+                    targetKind: target == nil ? nil : .application, targetID: target,
+                    routeSource: .localApplication, outcome: target == nil ? .noSuggestion : .suggested,
+                    reason: reason, details: .recognition(details))
         recordPresentedRoute(token: token)
-    }
-
-    private func recordRecognitionFinished(_ snapshot: IntentRecognition.Snapshot, trace: JevTrace,
-                                           outcome: OperationEventOutcome, action: IntentRecognition.Action?, actualModel: String?) {
-        guard let request = recognitionTokens.removeValue(forKey: trace.context.requestID) else { return }
-        let token = request.token
-        var details = recognitionDetails(snapshot, trace: trace)
-        if let actualModel, JevDiagnostics.validModel(actualModel) { details.actualModel = actualModel }
-        let target: (OperationTargetKind?, String?) = switch action {
-        case .action(let id, _): (.action, id)
-        case .openApplication(let id): (.application, id)
-        case nil: (nil, nil)
-        }
-        recordEvent(.recognitionFinished, token: token, requestID: trace.context.requestID.uuidString,
-                    targetKind: target.0, targetID: target.1,
-                    routeSource: trace.recognitionSummary.source == .localAppName ? .localApplication : .model, outcome: outcome,
-                    reason: outcome == .stale ? "stale" : outcome == .cancelled ? "cancelled" : trace.decisionReason.rawValue,
-                    duration: Int64(RuntimeLog.milliseconds(since: request.started)), details: .recognition(details))
-        recorder.markInflight(token, activityID: trace.context.requestID.uuidString, active: false)
     }
 
     private func actionInput() -> ActionInput {
@@ -1507,7 +1926,7 @@ final class LauncherSession {
 
     @discardableResult
     private func restoreFailedSubmission() -> Bool {
-        guard let failedSubmission, !state.isComposingText else { return false }
+        guard state.mode == .quickInput, let failedSubmission, !state.isComposingText else { return false }
         let hasContent = !draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let merged = hasContent || revision != draftEditingStartRevision
             || routingInteractionRevision != draftRoutingStartRevision
