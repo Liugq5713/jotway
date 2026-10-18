@@ -417,10 +417,12 @@ struct EditorView: View {
                     .frame(width: 52, height: 22)
                     .fixedSize()
             }
-            DraftThinkingPromptControl(focusTarget: focusTarget, state: state,
-                isCardHovered: isInputCardHovered,
-                increasesContrast: colorSchemeContrast == .increased, send: send)
-                .frame(width: 22, height: 22)
+            if hasDraftContent {
+                DraftThinkingPromptControl(focusTarget: focusTarget, state: state,
+                    isCardHovered: isInputCardHovered,
+                    increasesContrast: colorSchemeContrast == .increased, send: send)
+                    .frame(width: 22, height: 22)
+            }
             if state.mode == .quickInput {
                 HStack(alignment: .bottom, spacing: 8) {
                     if hasDraftContent, !state.isReadingGettingStarted {

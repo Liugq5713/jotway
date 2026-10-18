@@ -105,6 +105,10 @@ struct DraftThinkingPromptControl: NSViewRepresentable {
     let send: (LauncherEvent) -> Void
 
     func makeNSView(context: Context) -> DraftThinkingPromptButton { DraftThinkingPromptButton() }
+    static func dismantleNSView(_ button: DraftThinkingPromptButton, coordinator: ()) {
+        guard let focusTarget = button.focusTarget, focusTarget.thinkingButton === button else { return }
+        focusTarget.thinkingButton = nil
+    }
     func updateNSView(_ button: DraftThinkingPromptButton, context: Context) {
         focusTarget.thinkingButton = button
         button.focusTarget = focusTarget
@@ -133,6 +137,7 @@ final class DraftThinkingPromptButton: NSButton {
         }
     }
     private var hovered = false
+    private var hoverTrackingArea: NSTrackingArea?
     private var iconIsRevealed = false
     private var opacity: CGFloat = 0
     private var fade: Task<Void, Never>?
@@ -171,8 +176,12 @@ final class DraftThinkingPromptButton: NSButton {
     }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        for area in trackingAreas { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        // AppKit also owns a tracking area for tooltips, including disabled-button help.
+        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        let area = NSTrackingArea(rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        hoverTrackingArea = area
+        addTrackingArea(area)
         refreshHoverFromMouseLocation()
     }
     override func viewDidMoveToWindow() {
