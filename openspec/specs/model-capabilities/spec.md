@@ -12,7 +12,7 @@ AI Services SHALL 只提供一套个人文本配置：服务类型、HTTPS API B
 
 #### Scenario: All text features share one personal model
 - **WHEN** 没有 Jotway code，个人模型配置与 key 可用
-- **THEN** 标题、思考提示、归集、AI 补充及周月回顾使用同一个人模型，失败不调用其他模型
+- **THEN** 标题、思考提示、归集、AI 补充及今天和周回顾使用同一个人模型，失败不调用其他模型
 
 #### Scenario: Change personal service
 - **WHEN** 用户修改服务类型或 API 地址并保存
@@ -72,4 +72,4 @@ deep 请求及其连接测试 SHALL 使用流式传输。OpenAI SSE SHALL 收到
 
 ### Requirement: Text-only model configuration
 
-系统 SHALL 仅提供 fast 和 deep 文本能力，不提供 embedding 模型、地址、key、连接测试或历史检索入口。旧 embedding 配置 SHALL NOT 触发请求或后台索引。Notes 周/月回顾 SHALL 独立读取已授权范围内的原文并使用当前文本模型。
+系统 SHALL 仅提供 fast 和 deep 文本能力，不提供 embedding 模型、地址、key、连接测试或历史检索入口。旧 embedding 配置 SHALL NOT 触发请求或后台索引。Notes 今天／周回顾 SHALL 独立读取已授权范围内的原文并使用当前文本模型。

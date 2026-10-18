@@ -414,7 +414,7 @@ struct EditorView: View {
                 NotesReviewControls(focusTarget: focusTarget, state: state, send: send,
                                     isCardHovered: isInputCardHovered,
                                     increasesContrast: colorSchemeContrast == .increased)
-                    .frame(width: 52, height: 22)
+                    .frame(width: 22, height: 22)
                     .fixedSize()
             }
             if hasDraftContent {
@@ -620,6 +620,12 @@ struct EditorView: View {
                     coverageIncomplete: state.reviewCoverageIncomplete,
                     unavailableReason: state.reviewUnavailableReason,
                     maximumHeight: overlayAvailableHeight,
+                    selectPeriod: { period in
+                        guard focusTarget.textView?.hasMarkedText() != true,
+                              period != state.reviewPeriod else { return }
+                        send(.toggleReview(period))
+                        focusTarget.restoreEditorFocus()
+                    },
                     close: { send(.closeReview); focusTarget.restoreEditorFocus() })
             } else if let history = state.clipboardHistory, !state.isIntentCandidateMenuVisible, !state.isTemplateMenuVisible {
                 ClipboardHistoryView(history: history,

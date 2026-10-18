@@ -107,7 +107,7 @@
 - **THEN** 使用与 Enter 相同的失败提示及草稿恢复规则；已有新草稿时单独保留失败提交，不覆盖新输入，用户仍可修改后重新确认
 
 #### Scenario: Reviewing does not confirm the draft
-- **WHEN** 用户打开每周或每月回顾后点击仍可见的目标胶囊
+- **WHEN** 用户打开今天或周回顾后点击仍可见的目标胶囊
 - **THEN** 与回顾期间的编辑区 Enter 一样，不提交、不启动配置或应用、不排队确认，保留回顾内容、草稿和目标
 
 #### Scenario: Preserve hidden states and capsule geometry
@@ -140,17 +140,17 @@
 - **WHEN** 自动追问已开启，用户打开最近文档详情，并在上方编辑区修改草稿后停止输入
 - **THEN** 详情继续显示，不自动被提示替换；关闭详情后，仅对符合资格且尚未处理的最新正文重新等待约 1 秒再生成，文档正文仍不进入模型
 
-### Requirement: Review icons share the quick input footer
+### Requirement: One review icon shares the quick input footer
 
-系统 SHALL 仅在快捷输入形态的左下动作行，在模式入口及当前可用的单个最近文档入口之后显示每周回顾、每月回顾两个 22 × 22 pt 图标按钮。两个按钮 SHALL 具有各自的本地化辅助名称及悬停说明，支持原生键盘聚焦和激活，不增高动作行或遮挡目标入口。左下图标 SHALL 使用统一的 22 pt 画布、1.25 pt 圆头圆角描边及 8 pt 按钮间距；周回顾以日历中的单行周期表示，月回顾以同一日历外框中的多行日期网格表示。按钮沿用卡片悬停或键盘焦点显现规则，隐藏时保留宽度；当前打开的回顾按钮 SHALL 保持可见并显示选中状态。回顾周期、开闭与数据边界遵循 `notes-review`。
+系统 SHALL 仅在快捷输入形态的左下动作行，在模式入口及当前可用的单个最近文档入口之后显示一个 22 × 22 pt 今天回顾图标按钮。本地化辅助名称及悬停说明 SHALL 为“今天回顾”，支持原生键盘聚焦和激活，不增高动作行或遮挡目标入口。左下图标 SHALL 使用统一的 22 pt 画布、1.25 pt 圆头圆角描边及 8 pt 按钮间距，回顾图标以日历外框中的单日表示。按钮沿用卡片悬停或键盘焦点显现规则，隐藏时保留宽度；任何周期的回顾打开时，此按钮 SHALL 保持可见并显示选中状态。每次打开默认今天，详情面板内可切换周回顾，不提供月回顾；周期、开闭与数据边界遵循 `notes-review`。
 
-#### Scenario: Discover and activate a review
-- **WHEN** 用户悬停快捷输入卡片，或通过键盘聚焦左下动作行
-- **THEN** 两个回顾图标可辨认并可分别激活；辅助技术能够区分每周回顾和每月回顾，中文组词期间激活不截断输入法
+#### Scenario: Discover and activate the review
+- **WHEN** 用户悬停快捷输入卡片或通过键盘进入左下动作行
+- **THEN** 只有一个今天回顾入口可激活，中文组词期间激活不截断输入法；点击后展开今天回顾详情，可在面板内选择周回顾
 
-#### Scenario: Leave the footer while reviewing
-- **WHEN** 用户已打开一种回顾，再移开鼠标且键盘焦点离开按钮
-- **THEN** 当前回顾按钮仍可见且保持选中，另一个按钮按既有显隐规则处理；临时便签不显示回顾按钮
+#### Scenario: An open review remains discoverable
+- **WHEN** 用户已打开今天或周回顾，再移开鼠标且键盘焦点离开按钮
+- **THEN** 单个回顾按钮仍可见且保持选中，再次激活关闭详情；临时便签不显示回顾按钮
 
 ### Requirement: Visual refinement remains accessible and behavior neutral
 

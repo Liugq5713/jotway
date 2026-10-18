@@ -454,7 +454,7 @@
 "settings.general.completion_notifications.help" = "Show a quiet notice when an action finishes. Off by default for all actions.";
 "notes.review.title" = "Notes Review";
 "notes.review.weekly" = "Weekly Review";
-"notes.review.monthly" = "Monthly Review";
+"notes.review.today" = "Today’s Review";
 "notes.review.loading" = "Summarizing your recent notes…";
 "notes.review.generating" = "Generating…";
 "notes.review.regenerate" = "Review settings changed. Close and reopen this review to generate it again.";
@@ -467,8 +467,8 @@
 "notes.review.themes" = "Notable themes";
 "notes.review.theme_count" = "(%d)";
 "notes.review.unresolved" = "Worth revisiting";
-"notes.review.enable" = "Weekly and Monthly Reviews";
-"notes.review.enable.help" = "Use the two buttons at the bottom left of quick input to review notes from the last 7 or 30 days.";
+"notes.review.enable" = "Today and Weekly Reviews";
+"notes.review.enable.help" = "Open Today’s Review at the bottom left of quick input, then choose today or the last 7 days in its detail panel.";
 "action.codex.recent_tasks" = "Recent conversations";
 "action.codex.history_loading" = "Loading conversations…";
 "action.codex.history_failed" = "Could not load recent tasks. Open Task Folder in Codex settings to view saved results.";

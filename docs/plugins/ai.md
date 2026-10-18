@@ -2,11 +2,11 @@
 
 > Role: **Current**
 
-Jotway uses optional models for Notes titles, daily grouping, supplements, weekly/monthly reviews and optional draft thinking prompts. Personal Agent is retired; its old preferences and local archives remain untouched.
+Jotway uses optional models for Notes titles, daily grouping, supplements, today/weekly reviews and optional draft thinking prompts. Personal Agent is retired; its old preferences and local archives remain untouched.
 
 Local application matching and ordinary input routing never call these models.
 
-The lower-left thinking-prompt button requires a configured active text model; weekly and monthly review buttons require a configured active text model. Unconfigured entries stay visible but disabled, with a hint to configure AI in AI Services. Losing the required configuration cancels pending generation and closes its temporary result. Automatic thinking prompts use the same readiness gate.
+The lower-left thinking-prompt button requires a configured active text model; the Today’s Review button requires a configured active text model. Unconfigured entries stay visible but disabled, with a hint to configure AI in AI Services. Losing the required configuration cancels pending generation and closes its temporary result. Automatic thinking prompts use the same readiness gate.
 
 ## Jotway AI activation
 
@@ -49,9 +49,9 @@ The original is confirmed first. With Add Extra Ideas enabled, the frozen deep i
 
 Disabling assistance cancels refreshes and skips its retrieval, while fast grouping remains available. The next managed original write removes old generated content; toggling alone does not rewrite Notes. Disabling grouping restores ordinary per-submission creation without changing the assistance preference.
 
-## Weekly and monthly reviews
+## Today and weekly reviews
 
-The launcher requests a review only when the user opens its weekly or monthly surface. NotesReview reads the existing authorized index, freezes the source metadata and deep invocation, then exposes a temporary readable preview separately from its completed summary. The view uses those frozen dates, source count and coverage while generation continues. Safely decoded overview text can appear as it arrives; complete validated themes and questions follow. The lower panel keeps a stable scrolling viewport and a generating label until final validation replaces the preview.
+The launcher has one Today’s Review entry that opens today’s detail panel; the panel offers today and weekly periods, with no monthly option. Reopening from the footer always starts with today. NotesReview reads authorized Notes originals on demand, freezes the source metadata and deep invocation, then exposes a temporary readable preview separately from its completed summary. The view uses those frozen dates, source count and coverage while generation continues. Safely decoded overview text can appear as it arrives; complete validated themes and questions follow. The lower panel keeps a stable scrolling viewport and a generating label until final validation replaces the preview.
 
 Each request owns its preview. A failed stream ends generation; closing the review or leaving its surface cancels pending updates. Range, availability or deep configuration changes invalidate affected results. Only a completed valid response enters the independent period cache. Reviews remain read-only and never change the draft or Notes. Exact limits, cancellation and cache behavior are defined in [Notes review](../../openspec/specs/notes-review/spec.md).
 

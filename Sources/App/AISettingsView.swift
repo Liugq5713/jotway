@@ -1,8 +1,24 @@
 import SwiftUI
 
+// Explicit keys keep command-line builds independent of Xcode's SwiftUI macro plugin.
+private struct OpenAIServiceSettingsKey: EnvironmentKey {
+    static let defaultValue: @MainActor () -> Void = {}
+}
+
+private struct OpenWritingPreferencesKey: EnvironmentKey {
+    static let defaultValue: @MainActor () -> Void = {}
+}
+
 extension EnvironmentValues {
-    @Entry var openAIServiceSettings: @MainActor () -> Void = {}
-    @Entry var openWritingPreferences: @MainActor () -> Void = {}
+    var openAIServiceSettings: @MainActor () -> Void {
+        get { self[OpenAIServiceSettingsKey.self] }
+        set { self[OpenAIServiceSettingsKey.self] = newValue }
+    }
+
+    var openWritingPreferences: @MainActor () -> Void {
+        get { self[OpenWritingPreferencesKey.self] }
+        set { self[OpenWritingPreferencesKey.self] = newValue }
+    }
 }
 
 struct AISettingsView: View {

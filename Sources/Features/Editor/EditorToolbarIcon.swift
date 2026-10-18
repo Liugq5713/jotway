@@ -2,7 +2,7 @@ import AppKit
 
 /// Toolbar glyphs share a 22 pt canvas, 1.25 pt rounded strokes and a centered 14 pt footprint.
 enum EditorToolbarIcon: CaseIterable {
-    case stickyNote, quickInput, recentDocument, weeklyReview, monthlyReview, thinkingPrompt
+    case stickyNote, quickInput, recentDocument, review, thinkingPrompt
 
     @MainActor
     func draw(in bounds: NSRect, color: NSColor, opacity: CGFloat = 1) {
@@ -49,23 +49,12 @@ enum EditorToolbarIcon: CaseIterable {
             line(NSPoint(x: 12.5, y: 17.5), NSPoint(x: 12.5, y: 13), NSPoint(x: 17, y: 13))
             line(NSPoint(x: 8, y: 10), NSPoint(x: 14, y: 10))
             line(NSPoint(x: 8, y: 7.5), NSPoint(x: 12, y: 7.5))
-        case .weeklyReview, .monthlyReview:
+        case .review:
             path.appendRoundedRect(NSRect(x: 4.5, y: 4.5, width: 13, height: 12), xRadius: 2, yRadius: 2)
             line(NSPoint(x: 8, y: 15), NSPoint(x: 8, y: 17.5))
             line(NSPoint(x: 14, y: 15), NSPoint(x: 14, y: 17.5))
             line(NSPoint(x: 4.5, y: 13), NSPoint(x: 17.5, y: 13))
-            if self == .weeklyReview {
-                // One continuous week; the month uses multiple rows of dates.
-                line(NSPoint(x: 7.5, y: 8.5), NSPoint(x: 14.5, y: 8.5))
-                line(NSPoint(x: 7.5, y: 7.5), NSPoint(x: 7.5, y: 9.5))
-                line(NSPoint(x: 14.5, y: 7.5), NSPoint(x: 14.5, y: 9.5))
-            } else {
-                for y: CGFloat in [7, 10] {
-                    for x: CGFloat in [7.5, 11, 14.5] {
-                        line(NSPoint(x: x - 0.25, y: y), NSPoint(x: x + 0.25, y: y))
-                    }
-                }
-            }
+            path.appendRoundedRect(NSRect(x: 9, y: 7, width: 4, height: 3), xRadius: 0.75, yRadius: 0.75)
         case .thinkingPrompt:
             path.move(to: NSPoint(x: 8.5, y: 7.5))
             path.curve(to: NSPoint(x: 6, y: 12.5), controlPoint1: NSPoint(x: 8.5, y: 9.5), controlPoint2: NSPoint(x: 6, y: 9.5))

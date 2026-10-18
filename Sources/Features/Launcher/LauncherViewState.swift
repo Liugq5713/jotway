@@ -45,7 +45,7 @@ final class LauncherViewState {
     /// Periodic review surface opened explicitly from the capture panel.
     var reviewAIBlockReason: String?
     var showsReview = false
-    var reviewPeriod: NotesReviewPeriod = .weekly
+    var reviewPeriod: NotesReviewPeriod = .today
     var reviewSummary: NotesReviewSummary?
     var reviewPreview: NotesReviewSummary?
     var reviewRequestMetadata: NotesReviewMetadata?

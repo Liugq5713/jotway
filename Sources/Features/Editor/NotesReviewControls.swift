@@ -26,12 +26,12 @@ struct NotesReviewControls: NSViewRepresentable {
             button.isEnabled = state.modeSwitchBlockReason == nil && state.reviewAIBlockReason == nil
             button.isCardHovered = isCardHovered
             button.increasesContrast = increasesContrast
-            button.state = state.showsReview && state.reviewPeriod == button.period ? .on : .off
-            let title = L10n.text(button.period.titleKey)
+            button.state = state.showsReview ? .on : .off
+            let title = L10n.text("notes.review.today")
             button.toolTip = state.reviewAIBlockReason ?? state.modeSwitchBlockReason ?? title
             button.setAccessibilityLabel(title)
             button.setAccessibilityHelp(button.toolTip)
-            button.setAccessibilityIdentifier("launcher-review-\(button.period.rawValue)")
+            button.setAccessibilityIdentifier("launcher-review-today")
             button.refreshAppearance()
         }
     }
@@ -39,7 +39,7 @@ struct NotesReviewControls: NSViewRepresentable {
 
 @MainActor
 final class NotesReviewButtonsView: NSView {
-    let buttons = NotesReviewPeriod.allCases.map { NotesReviewButton(period: $0) }
+    let buttons = [NotesReviewButton()]
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -50,12 +50,11 @@ final class NotesReviewButtonsView: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
-    override var intrinsicContentSize: NSSize { NSSize(width: 52, height: 22) }
+    override var intrinsicContentSize: NSSize { NSSize(width: 22, height: 22) }
 }
 
 @MainActor
 final class NotesReviewButton: NSButton {
-    let period: NotesReviewPeriod
     weak var focusTarget: EditorFocusTarget?
     var launcherState: LauncherViewState?
     var send: (LauncherEvent) -> Void = { _ in }
@@ -64,8 +63,7 @@ final class NotesReviewButton: NSButton {
     private var hovered = false
     private var keyboardFocused = false
 
-    init(period: NotesReviewPeriod) {
-        self.period = period
+    init() {
         super.init(frame: .zero)
         title = ""
         isBordered = false
@@ -85,7 +83,7 @@ final class NotesReviewButton: NSButton {
 
     @objc private func toggleReview() {
         guard canInteract else { return }
-        send(.toggleReview(period))
+        send(launcherState?.showsReview == true ? .closeReview : .toggleReview(.today))
         focusTarget?.restoreEditorFocus()
     }
 
@@ -160,8 +158,7 @@ final class NotesReviewButton: NSButton {
             NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6).fill()
         }
         let color: NSColor = increasesContrast ? .labelColor : (emphasized ? EditorPalette.buttonText : EditorPalette.secondary)
-        let icon: EditorToolbarIcon = period == .weekly ? .weeklyReview : .monthlyReview
-        icon.draw(in: bounds, color: color, opacity: isEnabled ? 1 : 0.35)
+        EditorToolbarIcon.review.draw(in: bounds, color: color, opacity: isEnabled ? 1 : 0.35)
         if keyboardFocused {
             NSColor.controlAccentColor.setStroke()
             let ring = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 6, yRadius: 6)

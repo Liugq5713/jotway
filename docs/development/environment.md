@@ -21,6 +21,8 @@ swift test --package-path Vendor/KeyboardShortcuts
 ./scripts/build-app.sh --update
 ```
 
+Ordinary app builds support Command Line Tools with the required Swift version and SDK. Settings environment values use explicit `EnvironmentKey` declarations rather than `@Entry`, so they do not require Xcode's SwiftUI macro plugin.
+
 The XCTest suite requires full Xcode. If the active developer directory points to Command Line Tools, run tests with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test`; this selects Xcode for that command without changing the system-wide toolchain.
 
 `build-app.sh` packages and signs `Jotway.app`. `--update` replaces only an installation with the same bundle identifier, gracefully restarts it, and verifies the process. A different application at `/Applications/Jotway.app` stops installation without replacing it. Ordinary validation should avoid disturbing the user's running app.

@@ -2,7 +2,7 @@
 
 > Role: **Current**
 
-Notes is the only bundled storage fallback. Weekly/monthly reviews use their own folder scope and read authorized originals on demand, independently of the save destination.
+Notes is the only bundled storage fallback. Today/weekly reviews use their own folder scope and read authorized originals on demand, independently of the save destination.
 
 Apple Notes is the preferred storage fallback once a destination is configured and no known permission failure prevents execution. When it needs configuration, the panel offers Set Up Notes as an explicit target and as the fallback when no other storage action can execute.
 
@@ -110,7 +110,7 @@ Missing destination, empty content, permission failure, or an unconfirmed write 
 
 ## Notes Review and original boundaries
 
-Weekly and monthly reviews are explicit, read-only requests over the last 7 or 30 days of modification times. They require an existing Notes grant and the active text model. Notes Review has its own switch and all-folders/custom-folder scope in Apple Notes settings; an existing history scope is retained without widening it. No background indexing, vector generation, related-note search or embedding configuration remains.
+Today and weekly reviews are explicit, read-only requests over today (local midnight through the request time) or the last 7 days of modification times. They require an existing Notes grant and the active text model. Notes Review has its own switch and all-folders/custom-folder scope in Apple Notes settings; an existing history scope is retained without widening it. No background indexing, vector generation, related-note search or embedding configuration remains.
 
 A request reads public Notes metadata in scope, selects at most 60 of the newest modified notes, extracts verified original text and sends at most 4,000 characters per note to the active text model. Locked, unreadable, empty or ambiguous originals are skipped; skipped sources, attachment content, missing selected folders, truncation or a 60-note limit produce a coverage notice. Metadata/permission failures and a wholly failed nonempty read are errors, not cacheable empty results. Review does not request permission implicitly, write Notes, or change the draft. Completed weekly/monthly results have separate six-hour in-memory caches; refresh rereads Notes. Closing, changing scope or losing permission cancels pending results.
 

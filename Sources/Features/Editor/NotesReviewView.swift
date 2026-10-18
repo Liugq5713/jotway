@@ -13,6 +13,7 @@ struct NotesReviewView: View {
     let coverageIncomplete: Bool
     let unavailableReason: String?
     let maximumHeight: CGFloat
+    let selectPeriod: (NotesReviewPeriod) -> Void
     let close: () -> Void
 
     var body: some View {
@@ -28,7 +29,14 @@ struct NotesReviewView: View {
                     } else if let displayedSummary, !displayedSummary.isEmpty {
                         content(displayedSummary)
                     } else if isLoading {
-                        placeholder("clock.arrow.circlepath", L10n.text("notes.review.loading"))
+                        VStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                                .accessibilityLabel(L10n.text("notes.review.loading"))
+                            Text(L10n.text("notes.review.loading"))
+                                .multilineTextAlignment(.center)
+                        }
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity).padding(.vertical, 16)
                     } else {
                         placeholder("tray", L10n.text("notes.review.empty"))
                     }
@@ -50,15 +58,31 @@ struct NotesReviewView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Text(L10n.text(period.titleKey)).font(.system(size: 12, weight: .semibold))
+            Picker(L10n.text("notes.review.title"), selection: Binding(
+                get: { period }, set: { selectPeriod($0) }
+            )) {
+                ForEach(NotesReviewPeriod.allCases, id: \.self) { option in
+                    Text(L10n.text(option.titleKey)).tag(option)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .fixedSize()
+            .accessibilityLabel(L10n.text("notes.review.title"))
+            .accessibilityIdentifier("notes-review-period")
             if let dateRange {
                 Text(dateRange).font(.system(size: 11)).foregroundStyle(.secondary)
             }
             Spacer()
             if isLoading {
-                Text(L10n.text("notes.review.generating"))
-                    .font(.system(size: 10, weight: .medium))
-                    .accessibilityIdentifier("notes-review-generating")
+                HStack(spacing: 4) {
+                    ProgressView().controlSize(.mini)
+                        .accessibilityHidden(true)
+                    Text(L10n.text("notes.review.generating"))
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("notes-review-generating")
             }
             if let noteCount {
                 Text(L10n.text("notes.review.note_count", noteCount))
@@ -149,6 +173,7 @@ struct NotesReviewView: View {
         guard let windowStart = requestMetadata?.windowStart ?? displayedSummary?.windowStart,
               let windowEnd = requestMetadata?.windowEnd ?? displayedSummary?.windowEnd else { return nil }
         let style = Date.FormatStyle.dateTime.month(.abbreviated).day()
+        if period == .today { return windowStart.formatted(style) }
         return windowStart.formatted(style) + " – " + windowEnd.formatted(style)
     }
 }

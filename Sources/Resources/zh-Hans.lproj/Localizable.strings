@@ -95,8 +95,8 @@
 
 // Notes reviews
 "notes.review.title" = "笔记回顾";
-"notes.review.weekly" = "每周回顾";
-"notes.review.monthly" = "每月回顾";
+"notes.review.weekly" = "周回顾";
+"notes.review.today" = "今天回顾";
 "notes.review.loading" = "正在总结近期笔记…";
 "notes.review.generating" = "正在生成…";
 "notes.review.regenerate" = "回顾配置已更改。请关闭后重新打开以再次生成。";
@@ -109,8 +109,8 @@
 "notes.review.themes" = "值得注意的主题";
 "notes.review.theme_count" = "（%d）";
 "notes.review.unresolved" = "值得再想";
-"notes.review.enable" = "每周和每月回顾";
-"notes.review.enable.help" = "点击快捷输入左下角的两个按钮，回顾最近 7 天或 30 天的笔记。";
+"notes.review.enable" = "今天和周回顾";
+"notes.review.enable.help" = "点击快捷输入左下角的今天回顾按钮，在详情面板查看今天或最近 7 天的笔记回顾。";
 
 // Draft thinking prompts
 "thinking.settings.title" = "思考提示";
@@ -216,7 +216,7 @@
 
 "settings.ai.personal.model" = "模型名称（Model ID）";
 
-"settings.ai.personal.help" = "一个模型用于标题、思考提示、归集、AI 补充和周月回顾，不再配置或切换备用模型。";
+"settings.ai.personal.help" = "一个模型用于标题、思考提示、归集、AI 补充和今天和周回顾，不再配置或切换备用模型。";
 
 "settings.ai.personal.hosted_active" = "当前使用 Jotway AI。个人配置会保留，移除激活码后恢复使用。";
 

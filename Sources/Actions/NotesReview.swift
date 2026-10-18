@@ -2,12 +2,14 @@ import Foundation
 import Observation
 
 enum NotesReviewPeriod: String, CaseIterable, Sendable {
+    case today
     case weekly
-    case monthly
 
-    var days: Int { self == .weekly ? 7 : 30 }
-    var titleKey: String { self == .weekly ? "notes.review.weekly" : "notes.review.monthly" }
-    var systemImage: String { self == .weekly ? "calendar" : "calendar.badge.clock" }
+    var titleKey: String { self == .today ? "notes.review.today" : "notes.review.weekly" }
+
+    func windowStart(through end: Date, calendar: Calendar = .current) -> Date {
+        self == .today ? calendar.startOfDay(for: end) : end.addingTimeInterval(-7 * 86_400)
+    }
 }
 
 /// A grounded review of recently modified notes: concrete findings, notable themes,
@@ -72,7 +74,7 @@ final class NotesReview {
     @ObservationIgnored private var cache: [NotesReviewPeriod: CachedSummary] = [:]
     @ObservationIgnored var onChange: (@MainActor () -> Void)?
 
-    private(set) var period: NotesReviewPeriod = .weekly
+    private(set) var period: NotesReviewPeriod = .today
     private(set) var summary: NotesReviewSummary?
     private(set) var preview: NotesReviewSummary?
     private(set) var requestMetadata: NotesReviewMetadata?
@@ -163,7 +165,7 @@ final class NotesReview {
         onChange?()
     }
 
-    func load(period: NotesReviewPeriod = .weekly, force: Bool) {
+    func load(period: NotesReviewPeriod = .today, force: Bool) {
         library.refreshPermission()
         let current = identity
         let changedPeriod = self.period != period
@@ -177,8 +179,12 @@ final class NotesReview {
             onChange?()
             return
         }
+        let end = now()
+        let start = period.windowStart(through: end)
         if !force, let cached = cache[period], cached.identity == current,
-           now().timeIntervalSince(cached.cachedAt) < cacheTTL {
+           end >= cached.metadata.windowEnd,
+           end.timeIntervalSince(cached.cachedAt) < cacheTTL,
+           period != .today || cached.metadata.windowStart == start {
             summary = cached.summary
             requestMetadata = cached.metadata
             coverageIncomplete = cached.metadata.coverageIncomplete
@@ -186,8 +192,6 @@ final class NotesReview {
             return
         }
         let frozen = library.models.frozenText(.deep)
-        let end = now()
-        let start = end.addingTimeInterval(-Double(period.days) * 86_400)
         let id = UUID()
         requestID = id
         requestIdentity = current
@@ -309,11 +313,15 @@ final class NotesReview {
     }
 
     static func instructions(for days: Int) -> String {
+        instructions(sourceWindow: "最近 \(days) 天")
+    }
+
+    private static func instructions(sourceWindow: String) -> String {
         """
         你为 Jotway 生成一份简短、具体、可核对的笔记回顾。
         目标是帮助用户重新发现重要内容、看见记录之间的联系，并找到值得继续思考的问题。
 
-        资料来自最近 \(days) 天修改过的授权范围内笔记，不保证覆盖所有笔记，所提供正文可能不完整。
+        资料来自\(sourceWindow)修改过的授权范围内笔记，不保证覆盖所有笔记，所提供正文可能不完整。
         修改时间不代表内容发生或写下的时间，也不说明哪一段内容在本期修改。
         没有原文明示的时间或先后证据，不把内容说成本期发生，也不推断跨期趋势或判断变化。
         此时概述只说“所给记录”，不使用“本周”“近期”等词暗示内容或记录发生在本期。
@@ -356,7 +364,7 @@ final class NotesReview {
     }
 
     static func instructions(for period: NotesReviewPeriod) -> String {
-        instructions(for: period.days)
+        instructions(sourceWindow: period == .today ? "本机时区今天零点至请求时刻" : "最近 7 天")
     }
 
     static func parse(_ output: String, noteCount: Int, windowStart: Date, windowEnd: Date) -> NotesReviewSummary? {

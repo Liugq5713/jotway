@@ -85,7 +85,7 @@ Connection tests use fixed sample content. They do not send the current draft. A
 
 General settings can open, export, or clear runtime logs. Export retains raw log lines, including historical Jev metadata, without generating a current routing-rule file. See [Runtime logs](../development/runtime-logs-research.md).
 
-Apple Notes contains a separate Notes Review switch and folder scope. Weekly/monthly reviews read recent original text on demand from authorized folders, preserving an existing custom scope. There is no background indexing, Search History inspector or embedding service. Bounded review excerpts go to the active text AI service.
+Apple Notes contains a separate Notes Review switch and folder scope. Today/weekly reviews read recent original text on demand from authorized folders, preserving an existing custom scope. There is no background indexing, Search History inspector or embedding service. Bounded review excerpts go to the active text AI service.
 
 Chrome Source defaults to off and is independent of action routing and clipboard history. Enabling it or selecting Allow Chrome Access requests macOS automation permission. Passive checks and copy observations never request permission. The status and retry control remain visible when enabled; denial leaves plain text capture available. Disabling discards unused source candidates but does not remove draft text already shown. The disclosure explains that the current page near a copy may not be the exact source, links may contain private details, and attribution follows existing draft processing settings.
 
