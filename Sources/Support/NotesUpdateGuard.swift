@@ -13,7 +13,7 @@ struct NotesUpdateGuard: Sendable {
               NotesDailyScope.current(folderID: scope.folderID, at: source.created, timeZone: timeZone) == scope,
               !source.locked, !source.shared, body.attachments == 0,
               boundary.extract(from: NotesOriginalText.readableText(body)) != nil else {
-            throw NotesHistoryError.stale
+            throw NotesReadError.stale
         }
     }
 }

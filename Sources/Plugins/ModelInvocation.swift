@@ -63,6 +63,7 @@ struct ModelTextInvocation: Sendable {
     var capability: ModelConfiguration.Capability? = nil
     var providerID: String? = nil
     var expectedModelID: String? = nil
+    var allowsAutomaticRetry = true
     private let generate: @Sendable (ModelTextRequest, PartialHandler?, EventHandler?) async throws -> String
     private let observedModel: @Sendable () -> String?
     var modelID: String? { observedModel() }
@@ -213,6 +214,7 @@ extension ModelTextInvocation {
         result.capability = capability
         result.providerID = providerID
         result.expectedModelID = expectedModelID
+        result.allowsAutomaticRetry = allowsAutomaticRetry
         return result
     }
 }

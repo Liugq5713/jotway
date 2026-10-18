@@ -332,20 +332,12 @@ extension MainPathTests {
                 // provider, history and persistence independent of the user's setup.
                 preferences.set(false, forKey: "notesDailyGroupingEnabled")
                 preferences.set(false, forKey: "aiRewriteEnabled.apple-notes")
-                preferences.set(false, forKey: "notesHistory.enabled")
-                let index = NotesIndex(url: local.directory.appendingPathComponent("notes-index.sqlite"))
-                let history = NotesHistory(preferences: preferences,
-                    keys: APIKeyStore(directory: local.directory.appendingPathComponent("keys")),
-                    index: index, reader: .init(run: { await notes.record($0) }),
-                    checkPermission: { false }, embeddingTransport: { _ in
-                        XCTFail("Routing must not request embeddings")
-                        throw NotesHistoryError.unavailable
-                    })
+                let index = NotesOriginStore(url: local.directory.appendingPathComponent("notes-index.sqlite"))
                 let source = AIProviderPlugin.Source(id: "fixture", title: "Fixture", detail: "Unavailable",
-                    version: { _ in "1" }, configure: { _ in throw NotesHistoryError.unavailable })
+                    version: { _ in "1" }, configure: { _ in throw NotesReadError.unavailable })
                 let notesModule = AppleNotesModule(preferences: preferences, models: ModelConfiguration(preferences: preferences, sources: [source], fastSource: source),
                     groupingStore: NotesDailyGroupingStore(url: local.directory.appendingPathComponent("daily.sqlite")),
-                    history: history, run: { await notes.record($0) })
+                    reviewLibrary: NotesReviewLibrary(preferences: preferences, origins: index, checkPermission: { false }), run: { await notes.record($0) })
                 try! notesModule.setDestination(.init(id: "folder-1", name: "测试 / Jotway"))
                 return [notesModule]
             }, openApplication: { url, configuration, reply in

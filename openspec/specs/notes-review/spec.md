@@ -2,13 +2,15 @@
 
 ## Purpose
 
-通过快捷输入左下角的每周回顾和每月回顾按钮，按需只读总结允许范围内已索引的近期笔记；定义周期、导航、缓存及权限边界，同时保留当前草稿和执行目标。
+通过快捷输入左下角的每周回顾和每月回顾按钮，按需只读总结允许范围内的近期笔记；定义周期、导航、缓存及权限边界，同时保留当前草稿和执行目标。
 
 ## Requirements
 
 ### Requirement: Explicit weekly and monthly entry points
 
 系统 SHALL 仅在快捷输入形态提供每周回顾和每月回顾两个图标按钮，外观遵循 `launcher-appearance`。每周回顾 SHALL 使用请求时刻向前滚动 7 天，每月回顾 SHALL 使用向前滚动 30 天，不按自然周或自然月划分。Command+R SHALL NOT 打开、关闭或刷新回顾。
+
+系统 SHALL 仅在 当前文本模型配置可用时启用两个回顾入口。未配置时保留入口并置灰，悬停及辅助功能提示先在 AI Services 配置 AI；配置失效时关闭当前回顾、取消生成并使缓存失效。
 
 #### Scenario: Choose a review period
 - **WHEN** 用户点击每周回顾或每月回顾按钮
@@ -26,21 +28,25 @@
 - **WHEN** 回顾已经显示预览，用户关闭、隐藏面板、切换形态或打开其他下方详情，随后旧请求继续返回
 - **THEN** 立即撤销本次预览并取消生成，迟到片段和待发布更新均不再显示或入缓存；再次打开按当前条件读取完成缓存或新建请求
 
-### Requirement: Review uses the existing authorized index
+### Requirement: Review reads authorized originals on demand
 
-回顾 SHALL 沿用 Related History 的启用状态、显式索引启动状态、Notes 权限及当前文件夹范围，仅读取该范围内最近修改且可用的已索引原文，每次最多 60 篇来源。查看回顾 SHALL NOT 自动请求权限、启动或重建索引、扩大文件夹范围、修改 Notes 或写回草稿。未就绪、加载、失败及空结果 SHALL 分别呈现；覆盖不完整时 SHALL 说明仅基于已索引笔记，不声称完整覆盖全部 Notes。
+回顾 SHALL 使用独立的开关、Notes 权限及文件夹范围；已有自定义范围 SHALL 保留，不因移除 Related History 扩大范围。请求时 SHALL 通过公开 Notes 接口读取范围内元数据，按最近修改顺序最多读取 60 篇笔记的正文，每篇最多向文本模型提供 4,000 字符的已验证原文。生成区 SHALL 由既有边界记录排除。回顾 SHALL NOT 使用 embedding、持久化正文索引、后台同步或自动申请权限，也不修改 Notes 或草稿。
 
-#### Scenario: Index or permission is unavailable
-- **WHEN** 回顾功能已关闭、Related History 尚未启用或启动，或 Notes 权限不可用
-- **THEN** 回顾显示相应不可用说明，不为生成回顾自动开启索引或申请权限
+#### Scenario: Permission or model is unavailable
+- **WHEN** 回顾已关闭、Notes 权限不可用或文本模型未配置
+- **THEN** 显示相应不可用说明，不自动申请权限或发出模型请求
 
-#### Scenario: Summarize bounded indexed sources
-- **WHEN** 所选周期与允许文件夹范围内存在超过 60 篇已索引笔记，且索引仍有待处理或失败来源
-- **THEN** 按最近修改顺序最多选取 60 篇，回顾提示覆盖限制，不将索引外来源送入模型
+#### Scenario: Bounded source selection
+- **WHEN** 范围内超过 60 篇近期笔记，或正文被截断、包含附件、无法读取或边界不清
+- **THEN** 最多采用 60 篇中可验证的原文并说明覆盖限制；不以生成内容作为用户证据
+
+#### Scenario: Failed reads are not empty successes
+- **WHEN** 元数据或权限读取失败，或非空来源集没有任何可用原文
+- **THEN** 显示失败，不缓存为没有笔记；只有成功读取到空来源集才能直接显示可缓存空结果
 
 ### Requirement: Period caches remain independent
 
-每周及每月回顾 SHALL 分别缓存最多 6 小时，不得将一个周期的结果用作另一个周期的结果。缓存 SHALL 仅收纳完整流成功且最终校验有效的摘要、合法空回顾或无来源确认的空结果，并绑定历史范围／配置版本及 deep 模型链版本；预览、失败和取消不得写入或延长缓存。缓存复用 SHALL 保持当前权限与文件夹范围有效；切换范围、deep 配置或失去可用条件后不得展示不适用缓存。刷新只重新读取所选周期的既有索引，不触发索引同步。
+每周及每月回顾 SHALL 分别缓存最多 6 小时，不得将一个周期的结果用作另一个周期的结果。缓存 SHALL 仅收纳完整流成功且最终校验有效的摘要、合法空回顾或无来源确认的空结果，并绑定回顾范围／配置版本及 deep 模型链版本；预览、失败和取消不得写入或延长缓存。缓存复用 SHALL 保持当前权限与文件夹范围有效；切换范围、deep 配置或失去可用条件后不得展示不适用缓存。刷新按所选周期重新读取 Notes 原文，不创建索引。
 
 #### Scenario: Reopen and switch periods
 - **WHEN** 用户在缓存有效期内重新打开每周回顾，再打开每月回顾
@@ -51,8 +57,8 @@
 - **THEN** 该预览不能作为缓存复用；仍有效的更早完成缓存保持原时间，不存在完成缓存时重新生成
 
 #### Scenario: Configuration or authorization becomes invalid
-- **WHEN** 回顾预览或完成结果正在展示，而文件夹范围、deep 配置、历史范围／配置版本、权限或启用条件改变
-- **THEN** 撤销不再适用的展示与缓存，取消相关生成；仍打开的回顾给出重新生成或不可用状态，不自动扩大权限、启动索引或请求新模型
+- **WHEN** 回顾预览或完成结果正在展示，而文件夹范围、deep 配置、回顾范围／配置版本、权限或启用条件改变
+- **THEN** 撤销不再适用的展示与缓存，取消相关生成；仍打开的回顾给出重新生成或不可用状态，不自动扩大权限、启动后台扫描或请求新模型
 
 ### Requirement: Reviews show provisional readable progress
 
@@ -66,9 +72,9 @@
 - **WHEN** 中文、表情、引号、反斜线或 Unicode 转义跨多个片段到达
 - **THEN** 只展示完整解码后的字符，不出现半个转义或损坏字符；最终结果仍通过完整业务校验
 
-#### Scenario: Fallback replaces the preview
-- **WHEN** 已有主模型预览后开始备用尝试
-- **THEN** 先清除主模型预览，再显示备用内容及生成中状态，不在两个结果间拼接或保留旧条目
+#### Scenario: A failed stream discards its preview
+- **WHEN** 已有模型预览后请求失败
+- **THEN** 清除临时内容并显示失败，不切换其他模型，也不缓存部分结果
 
 #### Scenario: Navigate while progress arrives
 - **WHEN** 用户在回顾生成过程中通过键盘导航或手动滚动回顾
@@ -80,14 +86,14 @@
 
 ### Requirement: Only final validation completes a review
 
-回顾 SHALL 将临时预览与最终摘要分开。流完整结束且最终业务校验通过后 SHALL 以最终结果替换预览并结束生成中状态；没有来源或结构合法的空回顾 SHALL 显示空结果。流终态失败、无效输出或超限 SHALL 清除本次预览并显示失败，不把它们当作成功空结果缓存。权限和范围边界继续遵循 `Review uses the existing authorized index`，预览 SHALL 不写入 Notes、草稿或正文诊断归档。
+回顾 SHALL 将临时预览与最终摘要分开。流完整结束且最终业务校验通过后 SHALL 以最终结果替换预览并结束生成中状态；没有来源或结构合法的空回顾 SHALL 显示空结果。流终态失败、无效输出或超限 SHALL 清除本次预览并显示失败，不把它们当作成功空结果缓存。权限和范围边界继续遵循 `Review reads authorized originals on demand`，预览 SHALL 不写入 Notes、草稿或正文诊断归档。
 
 #### Scenario: Final output is valid
 - **WHEN** 流正常结束并得到有效回顾
 - **THEN** 最终校验结果一次替换预览、停止生成中状态，并按所选周期缓存
 
 #### Scenario: Partial content does not survive a terminal failure
-- **WHEN** 界面已经显示预览，但主备最终均失败，或最终回答无法通过业务校验
+- **WHEN** 界面已经显示预览，但模型请求最终失败，或最终回答无法通过业务校验
 - **THEN** 清除预览并显示失败，不留下看似完成的摘要，也不写入本次缓存
 
 #### Scenario: Empty and invalid outcomes differ

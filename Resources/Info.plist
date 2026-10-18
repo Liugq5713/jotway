@@ -62,6 +62,6 @@
     <key>SUVerifyUpdateBeforeExtraction</key>
     <true/>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Allow Jotway to save notes when you confirm, read selected notes for Related History, and read the current Chrome page title and link when you enable Chrome Source.</string>
+    <string>Allow Jotway to save notes when you confirm, read selected notes for weekly and monthly reviews, and read the current Chrome page title and link when you enable Chrome Source.</string>
 </dict>
 </plist>

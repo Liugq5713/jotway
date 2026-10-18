@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the three-page site using only Python's standard library."""
+"""Build the static site using only Python's standard library."""
 import argparse
 from html import escape
 import hashlib
@@ -90,11 +90,17 @@ def main():
     inputs = parser.add_mutually_exclusive_group()
     inputs.add_argument('--metadata', type=Path, default=SITE / 'release.json')
     inputs.add_argument('--local-release', type=Path, help='Preview a verified local DMG; never marks it published')
+    inputs.add_argument('--github-releases-only', action='store_true',
+                        help='Link to GitHub Releases with an explicit unnotarized-build notice; do not advertise a verified DMG')
     parser.add_argument('--appcast', type=Path, help='Verified Sparkle feed to publish alongside release metadata')
     # Output is fixed to avoid deleting arbitrary user directories during a rebuild.
     args = parser.parse_args()
     artifact = None
-    if args.local_release:
+    if args.github_releases_only:
+        metadata = {'schemaVersion': 1, 'status': 'unpublished'}
+        if args.appcast:
+            raise ValueError('GitHub Releases-only mode must not publish an update feed.')
+    elif args.local_release:
         metadata, artifact = local_preview(args.local_release)
     else:
         metadata = json.loads(args.metadata.read_text())
@@ -128,12 +134,29 @@ def main():
               'nav_cta': 'Download' if published else 'Check availability',
               'release_summary': f"{metadata['version']} · macOS {metadata['minimumMacOS']}+ · {metadata['architecture']}" if published else ('Local preview · Not publicly released' if artifact else 'No public release yet · Source builds available'),
               'release_content': release_content(metadata),
+              'install_source_guidance': 'Use the verified release above and check its SHA-256 checksum.',
               'signing_guidance': ('The current packaging process uses ad-hoc signing without Apple notarization. ' if metadata['status'] == 'unpublished'
                                    else 'See the artifact details above for signing and notarization status. ')
                                   + 'On first launch, macOS may ask you to allow the app in System Settings → Privacy & Security. Verify the source and checksum first.'}
+    if args.github_releases_only:
+        common.update(
+            home_cta='View GitHub releases',
+            nav_cta='Releases',
+            download_url='https://github.com/Liugq5713/jotway/releases',
+            release_summary='Builds on GitHub · Not notarized by Apple',
+            release_content='''<section class="unpublished" aria-labelledby="release-title">
+<p class="status-label">Downloads on GitHub</p><h2 id="release-title">Review the release before downloading.</h2>
+<p>The available build has not been notarized by Apple. macOS may block it from opening. This website does not offer a verified direct installer download.</p>
+<a class="button primary" href="https://github.com/Liugq5713/jotway/releases">View GitHub releases ↗</a>
+<p>Check each release's version, requirements, signing status and checksum on GitHub. The website's development previews may differ from the downloadable build.</p></section>''',
+            install_source_guidance='Review the release on GitHub and verify its checksum before opening the installer.',
+            signing_guidance='The available build uses ad-hoc signing and has not been notarized by Apple. macOS may block it from opening. Review the release information and only proceed if you trust its source.')
     routes = [('home', '', 'Jotway — Catch the thought. Keep it in Notes.', 'Capture original ideas in Apple Notes from one quick panel. Review your words and confirm when ready.'),
               ('download', 'download', 'Download Jotway — Releases and installation', 'Verified release details, checksums, signing and notarization status, and installation instructions for Jotway.'),
-              ('privacy', 'privacy', 'Jotway — Privacy and data flow', 'Understand Jotway drafts, optional AI requests, full-text local feedback, retention, and available clearing controls.')]
+              ('privacy', 'privacy', 'Jotway — Privacy policy and data flow', 'Understand Jotway drafts, optional AI requests, full-text local feedback, retention, and available clearing controls.'),
+              ('terms', 'terms', 'Jotway — Terms of service', 'Jotway service terms, free core features, planned AI subscriptions, and cancellation.'),
+              ('refunds', 'refunds', 'Jotway — Refund policy', 'Request a full refund within 14 days of a Jotway AI purchase or renewal.'),
+              ('contact', 'contact', 'Jotway — Contact and support', 'Contact Jotway for product support, privacy requests, and billing questions.')]
     for source, route, title, description in routes:
         content = (SITE / 'src' / f'{source}.html').read_text()
         if source == 'home':
@@ -157,7 +180,7 @@ def main():
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(html)
     verify_links(output)
-    print(f'Built /, /download/, /privacy/ ({metadata["status"]}); local links and fragments verified.\n{output}')
+    print(f'Built {len(routes)} pages ({metadata["status"]}); local links and fragments verified.\n{output}')
 
 
 if __name__ == '__main__':

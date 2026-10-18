@@ -72,6 +72,7 @@ actor AIProviderPlugin {
         var runtimeLogCode: RuntimeLog.Code = .unknown
         var retryAfter: TimeInterval? = nil
         var httpStatus: Int? = nil
+        var hostedProblem: HostedAI.Problem? = nil
         var errorDescription: String? { message }
     }
 

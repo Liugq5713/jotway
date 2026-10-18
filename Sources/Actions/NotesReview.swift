@@ -36,14 +36,14 @@ struct NotesReviewMetadata: Equatable, Sendable {
     let coverageIncomplete: Bool
 }
 
-/// Pull-only review over the existing authorized index. Preview is transient;
+/// Pull-only review over the authorized Notes folders. Preview is transient;
 /// only a fully validated result may populate a period cache.
 @MainActor @Observable
 final class NotesReview {
     enum Unavailable: Sendable { case disabled, notReady }
 
     private let preferences: UserDefaults
-    private let history: NotesHistory
+    private let library: NotesReviewLibrary
     private let now: @Sendable () -> Date
     private let maximumNotes = 60
     private let cacheTTL: TimeInterval = 6 * 3_600
@@ -82,9 +82,9 @@ final class NotesReview {
     private(set) var unavailable: Unavailable?
     private(set) var needsRegeneration = false
 
-    init(preferences: UserDefaults, history: NotesHistory, now: @escaping @Sendable () -> Date = { Date() }) {
+    init(preferences: UserDefaults, library: NotesReviewLibrary, now: @escaping @Sendable () -> Date = { Date() }) {
         self.preferences = preferences
-        self.history = history
+        self.library = library
         self.now = now
         observedIdentity = identity
         observeConfiguration()
@@ -101,17 +101,16 @@ final class NotesReview {
     var enabled: Bool {
         preferences.object(forKey: "notesReview.enabled") == nil || preferences.bool(forKey: "notesReview.enabled")
     }
-    var isReady: Bool { enabled && history.enabled && history.started && history.hasPermission }
+    var isReady: Bool { enabled && library.hasPermission && library.models.isTextReady(.deep) }
     private var identity: Identity {
         // Read every observable dependency even while one readiness condition is false.
-        let generation = history.generation
-        let deepVersion = history.models.version(.deep)
-        let historyEnabled = history.enabled
-        let started = history.started
-        let permission = history.hasPermission
+        let generation = library.generation
+        let deepVersion = library.models.version(.deep)
+        let permission = library.hasPermission
         let enabled = self.enabled
+        let aiReady = library.models.isTextReady(.deep)
         return .init(generation: generation, deepVersion: deepVersion,
-                     ready: enabled && historyEnabled && started && permission, enabled: enabled)
+                     ready: enabled && permission && aiReady, enabled: enabled)
     }
     var unavailableText: String? {
         if needsRegeneration { return L10n.text("notes.review.regenerate") }
@@ -165,6 +164,7 @@ final class NotesReview {
     }
 
     func load(period: NotesReviewPeriod = .weekly, force: Bool) {
+        library.refreshPermission()
         let current = identity
         let changedPeriod = self.period != period
         if !force, !changedPeriod, isLoading, requestIdentity == current { return }
@@ -185,7 +185,7 @@ final class NotesReview {
             onChange?()
             return
         }
-        let frozen = history.models.frozenText(.deep)
+        let frozen = library.models.frozenText(.deep)
         let end = now()
         let start = end.addingTimeInterval(-Double(period.days) * 86_400)
         let id = UUID()
@@ -194,29 +194,24 @@ final class NotesReview {
         isLoading = true
         requestMetadata = .init(period: period, noteCount: 0, windowStart: start, windowEnd: end, coverageIncomplete: false)
         onChange?()
-        let index = history.index
-        let folders = history.allFolders ? nil : history.selectedFolders
         task = Task { [weak self] in
-            await self?.run(id: id, period: period, identity: current, index: index,
-                            folders: folders, frozen: frozen, start: start, end: end)
+            await self?.run(id: id, period: period, identity: current, frozen: frozen, start: start, end: end)
         }
     }
 
     private func validateRequest(id: UUID, period: NotesReviewPeriod, identity: Identity) throws {
         try Task.checkCancellation()
+        library.refreshPermission()
         guard requestID == id, self.period == period else { throw CancellationError() }
-        guard self.identity == identity, identity.ready else { throw NotesHistoryError.stale }
+        guard self.identity == identity, identity.ready else { throw NotesReadError.stale }
     }
 
-    private func run(id: UUID, period: NotesReviewPeriod, identity: Identity, index: NotesIndex,
-                     folders: Set<String>?, frozen: ModelTextInvocation, start: Date, end: Date) async {
+    private func run(id: UUID, period: NotesReviewPeriod, identity: Identity, frozen: ModelTextInvocation, start: Date, end: Date) async {
         do {
             try validateRequest(id: id, period: period, identity: identity)
-            let status = try await index.status(folders: folders)
-            let incomplete = status.lastSuccess == nil
-                || (status.states["pending"] ?? 0) + (status.states["reprocessing"] ?? 0) > 0
-                || (status.states["failed"] ?? 0) > 0
-            let sources = try await index.recentSources(since: start.timeIntervalSince1970, folders: folders, limit: maximumNotes)
+            let selection = try await library.read(since: start, through: end, limit: maximumNotes)
+            let sources = selection.sources
+            let incomplete = selection.incomplete
             try validateRequest(id: id, period: period, identity: identity)
             let metadata = NotesReviewMetadata(period: period, noteCount: sources.count,
                 windowStart: start, windowEnd: end, coverageIncomplete: incomplete)
@@ -318,7 +313,7 @@ final class NotesReview {
         你为 Jotway 生成一份简短、具体、可核对的笔记回顾。
         目标是帮助用户重新发现重要内容、看见记录之间的联系，并找到值得继续思考的问题。
 
-        资料来自最近 \(days) 天修改过的已索引笔记，不保证覆盖所有笔记，所提供正文可能不完整。
+        资料来自最近 \(days) 天修改过的授权范围内笔记，不保证覆盖所有笔记，所提供正文可能不完整。
         修改时间不代表内容发生或写下的时间，也不说明哪一段内容在本期修改。
         没有原文明示的时间或先后证据，不把内容说成本期发生，也不推断跨期趋势或判断变化。
         此时概述只说“所给记录”，不使用“本周”“近期”等词暗示内容或记录发生在本期。

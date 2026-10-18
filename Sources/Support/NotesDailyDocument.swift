@@ -23,15 +23,7 @@ struct NotesDailyDocument: Sendable {
 
     var original: String { entries.map(\.text).joined(separator: "\n\n") }
 
-    var retrievalQuery: String {
-        let heading = String(title.prefix(256))
-        let latest = String((entries.last?.text ?? "").prefix(3_000))
-        let prefix = heading + "\n" + latest + "\n"
-        let earlier = entries.dropLast().map(\.text).joined(separator: "\n\n")
-        return prefix + String(earlier.suffix(max(0, 4_000 - prefix.count)))
-    }
-
-    /// Rendering delegates supplement filtering and source-link construction to the existing path.
+    /// Rendering delegates supplement filtering to the existing path.
     /// Fingerprints cover display metadata separately, so neither timestamps nor titles are indexed.
     private func timeline() -> [NotesDailyBoundary.Part] {
         var parts: [NotesDailyBoundary.Part] = [.init(kind: .title, text: title),
@@ -56,11 +48,11 @@ struct NotesDailyDocument: Sendable {
         let prefix = parts.map(\.text).joined()
         let rendered = AppleNotes.content(fromPlainText: prefix, supplement: supplement)
         let tail = String(rendered.plaintext.dropFirst(prefix.count))
-        parts.append(.init(kind: rendered.itemCount + rendered.historyCount > 0 ? .generated : .metadata, text: tail))
+        parts.append(.init(kind: rendered.itemCount > 0 ? .generated : .metadata, text: tail))
         // Legacy extraction must reject this version without a complete local boundary.
         let content = AppleNotes.Content(html: rendered.html.replacingOccurrences(
             of: "data-jotway-region=\"original\"", with: "data-jotway-region=\"daily-originals\""),
-            plaintext: rendered.plaintext, itemCount: rendered.itemCount, historyCount: rendered.historyCount)
+            plaintext: rendered.plaintext, itemCount: rendered.itemCount)
         return .init(content: content, boundary: .init(parts: parts))
     }
 
@@ -94,7 +86,7 @@ struct NotesDailyDocument: Sendable {
                                body: NotesSourceBody) throws -> Rendered {
         guard NotesInitialTitleGenerator.valid(title), body.attachments == 0,
               var parts = snapshot.boundary.extract(from: NotesOriginalText.readableText(body)),
-              parts.first?.kind == .title else { throw NotesHistoryError.ambiguous }
+              parts.first?.kind == .title else { throw NotesReadError.ambiguous }
         parts[0] = .init(kind: .title, text: title)
         let plaintext = parts.map(\.text).joined()
         func escaped(_ text: String) -> String {
@@ -123,9 +115,9 @@ struct NotesDailyDocument: Sendable {
     static func recover(snapshot: NotesDailyGroupingStore.Snapshot, body: NotesSourceBody) throws -> Self {
         let text = NotesOriginalText.readableText(body)
         guard body.attachments == 0, let parts = snapshot.boundary.extract(from: text),
-              let title = parts.first(where: { $0.kind == .title })?.text else { throw NotesHistoryError.ambiguous }
+              let title = parts.first(where: { $0.kind == .title })?.text else { throw NotesReadError.ambiguous }
         let originals = parts.filter { $0.kind == .original }
-        guard originals.map(\.entryID) == snapshot.entries.map({ Optional($0.id) }) else { throw NotesHistoryError.ambiguous }
+        guard originals.map(\.entryID) == snapshot.entries.map({ Optional($0.id) }) else { throw NotesReadError.ambiguous }
         let tail = parts.first(where: { $0.kind == .generated })
         let html = body.html.range(of: "<div data-jotway-region=\"generated\"").map { String(body.html[$0.lowerBound...]) }
         return .init(title: title, scope: snapshot.scope,

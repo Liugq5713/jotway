@@ -26,7 +26,7 @@ struct AppleNotesReader: Sendable {
                  progress: (@MainActor @Sendable (Int) async -> Void)? = nil) async throws -> [AppleNotes.Destination] {
         let response = try await perform(.init(requestID: UUID().uuidString, operation: "folders",
                                               historyRead: true, allowAuthorization: allowAuthorization, folderProgress: progress))
-        guard let folders = response.folders else { throw NotesHistoryError.response }
+        guard let folders = response.folders else { throw NotesReadError.response }
         return folders
     }
 
@@ -34,14 +34,14 @@ struct AppleNotesReader: Sendable {
                   progress: (@MainActor @Sendable (Int, Int) async -> Void)? = nil) async throws -> [NotesSource] {
         let response = try await perform(.init(requestID: UUID().uuidString, operation: "historyMetadata",
                                               folderID: folderID, historyRead: true, metadataProgress: progress))
-        guard let sources = response.sources else { throw NotesHistoryError.response }
+        guard let sources = response.sources else { throw NotesReadError.response }
         return sources
     }
 
     func body(noteID: String) async throws -> NotesSourceBody {
         let response = try await perform(.init(requestID: UUID().uuidString, operation: "historyBody",
                                               noteID: noteID, historyRead: true))
-        guard let body = response.sourceBody else { throw NotesHistoryError.response }
+        guard let body = response.sourceBody else { throw NotesReadError.response }
         return body
     }
 

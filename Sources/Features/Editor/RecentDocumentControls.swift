@@ -192,21 +192,17 @@ final class RecentDocumentButton: NSButton {
 
     override func draw(_ dirtyRect: NSRect) {
         guard launcherState?.canShowRecentDocuments == true, drawingOpacity > 0 else { return }
-        let color = increasesContrast ? NSColor.labelColor : NSColor.secondaryLabelColor
-        if emphasis > 0 || isSelectedDocument {
-            NSColor.controlAccentColor.withAlphaComponent((isSelectedDocument ? 0.15 : 0.08) * drawingOpacity).setFill()
-            NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 5, yRadius: 5).fill()
+        let emphasized = emphasis > 0 || isSelectedDocument
+        let color: NSColor = increasesContrast ? .labelColor : (emphasized ? EditorPalette.buttonText : EditorPalette.secondary)
+        if emphasized {
+            EditorPalette.button.withAlphaComponent(drawingOpacity * (isSelectedDocument ? 1 : emphasis)).setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6).fill()
         }
-        let symbol = NSImage(systemSymbolName: "doc.text", accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 12, weight: .regular).applying(.init(paletteColors: [color])))
-        NSGraphicsContext.saveGraphicsState()
-        symbol?.draw(in: NSRect(x: 5, y: 4, width: 12, height: 14), from: .zero,
-                     operation: .sourceOver, fraction: (isEnabled ? 1 : 0.35) * drawingOpacity)
-        color.withAlphaComponent(drawingOpacity).setFill()
-        NSGraphicsContext.restoreGraphicsState()
+        EditorToolbarIcon.recentDocument.draw(in: bounds, color: color,
+            opacity: (isEnabled ? 1 : 0.35) * drawingOpacity)
         if keyboardFocused {
             NSColor.controlAccentColor.withAlphaComponent(drawingOpacity).setStroke()
-            let focus = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 5, yRadius: 5)
+            let focus = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 6, yRadius: 6)
             focus.lineWidth = increasesContrast ? 1.5 : 1
             focus.stroke()
         }

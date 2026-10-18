@@ -11,9 +11,9 @@ struct NotesOrigin: Sendable {
     init(original: String, generated: String = "", formatVersion: Int = 2) {
         let text = NotesOriginalText.canonical(original)
         let tail = NotesOriginalText.canonical(generated)
-        hash = NotesChunk.hash(text)
+        hash = NotesTextHash.hash(text)
         length = text.count
-        tailHash = NotesChunk.hash(tail)
+        tailHash = NotesTextHash.hash(tail)
         tailLength = tail.count
         self.formatVersion = formatVersion
     }
@@ -28,7 +28,7 @@ struct NotesOrigin: Sendable {
 
     func matchesOriginal(_ text: String) -> Bool {
         let value = NotesOriginalText.canonical(text)
-        return value.count == length && NotesChunk.hash(value) == hash
+        return value.count == length && NotesTextHash.hash(value) == hash
     }
 
     /// Both regions must account for the entire body. A prefix alone is not a boundary.
@@ -49,7 +49,7 @@ struct NotesOrigin: Sendable {
             if count > length { return nil }
             if count == length {
                 let prefix = String(text[..<word.endIndex])
-                return NotesChunk.hash(NotesOriginalText.canonical(prefix)) == hash ? prefix : nil
+                return NotesTextHash.hash(NotesOriginalText.canonical(prefix)) == hash ? prefix : nil
             }
         }
         return nil
@@ -58,7 +58,7 @@ struct NotesOrigin: Sendable {
     func matchesTail(in text: String) -> Bool {
         let value = NotesOriginalText.canonical(text)
         return tailLength > 0 && value.count >= tailLength
-            && NotesChunk.hash(String(value.suffix(tailLength))) == tailHash
+            && NotesTextHash.hash(String(value.suffix(tailLength))) == tailHash
     }
 }
 
@@ -73,7 +73,7 @@ enum NotesOriginalText {
 
     static func extract(_ body: NotesSourceBody, origin: NotesOrigin? = nil) throws -> String {
         guard body.text.utf8.count <= 2_000_000, body.html.utf8.count <= 4_000_000 else {
-            throw NotesHistoryError.tooLarge
+            throw NotesReadError.tooLarge
         }
         let text = readableText(body)
         let pattern = #"<pre\s+data-jotway-region="original"[^>]*><span>([\s\S]*?)</span></pre>"#
@@ -81,30 +81,30 @@ enum NotesOriginalText {
         if matches.count == 1, let range = Range(matches[0].range(at: 1), in: body.html) {
             let raw = String(body.html[range])
             // The writer escapes every literal angle bracket; nested markup means damage.
-            guard !raw.contains("<") else { throw NotesHistoryError.ambiguous }
+            guard !raw.contains("<") else { throw NotesReadError.ambiguous }
             let original = decodeEntities(raw)
             // A known marker may not silently expand over generated text, or conceal an
             // edited original behind its previously stored prefix. Skip uncertain edits.
             if let origin {
                 guard origin.matchesOriginal(original), origin.original(in: text) != nil else {
-                    throw NotesHistoryError.ambiguous
+                    throw NotesReadError.ambiguous
                 }
             }
             // Compare the complete representations, not merely the old original prefix.
             if !body.text.isEmpty, canonical(text) != canonical(readableHTML(body.html)) {
-                throw NotesHistoryError.ambiguous
+                throw NotesReadError.ambiguous
             }
             return original
         }
-        if body.html.contains("data-jotway-region=\"original\"") { throw NotesHistoryError.ambiguous }
+        if body.html.contains("data-jotway-region=\"original\"") { throw NotesReadError.ambiguous }
         if let origin {
-            guard let original = origin.original(in: text) else { throw NotesHistoryError.ambiguous }
+            guard let original = origin.original(in: text) else { throw NotesReadError.ambiguous }
             return original
         }
         // Daily titles can themselves look like legacy generated headings. Without the
         // complete daily ledger, none of this new format may enter legacy tail heuristics.
-        if body.html.contains("data-jotway-region=\"daily-originals\"") { throw NotesHistoryError.ambiguous }
-        if NotesContentFormat.hasUnverifiedBoundary(in: text) { throw NotesHistoryError.ambiguous }
+        if body.html.contains("data-jotway-region=\"daily-originals\"") { throw NotesReadError.ambiguous }
+        if NotesContentFormat.hasUnverifiedBoundary(in: text) { throw NotesReadError.ambiguous }
         // Exact whole-line legacy headings, including generated-only notes starting at zero.
         // They are a compatibility fallback, not proof that arbitrary pasted AI is detectable.
         let lines = text.components(separatedBy: "\n")
@@ -112,7 +112,7 @@ enum NotesOriginalText {
             return lines[..<boundary].joined(separator: "\n")
         }
         if body.html.contains("data-jotway-region") || body.html.contains("jotway://notes/open") {
-            throw NotesHistoryError.ambiguous
+            throw NotesReadError.ambiguous
         }
         return text
     }

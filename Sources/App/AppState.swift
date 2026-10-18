@@ -38,6 +38,7 @@ final class AppState: NSObject {
     let actionConfiguration: ActionConfiguration
     /// Periodic review over indexed notes; nil when the notes module isn't available.
     let notesReview: NotesReview?
+    let notesModule: AppleNotesModule?
     let shortcutTrial = ShortcutTrial()
     let applicationUsageStore: ApplicationUsageStore
     let onboarding: OnboardingState
@@ -236,8 +237,8 @@ final class AppState: NSObject {
         let models = modelConfiguration ?? ModelConfiguration(preferences: preferences, sources: aiSources)
         self.models = models
         let modules = actionModules?(preferences) ?? BundledActions.modules(preferences: preferences, models: models, clipboard: clipboard.history)
-        notesReview = modules.compactMap { $0 as? AppleNotesModule }.first
-            .map { NotesReview(preferences: preferences, history: $0.history) }
+        notesModule = modules.compactMap { $0 as? AppleNotesModule }.first
+        notesReview = notesModule.map { NotesReview(preferences: preferences, library: $0.reviewLibrary) }
         templateConfiguration = TemplateConfiguration(defaults: preferences)
         recentSavedDocuments = RecentSavedDocuments(defaults: preferences)
         actionConfiguration = ActionConfiguration(preferences: preferences, modules: modules)
@@ -301,27 +302,6 @@ final class AppState: NSObject {
     }
 
     // MARK: - AI 配置
-
-    func setAISource(_ source: String) {
-        if source != aiSource {
-            preferences.set(aiSourceRevision + 1, forKey: "plugin.ai.sourceRevision")
-            invalidateAIConnectionTest()
-        }
-        models.selectDeep(source)
-        refreshAIModel()
-    }
-
-    private func refreshAIModel() {} // Selection is resolved by the configuration owner.
-
-    func setAIModel(_ model: String) {
-        guard let source = selectedAISource, source.modelPreferenceKey != nil,
-              source.models.contains(where: { $0.id == model }) else { return }
-        if model != aiModel {
-            preferences.set(aiSourceRevision + 1, forKey: "plugin.ai.sourceRevision")
-            invalidateAIConnectionTest()
-        }
-        models.selectDeepModel(model)
-    }
 
     func invalidateAIConnectionTest() {
         aiConnectionRevision += 1
@@ -398,6 +378,7 @@ final class AppState: NSObject {
                 })
             },
             thinkingFastVersion: { [models] in models.version(.fast) },
+            aiCapabilityReady: { [models] in models.isTextReady($0) },
             automaticThinkingEnabled: { [weak self] in self?.automaticDraftThinkingPromptsEnabled ?? false },
             applicationUsage: { [weak self] in self?.applicationUsage ?? [:] },
             recordApplicationOpen: { [weak self] in self?.recordApplicationOpen($0) ?? false },

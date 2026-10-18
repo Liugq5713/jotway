@@ -21,7 +21,7 @@ final class NotesDailyGroupingCoordinator {
         let processor: Processor
     }
     private let store: NotesDailyGroupingStore
-    private let index: NotesIndex
+    private let index: NotesOriginStore
     private let classifier: NotesGroupingClassifier
     private let run: Run
     private let now: @MainActor @Sendable () -> Date
@@ -41,7 +41,7 @@ final class NotesDailyGroupingCoordinator {
     private var titleTail: Task<Void, Never>?
     private var titleWorker: (key: String, id: UUID, task: Task<Void, Never>)?
 
-    init(store: NotesDailyGroupingStore, index: NotesIndex, classifier: NotesGroupingClassifier,
+    init(store: NotesDailyGroupingStore, index: NotesOriginStore, classifier: NotesGroupingClassifier,
          run: @escaping Run, now: @escaping @MainActor @Sendable () -> Date = { Date() },
          timeZone: @escaping @MainActor @Sendable () -> TimeZone = { .current },
          refreshTimeout: Duration = .seconds(300),
@@ -189,7 +189,7 @@ final class NotesDailyGroupingCoordinator {
                             if let selected { try await conflict(selected.snapshot) }
                             diagnostics.update { $0.reason = .finalConflict }
                             break
-                        } catch NotesHistoryError.stale {
+                        } catch NotesReadError.stale {
                             try configuration.validateOriginal()
                             if current != scope(folderID), attempt == 0 { diagnostics.update { $0.reselected = true }; continue }
                             if let selected { try await conflict(selected.snapshot) }
@@ -335,7 +335,7 @@ final class NotesDailyGroupingCoordinator {
         let response = try await readResponse(.init(requestID: UUID().uuidString, operation: "managedRead", noteID: noteID,
                                                     historyRead: true), deadline: deadline)
         guard let source = response.sources?.first, source.id == noteID, let body = response.sourceBody else {
-            throw NotesHistoryError.response
+            throw NotesReadError.response
         }
         return (source, body)
     }
@@ -359,7 +359,7 @@ final class NotesDailyGroupingCoordinator {
                     let response = try await readResponse(.init(requestID: UUID().uuidString, operation: "managedState",
                         noteID: noteID, historyRead: true), deadline: deadline)
                     try checkPreparation(current, token: token, deadline: deadline)
-                    guard let state = response.sources?.first, state.id == noteID else { throw NotesHistoryError.response }
+                    guard let state = response.sources?.first, state.id == noteID else { throw NotesReadError.response }
                     if sameState(state, baseline) {
                         guard try await store.snapshot(groupID: record.groupID) == record else { throw SaveError.preparationInvalidated }
                         try checkPreparation(current, token: token, deadline: deadline)
@@ -385,8 +385,8 @@ final class NotesDailyGroupingCoordinator {
                 try checkPreparation(current, token: token, deadline: deadline)
                 invalidate(noteID)
                 let missing = (error as? ActionFailure)?.osStatus == -1728
-                if case NotesHistoryError.stale = error { try await conflict(record) }
-                else if case NotesHistoryError.ambiguous = error { try await conflict(record) }
+                if case NotesReadError.stale = error { try await conflict(record) }
+                else if case NotesReadError.ambiguous = error { try await conflict(record) }
                 else if missing || (error as? ActionFailure)?.code == .stale { try await conflict(record) }
                 else { throw error } // Incomplete candidate sets never reach the classifier.
             }
@@ -432,7 +432,7 @@ final class NotesDailyGroupingCoordinator {
                        previous: NotesDailyGroupingStore.Snapshot?,
                        validate: @escaping @MainActor @Sendable () async throws -> Void) async throws -> NotesDailyGroupingStore.Snapshot {
         try await validate()
-        guard scope(pending.snapshot.scope.folderID) == pending.snapshot.scope else { throw NotesHistoryError.stale }
+        guard scope(pending.snapshot.scope.folderID) == pending.snapshot.scope else { throw NotesReadError.stale }
         let cacheGeneration = generation
         if let noteID = previous?.noteID { invalidate(noteID) }
         let token: String
@@ -449,13 +449,13 @@ final class NotesDailyGroupingCoordinator {
         do {
             try await validate()
             try Task.checkCancellation()
-            guard scope(pending.snapshot.scope.folderID) == pending.snapshot.scope else { throw NotesHistoryError.stale }
+            guard scope(pending.snapshot.scope.folderID) == pending.snapshot.scope else { throw NotesReadError.stale }
             let guardValue = previous.flatMap { record in
                 record.noteID.map { NotesUpdateGuard(noteID: $0, scope: record.scope, boundary: record.boundary) }
             }
             let beforeSend: @Sendable () async throws -> Void = { [self] in
                 try await validate()
-                guard await scope(pending.snapshot.scope.folderID) == pending.snapshot.scope else { throw NotesHistoryError.stale }
+                guard await scope(pending.snapshot.scope.folderID) == pending.snapshot.scope else { throw NotesReadError.stale }
             }
             let request = AppleNotes.Request(requestID: pending.operationID, operation: operation,
                 folderID: pending.snapshot.scope.folderID, noteID: previous?.noteID, html: content.html,
@@ -486,7 +486,7 @@ final class NotesDailyGroupingCoordinator {
                 try? await store.discardUnsent(operationID: pending.operationID)
                 try? await index.discardDailyOrigin(token: token)
                 if error is CancellationError { throw error }
-                if case NotesHistoryError.stale = error { throw error }
+                if case NotesReadError.stale = error { throw error }
                 throw failure
             }
             // Do not issue another write. A later same-day read can reconcile the pending version.
@@ -546,7 +546,7 @@ final class NotesDailyGroupingCoordinator {
                     guard remaining > .zero else { emit(.timeout, code: .timeout); return }
                     let result = try await work.processor.process(candidate.document.original, timeout: remaining)
                     guard let preparation = result.report.preparation,
-                          [NotesSupplementResult.Preparation.generated, .historyOnly, .validEmpty].contains(preparation) else {
+                          [NotesSupplementResult.Preparation.generated, .validEmpty].contains(preparation) else {
                         emit(result.outcome, code: result.report.preparation == .timeout ? .timeout : .unavailable)
                         return
                     }
@@ -560,7 +560,7 @@ final class NotesDailyGroupingCoordinator {
                               current.entries == candidate.snapshot.entries,
                               current.boundary.regions.filter({ $0.kind != .title })
                                 == candidate.snapshot.boundary.regions.filter({ $0.kind != .title })
-                        else { throw NotesHistoryError.stale }
+                        else { throw NotesReadError.stale }
                         // A title may have completed while this model request was running.
                         let (source, body) = try await read(noteID, deadline: deadline)
                         try NotesUpdateGuard(noteID: noteID, scope: current.scope, boundary: current.boundary)
@@ -575,7 +575,7 @@ final class NotesDailyGroupingCoordinator {
                         _ = try await write(pending, content: rendered.content, previous: current, validate: {
                             try configuration.validateRefresh()
                             try await work.validate()
-                            guard ContinuousClock.now < deadline else { throw NotesHistoryError.stale }
+                            guard ContinuousClock.now < deadline else { throw NotesReadError.stale }
                         })
                         emit(.success)
                     }
@@ -651,7 +651,7 @@ extension NotesDailyGroupingCoordinator {
                 scope: current, entries: [.init(identity: entry, text: original)], layout: .independent)
             let rendered = document.render(supplement: supplement)
             let next = NotesDailyGroupingStore.Snapshot(groupID: UUID().uuidString, scope: current,
-                originalRevision: 1, generatedRevision: rendered.content.itemCount + rendered.content.historyCount > 0 ? 1 : nil,
+                originalRevision: 1, generatedRevision: rendered.content.itemCount > 0 ? 1 : nil,
                 entries: [entry], boundary: rendered.boundary, layout: .independent,
                 title: titleMetadata(initial, entryID: entryID, configuration: configuration))
             do {
@@ -670,7 +670,7 @@ extension NotesDailyGroupingCoordinator {
     private func initialTitle(_ original: String, proposed: String?, configuration: Configuration) async throws -> NotesInitialTitleGenerator.Result {
         if let proposed, NotesInitialTitleGenerator.valid(proposed) { return .init(title: proposed) }
         do { return try await generateTitle(original, configuration: configuration) }
-        catch NotesHistoryError.stale {
+        catch NotesReadError.stale {
             // A model change invalidates its title, not the accepted original submission.
             return .init(code: .stale)
         }
@@ -761,7 +761,7 @@ extension NotesDailyGroupingCoordinator {
                         try await Task.sleep(for: .seconds(delay))
                     }
                 } catch is CancellationError { break }
-                catch NotesHistoryError.stale { break }
+                catch NotesReadError.stale { break }
                 catch {
                     titleDiagnostic(state: .pending, code: RuntimeLog.code(error), adopted: false)
                     do { try await Task.sleep(for: .seconds(60)) } catch { break }
@@ -785,12 +785,12 @@ extension NotesDailyGroupingCoordinator {
                 guard try await store.updateTitle(reservation, expected: record) else { return nil }
                 guard let current = try await store.snapshot(groupID: record.groupID), !current.conflicted,
                       current.scope == scope(current.scope.folderID), current.title?.firstEntryID == metadata.firstEntryID
-                else { throw NotesHistoryError.stale }
+                else { throw NotesReadError.stale }
                 let (source, body) = try await read(noteID, deadline: .now.advanced(by: .seconds(30)))
                 try NotesUpdateGuard(noteID: noteID, scope: current.scope, boundary: current.boundary)
                     .validate(source: source, body: body, at: now(), timeZone: timeZone())
                 let document = try NotesDailyDocument.recover(snapshot: current, body: body)
-                guard let first = document.entries.first, first.identity.id == metadata.firstEntryID else { throw NotesHistoryError.ambiguous }
+                guard let first = document.entries.first, first.identity.id == metadata.firstEntryID else { throw NotesReadError.ambiguous }
                 return first.text
             }
             guard let original else { return }
@@ -802,7 +802,7 @@ extension NotesDailyGroupingCoordinator {
                     guard let current = try await store.snapshot(groupID: record.groupID), !current.conflicted,
                           current.scope == scope(current.scope.folderID), var state = current.title,
                           [.pending, .paused].contains(state.state), state.firstEntryID == metadata.firstEntryID
-                    else { throw NotesHistoryError.stale }
+                    else { throw NotesReadError.stale }
                     // Merge only the title into the latest confirmed body after concurrent append/refresh.
                     let (source, body) = try await read(noteID, deadline: .now.advanced(by: .seconds(30)))
                     try NotesUpdateGuard(noteID: noteID, scope: current.scope, boundary: current.boundary)
@@ -831,8 +831,8 @@ extension NotesDailyGroupingCoordinator {
         } catch {
             let failure = error as? ActionFailure
             // An uncertain write retains its staged expected version; subsequent passes only read it.
-            if case NotesHistoryError.ambiguous = error { try? await serial { [self] in try await store.markConflicted(groupID: record.groupID) } }
-            else if case NotesHistoryError.stale = error {
+            if case NotesReadError.ambiguous = error { try? await serial { [self] in try await store.markConflicted(groupID: record.groupID) } }
+            else if case NotesReadError.stale = error {
                 if !Task.isCancelled, (try? configuration.validateTitle()) != nil,
                    record.scope == scope(record.scope.folderID) { try? await serial { [self] in try await store.markConflicted(groupID: record.groupID) } }
             } else if failure?.osStatus == -1728 || failure?.code == .stale {

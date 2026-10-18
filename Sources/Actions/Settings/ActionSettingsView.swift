@@ -107,7 +107,8 @@ struct ActionSettingsView: View {
 
 struct AppleNotesSettingsView: View {
     let module: AppleNotesModule
-    @State private var showsGroupingKey = false
+    @Environment(\.openAIServiceSettings) private var openAIServiceSettings
+    @Environment(\.openWritingPreferences) private var openWritingPreferences
 
     var body: some View {
         // The editable preferences live in UserDefaults; the module revision drives their UI refresh.
@@ -135,7 +136,8 @@ struct AppleNotesSettingsView: View {
                     Text(module.hasGroupingConfiguration ? L10n.text("notes.grouping.configured")
                         : L10n.text("notes.grouping.unconfigured"))
                     Spacer()
-                    Button(L10n.text("notes.grouping.configure")) { showsGroupingKey = true }
+                    Button(L10n.text("settings.ai.services.open"), action: openAIServiceSettings)
+                        .accessibilityIdentifier("notes-grouping-ai-services")
                 }
             }
             Section(L10n.text("action.notes.ai_supplements")) {
@@ -144,29 +146,14 @@ struct AppleNotesSettingsView: View {
                         get: { module.isAISupplementEnabled }, set: { module.setAISupplementEnabled($0) }))
                         .accessibilityIdentifier("notes-ai-supplement-toggle")
                 }
-                if module.hasLegacyRewritePrompt {
-                    Text(L10n.text("action.notes.legacy_rewrite_help"))
-                        .font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityIdentifier("notes-legacy-rewrite-notice")
-                }
-                if module.isAISupplementEnabled {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(L10n.text("action.notes.supplement_preferences"))
-                            .font(.body.weight(.medium))
-                        InstructionEditor(title: L10n.text("action.notes.supplement_preferences"), saved: module.supplementPrompt,
-                            defaultValue: AINotesSupplementProcessor.localizedDefaultPreference,
-                            explanation: L10n.text("action.notes.supplement_preferences_help"),
-                            compactFooter: true,
-                            onSave: { module.setSupplementPrompt($0) })
-                    }
-                }
+                Button(L10n.text("settings.ai.services.preferences"), action: openWritingPreferences)
+                    .accessibilityIdentifier("notes-writing-preferences")
             }
-            NotesHistorySettingsView(history: module.history)
             Section(L10n.text("notes.review.title")) {
                 Toggle(L10n.text("notes.review.enable"),
                        isOn: Binding(get: { module.isReviewEnabled }, set: { module.setReviewEnabled($0) }))
                 Text(L10n.text("notes.review.enable.help")).font(.caption).foregroundStyle(.secondary)
+                NotesReviewScopeView(library: module.reviewLibrary)
             }
             Section(L10n.text("action.notes.tags")) {
                 Text(L10n.text("action.notes.tags_paused"))
@@ -174,22 +161,6 @@ struct AppleNotesSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .sheet(isPresented: $showsGroupingKey) { NotesGroupingKeyView(module: module) }
-    }
-}
-
-private struct NotesGroupingKeyView: View {
-    let module: AppleNotesModule
-    @Environment(\.dismiss) private var dismiss
-    var body: some View {
-        VStack {
-            Form {
-                ModelCapabilitySettingsView(models: module.models, capability: .fast)
-                ModelServiceSettingsView(models: module.models)
-            }.formStyle(.grouped)
-            HStack { Spacer(); Button(L10n.text("common.done")) { dismiss() }.keyboardShortcut(.cancelAction) }
-                .padding()
-        }.frame(width: 640, height: 560)
     }
 }
 

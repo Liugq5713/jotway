@@ -87,9 +87,9 @@ struct NotesInitialTitleGenerator: Sendable {
                 try Task.checkCancellation()
                 let failure = Self.classification(error)
                 if failure.code == .cancelled { result.code = .cancelled; throw CancellationError() }
-                if failure.code == .stale { result.code = .stale; throw NotesHistoryError.stale }
-                result.code = failure.code; result.paused = failure.paused
-                guard !failure.paused, attempt < 2 else { break }
+                if failure.code == .stale { result.code = .stale; throw NotesReadError.stale }
+                result.code = failure.code; result.paused = failure.paused || !invocation.allowsAutomaticRetry
+                guard !result.paused, attempt < 2 else { break }
                 let seconds = max(attempt == 0 ? 1.0 : 3.0, failure.delay ?? 0)
                 guard seconds.isFinite, ContinuousClock.now.advanced(by: .seconds(seconds)) < deadline else { break }
                 try await Task.sleep(for: .seconds(seconds))

@@ -1,157 +1,139 @@
 import SwiftUI
 
+extension EnvironmentValues {
+    @Entry var openAIServiceSettings: @MainActor () -> Void = {}
+    @Entry var openWritingPreferences: @MainActor () -> Void = {}
+}
+
 struct AISettingsView: View {
     let appState: AppState
     var checkAPIKey: (() throws -> Bool)?
+    @State private var personalExpanded = false
+
+    private var activeTitle: String {
+        if appState.models.hasActivationCode { return "Jotway AI" }
+        if appState.models.isTextReady(.deep) { return L10n.text("settings.ai.personal.title") }
+        return L10n.text("settings.ai.services.unconfigured")
+    }
 
     var body: some View {
         Form {
-            Section(L10n.text("thinking.settings.title")) {
-                Toggle(L10n.text("thinking.settings.automatic"), isOn: Binding(
-                    get: { appState.automaticDraftThinkingPromptsEnabled },
-                    set: { appState.automaticDraftThinkingPromptsEnabled = $0 }))
-                Text(L10n.text("thinking.settings.help")).font(.caption).foregroundStyle(.secondary)
+            Section(L10n.text("settings.ai.services.current")) {
+                Label(activeTitle, systemImage: "sparkles")
+                    .font(.headline)
+                Text(L10n.text(appState.models.hasActivationCode ? "settings.ai.services.hosted" : "settings.ai.services.personal"))
+                    .font(.caption).foregroundStyle(.secondary)
             }
-            ModelCapabilitySettingsView(models: appState.models, capability: .fast)
-            ModelCapabilitySettingsView(models: appState.models, capability: .deep)
-            ModelServiceSettingsView(models: appState.models)
-            Section(L10n.text("settings.ai.embedding")) {
-                if let status = appState.models.statuses.first(where: { $0.id == .embedding }) {
-                    LabeledContent(status.title, value: L10n.text(status.ready ? "settings.ai.ready" : "settings.ai.not_ready"))
-                    Text(status.detail).font(.caption).foregroundStyle(.secondary)
+            ActivationSettingsView(models: appState.models)
+            Section {
+                DisclosureGroup(isExpanded: $personalExpanded) {
+                    PersonalModelSettingsView(models: appState.models)
+                } label: {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(L10n.text("settings.ai.personal.title"))
+                        if appState.models.hasActivationCode {
+                            Text(L10n.text(appState.models.personalModel == nil
+                                ? "settings.ai.services.personal_unused" : "settings.ai.services.personal_saved"))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                 }
+                .disclosureGroupStyle(PromptHeaderDisclosureStyle())
+                .accessibilityIdentifier("ai-personal-disclosure")
             }
         }
         .formStyle(.grouped)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { personalExpanded = !appState.models.hasActivationCode }
+        .onChange(of: appState.models.hasActivationCode) { _, hasCode in personalExpanded = !hasCode }
     }
 }
 
-struct ModelCapabilitySettingsView: View {
+struct PersonalModelSettingsView: View {
     let models: ModelConfiguration
-    let capability: ModelConfiguration.Capability
-    @State private var messages: [ModelConfiguration.TextModel: String] = [:]
-    @State private var testing: ModelConfiguration.TextModel?
-    @State private var testTask: Task<Void, Never>?
-
-    private var binding: ModelConfiguration.TextBinding { models.binding(capability) }
-    var body: some View {
-        Section(L10n.text(capability == .fast ? "settings.ai.fast" : "settings.ai.deep")) {
-            Picker(L10n.text("settings.ai.primary"), selection: Binding(
-                get: { binding.primary }, set: { selected in
-                    var next = binding
-                    if next.fallback == selected { next.fallback = next.primary }
-                    next.primary = selected
-                    models.setBinding(next, for: capability)
-                })) {
-                choices(includeSaved: binding.primary)
-            }
-            Picker(L10n.text("settings.ai.fallback"), selection: Binding(
-                get: { binding.fallback }, set: { selected in
-                    var next = binding; next.fallback = selected
-                    models.setBinding(next, for: capability)
-                })) {
-                Text(L10n.text("settings.ai.none")).tag(Optional<ModelConfiguration.TextModel>.none)
-                ForEach(models.choices(capability).filter { $0 != binding.primary }, id: \.self) { model in
-                    Text(models.title(model, capability: capability)).tag(Optional(model))
-                }
-                if let saved = binding.fallback, !models.choices(capability).contains(saved) {
-                    Text(models.title(saved, capability: capability)).tag(Optional(saved))
-                }
-            }
-            Button(L10n.text("settings.ai.swap")) { models.swap(capability) }
-                .disabled(binding.fallback == nil)
-            if let issue = models.bindingIssue { Text(issue).foregroundStyle(.red) }
-            modelStatus(binding.primary, role: "settings.ai.primary")
-            if let fallback = binding.fallback { modelStatus(fallback, role: "settings.ai.fallback") }
-            Text(L10n.text(capability == .fast ? "settings.ai.fast_help" : "settings.ai.deep_help"))
-                .font(.caption).foregroundStyle(.secondary)
-        }
-        .onChange(of: models.version(capability)) { invalidate() }
-        .onDisappear { invalidate() }
-    }
-    @ViewBuilder private func choices(includeSaved saved: ModelConfiguration.TextModel) -> some View {
-        ForEach(models.choices(capability), id: \.self) { model in
-            Text(models.title(model, capability: capability)).tag(model)
-        }
-        if !models.choices(capability).contains(saved) { Text(models.title(saved, capability: capability)).tag(saved) }
-    }
-    private func modelStatus(_ model: ModelConfiguration.TextModel, role: String) -> some View {
-        let ready = (try? models.configuration(model, capability: capability)) != nil
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(L10n.text(role) + ": " + models.title(model, capability: capability))
-                Spacer()
-                Text(L10n.text(ready ? "settings.ai.ready" : "settings.ai.not_ready"))
-                    .foregroundStyle(.secondary)
-                Button(L10n.text(testing == model ? "settings.connection.testing" : "settings.connection.test")) { test(model) }
-                    .disabled(!ready || testing != nil)
-            }
-            if let message = messages[model] { Text(message).font(.caption).foregroundStyle(.secondary) }
-        }
-    }
-    private func invalidate() { testTask?.cancel(); testTask = nil; testing = nil; messages = [:] }
-    private func test(_ model: ModelConfiguration.TextModel) {
-        let version = models.version(capability)
-        testing = model; messages[model] = nil
-        testTask = Task { @MainActor in
-            let message: String
-            do {
-                let invocation = try ModelTextInvocation.direct(models.configuration(model, capability: capability))
-                var request = invocation.request("Reply with OK.", "This is a connection test. Reply briefly.")
-                request.maximumTokens = 32; request.maximumTokensForThinkingModel = 16_384; request.timeout = 30
-                request.streaming = capability == .deep
-                let frozen = request
-                _ = try await ModelDeadline.run(until: .now.advanced(by: .seconds(30))) {
-                    try await invocation.call(frozen, loggingPurpose: .connectionTest)
-                }
-                message = L10n.text("settings.ai.connection.succeeded_title", models.title(model, capability: capability))
-            } catch { message = error.localizedDescription }
-            guard !Task.isCancelled, version == models.version(capability) else { return }
-            messages[model] = message; testing = nil; testTask = nil
-        }
-    }
-}
-
-struct ModelServiceSettingsView: View {
-    let models: ModelConfiguration
-    var body: some View {
-        Section(L10n.text("settings.ai.services")) {
-            ModelServiceKeyView(models: models, provider: .deepSeek, title: "DeepSeek",
-                                keyURL: URL(string: "https://platform.deepseek.com/api_keys")!)
-            ModelServiceKeyView(models: models, provider: .moonshot, title: "Moonshot",
-                                keyURL: URL(string: "https://platform.moonshot.cn/console/api-keys")!)
-            Text(L10n.text("settings.ai.fallback_privacy")).font(.caption).foregroundStyle(.secondary)
-        }
-    }
-}
-
-private struct ModelServiceKeyView: View {
-    let models: ModelConfiguration
-    let provider: APIKeyStore.Provider
-    let title: String
-    let keyURL: URL
+    @State private var draft = PersonalModelConfiguration()
     @State private var key = ""
+    @State private var message: String?
     @State private var issue: String?
-    @FocusState private var focused: Bool
+    @State private var testing = false
+    @State private var testTask: Task<Void, Never>?
+    private var edited: Bool {
+        draft != (models.personalModel ?? .init()) || !key.isEmpty
+    }
+
     var body: some View {
-        let _ = models.revision
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.headline)
-            ServiceKeyField(accessibilityTitle: title, keyURL: keyURL,
-                hasKey: (try? models.loadKey(provider)) != nil, text: $key, isFocused: $focused, save: save)
-            if (try? models.loadKey(provider)) != nil {
-                Button(L10n.text("settings.key.remove"), role: .destructive) {
-                    do { try models.removeKey(for: provider); issue = nil; key = "" }
-                    catch { issue = error.localizedDescription }
+        VStack(alignment: .leading, spacing: 12) {
+            Text(L10n.text(models.hasActivationCode ? "settings.ai.personal.hosted_active" : "settings.ai.personal.help"))
+                .font(.caption).foregroundStyle(.secondary)
+            Picker(L10n.text("settings.ai.personal.service"), selection: Binding(
+                get: { draft.service }, set: { service in
+                    guard service != draft.service else { return }
+                    draft.service = service; draft.baseURL = service.defaultBaseURL
+                    draft.model = ""; key = ""; invalidate()
+                })) {
+                ForEach(PersonalModelConfiguration.Service.allCases, id: \.self) { service in
+                    Text(service.title).tag(service)
                 }
             }
-            if let issue { Text(issue).foregroundStyle(.red) }
+            TextField(L10n.text("settings.ai.personal.url"), text: $draft.baseURL,
+                      prompt: Text(draft.service == .claude ? "https://api.anthropic.com/v1" : "https://api.example.com/v1"))
+                .autocorrectionDisabled()
+                .accessibilityIdentifier("personal-ai-url")
+            Text(L10n.text("settings.ai.personal.url_help")).font(.caption).foregroundStyle(.secondary)
+            TextField(L10n.text("settings.ai.personal.model"), text: $draft.model)
+                .autocorrectionDisabled()
+                .accessibilityIdentifier("personal-ai-model")
+            SecureField("API Key", text: $key,
+                        prompt: Text(L10n.text(models.hasPersonalKey ? "settings.ai.personal.key_saved" : "settings.ai.personal.key_enter")))
+                .accessibilityIdentifier("personal-ai-key")
+            HStack {
+                Button(L10n.text("common.save")) { save() }.disabled(!edited || testing)
+                if models.hasPersonalKey {
+                    Button(L10n.text("settings.key.remove"), role: .destructive) {
+                        invalidate()
+                        do { try models.removePersonalKey(); key = ""; issue = nil }
+                        catch { issue = error.localizedDescription }
+                    }.disabled(testing)
+                }
+                Spacer()
+                Button(L10n.text(testing ? "settings.connection.testing" : "settings.connection.test")) { test() }
+                    .disabled(testing || edited || !models.isTextReady(.deep))
+            }
+            Text(L10n.text(models.hasActivationCode ? "settings.ai.personal.test_hosted" : "settings.ai.personal.privacy"))
+                .font(.caption).foregroundStyle(.secondary)
+            if let issue = issue ?? models.bindingIssue { Text(issue).font(.caption).foregroundStyle(.red) }
+            if let message { Text(message).font(.caption).foregroundStyle(.secondary) }
         }
-        .onDisappear { key = "" }
+        .onAppear { draft = models.personalModel ?? .init() }
+        .onChange(of: draft) { invalidate() }
+        .onChange(of: key) { invalidate() }
+        .onChange(of: models.version(.deep)) { invalidate() }
+        .onDisappear { invalidate(); key = "" }
+    }
+    private func invalidate() {
+        testTask?.cancel(); testTask = nil; testing = false; message = nil
     }
     private func save() {
-        do { try models.saveKey(key, for: provider); key = ""; issue = nil; focused = false }
-        catch { issue = error.localizedDescription }
+        invalidate(); issue = nil
+        do {
+            try models.savePersonalModel(draft, key: key)
+            draft = models.personalModel ?? draft; key = ""
+        } catch { issue = error.localizedDescription }
+    }
+    private func test() {
+        invalidate(); issue = nil; testing = true
+        let version = models.version(.deep)
+        testTask = Task { @MainActor in
+            let result: String
+            do {
+                let invocation = try models.text(.deep)
+                var request = invocation.request("Reply with OK.", "This is a connection test. Reply briefly.")
+                request.maximumTokens = 128; request.maximumTokensForThinkingModel = 16_384; request.timeout = 30
+                _ = try await invocation.call(request, loggingPurpose: .connectionTest)
+                result = L10n.text("settings.ai.connection.succeeded_title", models.hasActivationCode ? "Jotway AI" : draft.model)
+            } catch { result = error.localizedDescription }
+            guard !Task.isCancelled, version == models.version(.deep) else { return }
+            message = result; testing = false; testTask = nil
+        }
     }
 }

@@ -13,7 +13,6 @@ enum AppleNotes {
         let html: String
         let plaintext: String
         var itemCount = 0
-        var historyCount = 0
     }
 
     struct Request: Sendable {
@@ -68,7 +67,7 @@ enum AppleNotes {
     }
 
     static func actionFailure(for error: Error, operation: String) -> ActionFailure {
-        if case NotesHistoryError.stale = error {
+        if case NotesReadError.stale = error {
             return ActionFailure(localized: "error.notes.configuration_changed", code: .stale)
         }
         if let failure = error as? ActionFailure {
@@ -132,30 +131,11 @@ enum AppleNotes {
         let language = NLLanguageRecognizer.dominantLanguage(for: original)
         let isChinese = language == .simplifiedChinese || language == .traditionalChinese
         func label(_ english: String, _ chinese: String) -> String { isChinese ? chinese : english }
-        func sourceLink(_ title: String, noteID: String) -> String {
-            guard let url = NotesSourceLink.url(noteID: noteID) else { return escapedHTML(title) }
-            let href = escapedHTML(url.absoluteString).replacingOccurrences(of: "\"", with: "&quot;")
-            return "<a href=\"\(href)\">\(escapedHTML(title))</a>"
-        }
         // Apply bounds at the final write boundary too, including non-model processors.
         var usedText = [original]
-        var usedNotes = Set<String>()
-        var usedEvidence = Set<String>()
-        let history = Array(supplement.history.filter { item in
-            guard AINotesSupplementProcessor.validAddition(item.text),
-                  AINotesSupplementProcessor.hasEvidence(item.source.text),
-                  NotesSourceLink.url(noteID: item.source.noteID) != nil,
-                  !usedText.contains(where: { AINotesSupplementProcessor.overlaps(item.text, $0) }),
-                  !AINotesSupplementProcessor.overlaps(item.source.text, original),
-                  usedNotes.insert(item.source.noteID).inserted,
-                  usedEvidence.insert(AINotesSupplementProcessor.comparisonText(item.source.text)).inserted else { return false }
-            usedText.append(item.text)
-            return true
-        }.prefix(NotesSupplement.maximumHistoryCount))
         let items = Array(supplement.items.filter { item in
             guard AINotesSupplementProcessor.validAddition(item.text),
-                  !usedText.contains(where: { AINotesSupplementProcessor.overlaps(item.text, $0) }),
-                  !history.contains(where: { AINotesSupplementProcessor.overlaps(item.text, $0.source.text) }) else { return false }
+                  !usedText.contains(where: { AINotesSupplementProcessor.overlaps(item.text, $0) }) else { return false }
             usedText.append(item.text)
             return true
         }.prefix(NotesSupplement.maximumItemCount))
@@ -170,27 +150,12 @@ enum AppleNotes {
             row(text, html: "<b>\(escapedHTML(text))</b>")
             row()
         }
-        if !items.isEmpty || !history.isEmpty { row(NotesContentFormat.divider) }
+        if !items.isEmpty { row(NotesContentFormat.divider) }
         if !items.isEmpty {
             heading(label(NotesContentFormat.englishInsights, NotesContentFormat.chineseInsights))
             for (index, item) in items.enumerated() {
                 if index > 0 { row() }
                 row(item.text)
-            }
-        }
-        if !history.isEmpty {
-            heading(label(NotesContentFormat.englishRelated, NotesContentFormat.chineseRelated))
-            for (index, item) in history.enumerated() {
-                if index > 0 { row() }
-                var title = item.source.title.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-                if title.hasPrefix("《"), title.hasSuffix("》") {
-                    title = String(title.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
-                }
-                let shortTitle = title.isEmpty ? label("Untitled note", "无标题笔记") : abbreviated(title, limit: 48)
-                let prefix = label("Source: ", "来源：")
-                let linkedTitle = isChinese ? "《\(shortTitle)》↗" : "\(shortTitle) ↗"
-                row(item.text)
-                row(prefix + linkedTitle, html: escapedHTML(prefix) + sourceLink(linkedTitle, noteID: item.source.noteID))
             }
         }
         if !rows.isEmpty {
@@ -204,7 +169,7 @@ enum AppleNotes {
                 + rows.map { "<div>\($0.html)</div>" }.joined() + "</div>"
         }
         // Tag preferences and legacy processor fields remain stored but never append text.
-        return Content(html: html, plaintext: plaintext + "\n", itemCount: items.count, historyCount: history.count)
+        return Content(html: html, plaintext: plaintext + "\n", itemCount: items.count)
     }
 
     private static func normalizedLines(_ text: String) -> String {
@@ -233,7 +198,7 @@ enum AppleNotes {
         if request.historyRead && !request.allowAuthorization {
             let status = authorizationStatus()
             guard status == noErr else {
-                throw Failure(message: L10n.text("notes.history.error.permission"), osStatus: Int(status))
+                throw Failure(message: L10n.text("notes.read.error.permission"), osStatus: Int(status))
             }
         }
         if NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Notes").isEmpty {
@@ -387,7 +352,7 @@ enum AppleNotes {
                             throw AppleNotesMetadata.Failure.unsupportedResponse
                         }
                         let value = Int(number.int32Value)
-                        guard value >= 0 else { throw NotesHistoryError.response }
+                        guard value >= 0 else { throw NotesReadError.response }
                         return value
                     }
                     do {
@@ -409,7 +374,7 @@ enum AppleNotes {
                             let notes = try object(0x6E6F7465, in: folder, form: OSType(formRange), key: rangeDescriptor)
                             return try property(code, of: notes)
                         }, progress: request.metadataProgress)
-                        guard try count() == total else { throw NotesHistoryError.stale }
+                        guard try count() == total else { throw NotesReadError.stale }
                         return Response(version: 1, requestID: request.requestID, status: "ok", sources: sources)
                     } catch {
                         try Task.checkCancellation()
@@ -437,12 +402,12 @@ enum AppleNotes {
                 }
                 if ["historyBody", "historyOpen"].contains(request.operation), let id = request.noteID {
                     let note = try object(0x6E6F7465, form: OSType(formUniqueID), key: .init(string: id))
-                    guard try text(0x49442020, of: note) == id else { throw NotesHistoryError.response }
+                    guard try text(0x49442020, of: note) == id else { throw NotesReadError.response }
                     if request.operation == "historyOpen" {
                         _ = try send(0x73686F77, [AEKeyword(keyDirectObject): note], suite: 0x6E6F7465)
                         return Response(version: 1, requestID: request.requestID, status: "ok")
                     }
-                    guard try !property(0x70777072, of: note).booleanValue else { throw NotesHistoryError.unavailable }
+                    guard try !property(0x70777072, of: note).booleanValue else { throw NotesReadError.unavailable }
                     let body = try NotesSourceBody(text: text(0x74657874, of: note), html: text(0x626F6479, of: note),
                                                    attachments: elements(0x61747473, in: note).count)
                     return Response(version: 1, requestID: request.requestID, status: "ok", sourceBody: body)
@@ -452,7 +417,7 @@ enum AppleNotes {
                     let container = try property(0x636E7472, of: note)
                     guard let created = try property(0x61736364, of: note).dateValue,
                           let modified = try property(0x61736D6F, of: note).dateValue else {
-                        throw NotesHistoryError.response
+                        throw NotesReadError.response
                     }
                     return try NotesSource(id: text(0x49442020, of: note), folderID: text(0x49442020, of: container),
                         title: "", created: created, modified: modified,
@@ -461,13 +426,13 @@ enum AppleNotes {
                 }
                 func readManaged(_ note: NSAppleEventDescriptor) throws -> (NotesSource, NotesSourceBody) {
                     let state = try readState(note)
-                    guard !state.locked, !state.shared else { throw NotesHistoryError.stale }
+                    guard !state.locked, !state.shared else { throw NotesReadError.stale }
                     let title = try text(0x706E616D, of: note)
                     let body = try NotesSourceBody(text: text(0x74657874, of: note), html: text(0x626F6479, of: note),
                                                    attachments: elements(0x61747473, in: note).count)
                     // Never stamp an earlier body with metadata obtained after that body changed.
                     guard try property(0x61736D6F, of: note).dateValue == state.modified else {
-                        throw NotesHistoryError.response
+                        throw NotesReadError.response
                     }
                     return (.init(id: state.id, folderID: state.folderID, title: title, created: state.created,
                                   modified: state.modified, locked: state.locked, shared: state.shared), body)
@@ -476,13 +441,13 @@ enum AppleNotes {
                     let note = try object(0x6E6F7465, form: OSType(formUniqueID), key: .init(string: id))
                     if request.operation == "managedState" {
                         let state = try readState(note)
-                        guard state.id == id else { throw NotesHistoryError.response }
+                        guard state.id == id else { throw NotesReadError.response }
                         return Response(version: 1, requestID: request.requestID, status: "ok", sources: [state])
                     }
                     if request.operation == "update" {
                         guard let protection = request.updateGuard, protection.noteID == id,
                               protection.scope.folderID == request.folderID, let html = request.html else {
-                            throw NotesHistoryError.stale
+                            throw NotesReadError.stale
                         }
                         try Task.checkCancellation()
                         try await request.validateBeforeSend?()
@@ -534,7 +499,7 @@ enum AppleNotes {
                 let note = try object(0x6E6F7465, form: OSType(formUniqueID), key: .init(string: noteID))
                 if request.managedConfirmation {
                     let (source, body) = try readManaged(note)
-                    guard source.id == noteID else { throw NotesHistoryError.response }
+                    guard source.id == noteID else { throw NotesReadError.response }
                     return Response(version: 1, requestID: request.requestID, status: "ok", noteID: noteID,
                         folderID: source.folderID, plaintext: body.text, sources: [source], sourceBody: body)
                 }
@@ -546,11 +511,11 @@ enum AppleNotes {
                     return Response(version: 1, requestID: request.requestID, status: "uncertain")
                 }
                 throw CancellationError()
-            } catch NotesHistoryError.stale {
+            } catch NotesReadError.stale {
                 guard !mayHaveWritten else {
                     return Response(version: 1, requestID: request.requestID, status: "uncertain")
                 }
-                throw NotesHistoryError.stale
+                throw NotesReadError.stale
             } catch {
                 let failure = error as? Failure
                 let nativeError = error as NSError

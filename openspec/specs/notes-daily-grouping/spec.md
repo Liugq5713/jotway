@@ -25,7 +25,7 @@
 
 ### Requirement: Project-first semantic grouping
 
-系统 SHALL 使用已配置的 fast 主备模型链，默认优先 `deepseek-flash`、符合切换条件时尝试 `kimi-k2.7-code-highspeed`，依据新想法和当天候选的完整原文，按用户工作或研究主题宽松归集。有合理、具体且有用的共同主题且能选择合适候选时 SHALL 优先追加，不要求完全相同的目标、措辞或粒度；简短描述、父子主题、相关子方向及不同仓库、工具、产品 SHALL 不单独导致拆分。项目 SHALL 指用户工作而非资料身份；同一工作下不同功能、故障、建议或反对意见 SHALL 允许归入同一篇。没有命名项目时 SHALL 支持自然主题。用户明确区分的不同工作 SHALL 保持独立；生成区内容、仅有泛化技术词重合或提交时间接近 SHALL 不单独构成归类依据，不得虚构共同目标。
+系统 SHALL 使用统一文本配置，有 code 时使用托管 `deepseek-flash`，否则使用单一个人模型，依据新想法和当天候选的完整原文，按用户工作或研究主题宽松归集。有合理、具体且有用的共同主题且能选择合适候选时 SHALL 优先追加，不要求完全相同的目标、措辞或粒度；简短描述、父子主题、相关子方向及不同仓库、工具、产品 SHALL 不单独导致拆分。项目 SHALL 指用户工作而非资料身份；同一工作下不同功能、故障、建议或反对意见 SHALL 允许归入同一篇。没有命名项目时 SHALL 支持自然主题。用户明确区分的不同工作 SHALL 保持独立；生成区内容、仅有泛化技术词重合或提交时间接近 SHALL 不单独构成归类依据，不得虚构共同目标。
 
 #### Scenario: Different concerns in one project
 - **WHEN** 当天已有 Jotway 记录体验想法，新输入为“Jotway 的启动快捷键偶尔失效”
@@ -67,14 +67,14 @@
 
 ### Requirement: Conservative grouping fallback
 
-系统 SHALL 只采用本轮合法候选。缺乏合理共同主题、存在明确工作边界、多个候选依据原文仍无法合理区分、多个无关主题没有共同主线、无候选、预算不足、缺少主配置、主备链终态服务失败、返回模型不符或无效输出 SHALL 降级为独立保存。仅因描述简短、主题粒度不同或不能完全确认细节 SHALL 不触发新建；多个相关候选存在时 SHALL 选择原文支持最充分者，真正无法取舍时独立保存。归类等待 SHALL 遵循 Independent grouping deadlines，不再使用包含候选准备的十五秒期限；不弹分类问题、不拆分改写原文，不凭自报概率强制归类。备用只重试只读分类请求，不重试 Notes 写入；主备共同占用原有 120 秒分类期限，不重置候选准备或 300 秒决策预算。独立保存 SHALL 按 notes-initial-titles 取得 AI 标题或临时标题，不采用本地正文截取；原文保存后的迟到归类结果不得再改变归属。
+系统 SHALL 只采用本轮合法候选。缺乏合理共同主题、存在明确工作边界、多个候选依据原文仍无法合理区分、多个无关主题没有共同主线、无候选、预算不足、缺少模型配置、模型服务失败、返回模型不符或无效输出 SHALL 降级为独立保存。仅因描述简短、主题粒度不同或不能完全确认细节 SHALL 不触发新建；多个相关候选存在时 SHALL 选择原文支持最充分者，真正无法取舍时独立保存。归类等待 SHALL 遵循 Independent grouping deadlines，不再使用包含候选准备的十五秒期限；不弹分类问题、不拆分改写原文，不凭自报概率强制归类。分类不切换备用模型，不重试 Notes 写入；单次模型调用占用原有 120 秒分类期限，不重置候选准备或 300 秒决策预算。独立保存 SHALL 按 notes-initial-titles 取得 AI 标题或临时标题，不采用本地正文截取；原文保存后的迟到归类结果不得再改变归属。
 
 #### Scenario: Ambiguous short input
 - **WHEN** “只处理当天的”同时可能指向日程项目和笔记项目，原文没有足够证据
 - **THEN** 独立保存该原文，不仅凭最近使用主题选择目标
 
 #### Scenario: Unavailable or invalid classifier
-- **WHEN** 配置的主备链均失败或到期、返回其他模型、未知目标标识或无法解析的结果
+- **WHEN** 当前模型调用失败或到期、返回其他模型、未知目标标识或无法解析的结果
 - **THEN** 原文仍独立保存；迟到归类结果不得移动或重复追加已经保存的内容
 
 #### Scenario: Multi-project original
@@ -89,12 +89,12 @@
 - **WHEN** 当天有“自动化测试工具调研”和“Agent 记忆架构”两个合法候选，新原文为“Agent 自动化测试用例生成”
 - **THEN** 追加到自动化测试候选，不因两个候选均有词汇关联就新建，也不凭最近使用时间选择
 
-#### Scenario: Fallback classification succeeds
-- **WHEN** 主分类请求断连，备用在剩余分类期限内返回合法的当前候选决策
-- **THEN** 采用该决策前重新执行当前日期、目标及版本校验；只有一次原文保存，不重新准备或更改候选身份
+#### Scenario: Classification disconnects
+- **WHEN** 分类请求断连
+- **THEN** 不切换模型；沿用独立保存降级，只保存一次原文
 
 #### Scenario: Late classification cannot duplicate a save
-- **WHEN** 主尝试已结束，备用分类完成并已保存原文，随后主请求才返回
+- **WHEN** 分类已超时并独立保存原文，随后旧请求才返回
 - **THEN** 丢弃迟到决策，不追加第二次、不新建副本，不重复发出保存完成反馈
 
 ### Requirement: Chronological original entries
@@ -131,19 +131,19 @@
 
 ### Requirement: Independent grouping controls
 
-系统 SHALL 在 Notes 设置提供独立的按天自动归集开关，未设置时默认开启并保留显式关闭。归类 SHALL 复用全局 fast 主备配置而不要求启用 Personal Agent 或历史索引。AI 补充关闭 SHALL 禁止洞察生成及其历史检索，但不改变归集开关；归集关闭 SHALL 保留逐条新建方式，但首次标题生成与待补恢复 SHALL 独立运行，不受归集、补充或历史索引开关控制；设置 SHALL 明确该范围。
+系统 SHALL 在 Notes 设置提供独立的按天自动归集开关，未设置时默认开启并保留显式关闭。归类 SHALL 复用全局统一文本配置而不要求启用 Personal Agent 或历史索引。AI 补充关闭 SHALL 禁止洞察生成及其历史检索，但不改变归集开关；归集关闭 SHALL 保留逐条新建方式，但首次标题生成与待补恢复 SHALL 独立运行，不受归集、补充或历史索引开关控制；设置 SHALL 明确该范围。
 
 #### Scenario: Group with assistance disabled
-- **WHEN** 自动归集开启、fast 主模型已配置，但 AI 补充关闭且历史索引不可用
+- **WHEN** 自动归集开启、当前文本模型已配置，但 AI 补充关闭且历史索引不可用
 - **THEN** 仍可使用配置的 fast 模型链将当天同项目的原文追加在一起，不调用补充生成或历史检索
 
 #### Scenario: Grouping disabled or key missing
-- **WHEN** 用户关闭归集，或开启后 fast 主模型配置缺失
+- **WHEN** 用户关闭归集，或开启后 当前文本模型配置缺失
 - **THEN** 前者不调用分类模型并使用原有存入流程；后者显示配置状态并独立保存原文，不要求用户先完成 Personal Agent 设置
 
-#### Scenario: Primary works without fallback
-- **WHEN** fast 主模型已就绪而备用未配置或设为 None
-- **THEN** 归集仍可使用主模型；设置区分主可用与备用不可用，并提供全局主备配置入口，不把密钥固定写入 DeepSeek
+#### Scenario: One model serves grouping
+- **WHEN** 当前文本模型已就绪
+- **THEN** 归集直接使用该模型；配置入口复用激活码与一个人模型表单，不提供备用设置
 
 ### Requirement: Restart and completion semantics
 

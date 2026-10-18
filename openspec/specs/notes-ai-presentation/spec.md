@@ -4,6 +4,8 @@
 
 定义 Jotway 存入 Apple Notes 时生成内容的稳定阅读结构，让用户清楚区分原文、AI 洞察和相关来源，并使视觉排版变化不会破坏原文保存、来源跳转或历史索引边界。
 
+新生成内容仅包含 AI 洞察，不再生成相关内容或来源链接。下文涉及相关内容的格式与链接规则仅约束已有笔记的兼容读取和打开；不授权新历史检索或生成。
+
 ## Requirements
 
 ### Requirement: Ordered optional generated sections

@@ -104,7 +104,6 @@ final class JevPanelTests: XCTestCase {
         // Keep this existing external-action fixture independent of the new explicit assistant.
         defaults.set(false, forKey: "actionEnabled.personal-agent")
         defaults.set(false, forKey: "notesDailyGroupingEnabled")
-        defaults.set(false, forKey: "notesHistory.enabled")
         defaults.set(false, forKey: "aiRewriteEnabled.apple-notes")
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
         let board = NSPasteboard.withUniqueName(), opener = Opener()
@@ -118,16 +117,12 @@ final class JevPanelTests: XCTestCase {
         var dependencies = BundledActionDependencies()
         dependencies.notesRun = { try await moduleDependencies.notesRun($0) }
         dependencies.makeNotes = { preferences in
-            let index = NotesIndex(url: directory.appendingPathComponent("index.sqlite"))
-            let history = NotesHistory(preferences: preferences,
-                keys: APIKeyStore(directory: directory.appendingPathComponent("keys")), index: index,
-                reader: .init(run: { try await moduleDependencies.notesRun($0) }), checkPermission: { false },
-                embeddingTransport: { _ in throw TestFailure.unexpectedNetwork })
+            let index = NotesOriginStore(url: directory.appendingPathComponent("index.sqlite"))
             let source = AIProviderPlugin.Source(id: "fixture", title: "Fixture", detail: "Unavailable",
                 version: { _ in "1" }, configure: { _ in throw TestFailure.unexpectedNetwork })
             return AppleNotesModule(preferences: preferences, models: ModelConfiguration(preferences: preferences, sources: [source], fastSource: source),
                 groupingStore: NotesDailyGroupingStore(url: directory.appendingPathComponent("daily.sqlite")),
-                history: history, run: { try await moduleDependencies.notesRun($0) })
+                reviewLibrary: NotesReviewLibrary(preferences: preferences, origins: index, checkPermission: { false }), run: { try await moduleDependencies.notesRun($0) })
         }
         let isolatedModels = ModelConfiguration(preferences: defaults, keys: APIKeyStore(directory: directory.appendingPathComponent("keys")))
         let modules = BundledActions.modules(preferences: defaults, models: isolatedModels, dependencies: dependencies)

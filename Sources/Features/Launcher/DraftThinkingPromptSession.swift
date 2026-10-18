@@ -4,7 +4,7 @@ import Observation
 @MainActor @Observable
 final class DraftThinkingPromptSession {
     enum Display: Equatable {
-        case closed, loading, ready(String), empty, failed(RuntimeLog.Code)
+        case closed, loading, ready(String), empty, failed(RuntimeLog.Code), hostedFailure(HostedAI.Problem)
         var isOpen: Bool { self != .closed }
     }
     struct Context: Equatable {
@@ -122,13 +122,19 @@ final class DraftThinkingPromptSession {
         }
     }
 
+    static func failureDisplay(_ error: Error) -> Display {
+        if let problem = HostedAI.problem(error) { return .hostedFailure(problem) }
+        return .failed(RuntimeLog.code(error))
+    }
+
     private func start(_ snapshot: Context, automatic: Bool) {
         guard request == nil else { return }
         cancelCandidate()
         consumed = snapshot.identity
         let operation = Request(id: UUID(), context: snapshot, automatic: automatic)
         request = operation
-        display = .loading
+        // Automatic checks stay invisible until a useful prompt is available.
+        display = automatic ? .closed : .loading
         // Freeze immediately; queueing within the invocation is inside this logical deadline.
         let deadline = ContinuousClock.now.advanced(by: timeout)
         let invocation: ModelTextInvocation
@@ -137,7 +143,7 @@ final class DraftThinkingPromptSession {
             invocation = try factory()
         } catch {
             request = nil
-            display = .failed(RuntimeLog.code(error))
+            display = automatic ? .closed : Self.failureDisplay(error)
             return
         }
         task = Task { [weak self] in
@@ -146,7 +152,7 @@ final class DraftThinkingPromptSession {
                 let value = try await DraftThinkingPromptGenerator(invocation: invocation)
                     .generate(snapshot.text, until: deadline, requestID: operation.id)
                 result = value.map(Display.ready) ?? .empty
-            } catch { result = .failed(RuntimeLog.code(error)) }
+            } catch { result = Self.failureDisplay(error) }
             guard !Task.isCancelled, let self, self.request?.id == operation.id else { return }
             self.task = nil; self.request = nil
             guard let current = self.context, current.draftID == snapshot.draftID,
@@ -155,7 +161,12 @@ final class DraftThinkingPromptSession {
                   self.currentVersion() == snapshot.fastVersion else { self.invalidate(); return }
             if !automatic || (current.identity == snapshot.identity && !current.automaticBlocked
                               && current.manualBlockReason == nil && self.enabled) {
-                self.display = result
+                if automatic {
+                    if case .ready = result { self.display = result }
+                    else { self.display = .closed }
+                } else {
+                    self.display = result
+                }
             } else {
                 // An obsolete automatic outcome never becomes the new draft's result/error.
                 self.display = .closed

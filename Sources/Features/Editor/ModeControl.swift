@@ -195,57 +195,18 @@ final class ModeButton: NSButton {
     override func draw(_ dirtyRect: NSRect) {
         guard iconOpacity > 0 else { return }
         let emphasized = isEnabled && (hovered || keyboardFocused)
-        let opacity = iconOpacity * (isEnabled ? 1 : 0.4)
+        let opacity = iconOpacity * (isEnabled ? 1 : 0.35)
         if emphasized || pressed {
             let tile = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6)
             (pressed ? EditorPalette.buttonActive : EditorPalette.button)
                 .withAlphaComponent(opacity).setFill()
             tile.fill()
-            (increasesContrast ? NSColor.labelColor : EditorPalette.accent)
-                .withAlphaComponent(opacity * (increasesContrast ? 0.7 : 0.2)).setStroke()
-            tile.lineWidth = increasesContrast ? 1 : 0.75
-            tile.stroke()
         }
         let color: NSColor = increasesContrast
-            ? (emphasized ? .controlAccentColor : .labelColor)
+            ? .labelColor
             : (emphasized ? EditorPalette.buttonText : EditorPalette.secondary)
-        color.withAlphaComponent(opacity).setStroke()
-        // Draw on a 22 pt grid: rounded outlines and an open fold remain clear at 1×.
-        let path = NSBezierPath()
-        path.lineWidth = 1.25
-        path.lineJoinStyle = .round
-        path.lineCapStyle = .round
-        if launcherState?.mode == .quickInput {
-            path.move(to: NSPoint(x: 7, y: 17.5))
-            path.line(to: NSPoint(x: 15, y: 17.5))
-            path.curve(to: NSPoint(x: 17, y: 15.5), controlPoint1: NSPoint(x: 16.1, y: 17.5),
-                       controlPoint2: NSPoint(x: 17, y: 16.6))
-            path.line(to: NSPoint(x: 17, y: 9))
-            path.line(to: NSPoint(x: 12, y: 4.5))
-            path.line(to: NSPoint(x: 7, y: 4.5))
-            path.curve(to: NSPoint(x: 5, y: 6.5), controlPoint1: NSPoint(x: 5.9, y: 4.5),
-                       controlPoint2: NSPoint(x: 5, y: 5.4))
-            path.line(to: NSPoint(x: 5, y: 15.5))
-            path.curve(to: NSPoint(x: 7, y: 17.5), controlPoint1: NSPoint(x: 5, y: 16.6),
-                       controlPoint2: NSPoint(x: 5.9, y: 17.5))
-            path.close()
-            path.move(to: NSPoint(x: 12, y: 4.5))
-            path.line(to: NSPoint(x: 12, y: 7.5))
-            path.curve(to: NSPoint(x: 13.5, y: 9), controlPoint1: NSPoint(x: 12, y: 8.4),
-                       controlPoint2: NSPoint(x: 12.6, y: 9))
-            path.line(to: NSPoint(x: 17, y: 9))
-            path.move(to: NSPoint(x: 8, y: 13.5))
-            path.line(to: NSPoint(x: 14, y: 13.5))
-            path.move(to: NSPoint(x: 8, y: 10.5))
-            path.line(to: NSPoint(x: 10, y: 10.5))
-        } else {
-            path.appendRoundedRect(NSRect(x: 4.5, y: 6, width: 13, height: 10), xRadius: 2, yRadius: 2)
-            path.move(to: NSPoint(x: 8, y: 9))
-            path.line(to: NSPoint(x: 8, y: 13))
-            path.move(to: NSPoint(x: 10.5, y: 11))
-            path.line(to: NSPoint(x: 14, y: 11))
-        }
-        path.stroke()
+        let icon: EditorToolbarIcon = launcherState?.mode == .quickInput ? .stickyNote : .quickInput
+        icon.draw(in: bounds, color: color, opacity: opacity)
         if keyboardFocused {
             let ring = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 6, yRadius: 6)
             NSColor.controlAccentColor.withAlphaComponent(iconOpacity).setStroke()

@@ -43,6 +43,7 @@ final class LauncherViewState {
     var clipboardHistory: ClipboardHistory?
     var showsCodexRecentTasks = false
     /// Periodic review surface opened explicitly from the capture panel.
+    var reviewAIBlockReason: String?
     var showsReview = false
     var reviewPeriod: NotesReviewPeriod = .weekly
     var reviewSummary: NotesReviewSummary?

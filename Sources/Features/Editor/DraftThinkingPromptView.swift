@@ -44,6 +44,13 @@ struct DraftThinkingPromptView: View {
                             Text(L10n.text("thinking.loading"))
                         }
                     case .empty: Text(L10n.text("thinking.empty"))
+                    case .hostedFailure(let problem):
+                        Text(problem.message)
+                        command("thinking.hosted_settings", symbol: nil, slot: 2) {
+                            guard canInteract else { return }
+                            send(.thinkingSettingsOpened)
+                            configure()
+                        }.frame(width: 150, height: 24)
                     case .failed(let code):
                         Text(L10n.text(code == .configuration ? "thinking.unconfigured"
                             : code == .inputTooLarge ? "thinking.too_large"
@@ -94,6 +101,7 @@ struct DraftThinkingPromptControl: NSViewRepresentable {
     let focusTarget: EditorFocusTarget
     let state: LauncherViewState
     let isCardHovered: Bool
+    let increasesContrast: Bool
     let send: (LauncherEvent) -> Void
 
     func makeNSView(context: Context) -> DraftThinkingPromptButton { DraftThinkingPromptButton() }
@@ -107,6 +115,7 @@ struct DraftThinkingPromptControl: NSViewRepresentable {
         button.setAccessibilityLabel(L10n.text("thinking.open"))
         button.setAccessibilityHelp(button.toolTip)
         button.setAccessibilityIdentifier("launcher-thinking-prompt")
+        button.increasesContrast = increasesContrast
         button.isCardHovered = isCardHovered
         button.refreshAppearance()
     }
@@ -117,8 +126,14 @@ final class DraftThinkingPromptButton: NSButton {
     weak var focusTarget: EditorFocusTarget?
     var launcherState: LauncherViewState?
     var send: (LauncherEvent) -> Void = { _ in }
-    var isCardHovered = false
+    var increasesContrast = false
+    var isCardHovered = false {
+        didSet {
+            if isCardHovered != oldValue { refreshHoverFromMouseLocation() }
+        }
+    }
     private var hovered = false
+    private var iconIsRevealed = false
     private var opacity: CGFloat = 0
     private var fade: Task<Void, Never>?
     override init(frame: NSRect) {
@@ -158,7 +173,19 @@ final class DraftThinkingPromptButton: NSButton {
         super.updateTrackingAreas()
         for area in trackingAreas { removeTrackingArea(area) }
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-        if let window { hovered = visibleRect.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) }
+        refreshHoverFromMouseLocation()
+    }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        refreshHoverFromMouseLocation()
+    }
+    private func refreshHoverFromMouseLocation() {
+        // Moving or hiding the card may not deliver a matching mouseExited event.
+        if let window, window.isVisible, !isHiddenOrHasHiddenAncestor {
+            hovered = visibleRect.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
+        } else {
+            hovered = false
+        }
         refreshAppearance()
     }
     override func mouseEntered(with event: NSEvent) { hovered = true; refreshAppearance() }
@@ -170,8 +197,13 @@ final class DraftThinkingPromptButton: NSButton {
         return result
     }
     func refreshAppearance() {
+        needsDisplay = true
+        window?.invalidateCursorRects(for: self)
         let revealed = isCardHovered || hovered || window?.firstResponder === self
+        guard revealed != iconIsRevealed else { return }
+        iconIsRevealed = revealed
         fade?.cancel()
+        fade = nil
         if revealed || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             opacity = revealed ? 1 : 0; needsDisplay = true
         } else {
@@ -184,8 +216,6 @@ final class DraftThinkingPromptButton: NSButton {
                 }
             }
         }
-        needsDisplay = true
-        window?.invalidateCursorRects(for: self)
     }
     override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); needsDisplay = true }
     override func resetCursorRects() {
@@ -195,18 +225,18 @@ final class DraftThinkingPromptButton: NSButton {
     override func draw(_ dirtyRect: NSRect) {
         guard opacity > 0 else { return }
         let focused = window?.firstResponder === self
-        if hovered || focused {
-            NSColor.labelColor.withAlphaComponent(0.08 * opacity).setFill()
-            NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 5, yRadius: 5).fill()
+        let emphasized = hovered || focused
+        if emphasized {
+            EditorPalette.button.withAlphaComponent(opacity).setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6).fill()
         }
-        let image = NSImage(systemSymbolName: "lightbulb", accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(paletteColors: [.labelColor]))
-        image?.draw(in: bounds.insetBy(dx: 5, dy: 5), from: .zero, operation: .sourceOver,
-                    fraction: opacity * (isEnabled ? 0.8 : 0.35))
+        let color: NSColor = increasesContrast ? .labelColor : (emphasized ? EditorPalette.buttonText : EditorPalette.secondary)
+        EditorToolbarIcon.thinkingPrompt.draw(in: bounds, color: color,
+            opacity: opacity * (isEnabled ? 1 : 0.35))
         if focused {
             NSColor.controlAccentColor.setStroke()
-            let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 5, yRadius: 5)
-            path.lineWidth = 1.5; path.stroke()
+            let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 6, yRadius: 6)
+            path.lineWidth = increasesContrast ? 1.5 : 1; path.stroke()
         }
     }
 }

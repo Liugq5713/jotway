@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 enum LauncherEvent {
     case toggleMode
@@ -76,6 +77,8 @@ final class LauncherSession {
     let thinkingPrompt: DraftThinkingPromptSession
     private let automaticThinkingEnabled: () -> Bool
     private let thinkingFastVersion: () -> String
+    private let aiCapabilityReady: (ModelConfiguration.Capability) -> Bool
+    private var thinkingAIReady = false
     private(set) var draft = RecordDraft()
     private(set) var hasPreparedDraft = false
     private(set) var activeSubmissionCount = 0
@@ -198,6 +201,7 @@ final class LauncherSession {
              throw AIProviderPlugin.Failure(message: "Thinking prompts are not configured", runtimeLogCode: .configuration)
          },
          thinkingFastVersion: @escaping @MainActor () -> String = { "unconfigured" },
+         aiCapabilityReady: @escaping @MainActor (ModelConfiguration.Capability) -> Bool = { _ in false },
          automaticThinkingEnabled: @escaping @MainActor () -> Bool = { false },
          applicationUsage: @escaping () -> [String: ApplicationUsage],
          recordApplicationOpen: @escaping (URL) -> Bool,
@@ -208,6 +212,7 @@ final class LauncherSession {
          readSavedDocument: @escaping @MainActor @Sendable (String) async throws -> String = {
              try await AppleNotesReader().body(noteID: $0).text
          }) {
+        self.aiCapabilityReady = aiCapabilityReady
         self.thinkingFastVersion = thinkingFastVersion
         self.automaticThinkingEnabled = automaticThinkingEnabled
         self.thinkingPrompt = DraftThinkingPromptSession(factory: thinkingPromptFactory, currentVersion: thinkingFastVersion)
@@ -228,6 +233,9 @@ final class LauncherSession {
         self.applicationUsage = applicationUsage
         self.recordApplicationOpen = recordApplicationOpen
         refreshRecentDocumentEligibility()
+        refreshAIAvailability()
+        refreshThinkingPrompt()
+        observeAIAvailability()
         clipboard?.history.onChange = { [weak self] in self?.renderIntentSuggestion() }
         review?.onChange = { [weak self] in self?.syncReview() }
         catalog.changed = { [weak self] in
@@ -301,6 +309,7 @@ final class LauncherSession {
             state.lastEventSucceeded = clearDraft()
             refresh()
         case .requestThinkingPrompt:
+            refreshAIAvailability()
             refreshThinkingPrompt()
             guard thinkingPrompt.blockReason == nil else { return }
             closeRecentDocument()
@@ -319,6 +328,8 @@ final class LauncherSession {
         case .thinkingPreferencesChanged:
             break
         case .toggleReview(let period):
+            refreshAIAvailability()
+            guard state.reviewAIBlockReason == nil else { return }
             guard state.mode == .quickInput, state.modeSwitchBlockReason == nil else { return }
             if state.showsReview, state.reviewPeriod == period { closeReview(); refresh() }
             else {
@@ -379,7 +390,10 @@ final class LauncherSession {
             state.isReadingGettingStarted = reading
             if reading { suspend() } else { refresh() }
         case .externalFocusChanged: suspend()
-        case .refreshConfiguration, .refreshTemplates: refresh()
+        case .refreshConfiguration:
+            refreshAIAvailability()
+            refresh()
+        case .refreshTemplates: refresh()
         case .externalAvailabilityChanged: registry.requestAvailabilityRefresh(invalidate: true)
         case .preserveDraft:
             cancelPendingConfirmation()
@@ -679,15 +693,38 @@ final class LauncherSession {
         state.selectedRecentDocumentID = nil
     }
 
+    private func observeAIAvailability() {
+        withObservationTracking {
+            _ = aiCapabilityReady(.fast)
+            _ = aiCapabilityReady(.deep)
+            _ = thinkingFastVersion()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.refreshAIAvailability()
+                self.refreshThinkingPrompt()
+                self.observeAIAvailability()
+            }
+        }
+    }
+
+    private func refreshAIAvailability() {
+        thinkingAIReady = aiCapabilityReady(.fast)
+        state.reviewAIBlockReason = aiCapabilityReady(.deep) ? nil : L10n.text("launcher.ai.requires_configuration")
+        if state.reviewAIBlockReason != nil { closeReview() }
+    }
+
     private func refreshThinkingPrompt() {
+        let aiReady = thinkingAIReady
         let empty = draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let hardBlocked = !panelIsVisible || empty || isClipboardInput || thinkingSettingsActive
+        let hardBlocked = !aiReady || !panelIsVisible || empty || isClipboardInput || thinkingSettingsActive
             || state.isReadingGettingStarted || state.isConfiguringAction || state.isAcceptingSubmission
             || state.isOpeningApplication || pendingActionConfirmation != nil
         let menuBlocked = state.isTemplateMenuVisible || state.isFillingTemplate || state.isIntentCandidateMenuVisible
         if hardBlocked || menuBlocked { thinkingPrompt.invalidate() }
         let reason: String?
-        if let protected = state.modeSwitchBlockReason { reason = protected }
+        if !aiReady { reason = L10n.text("launcher.ai.requires_configuration") }
+        else if let protected = state.modeSwitchBlockReason { reason = protected }
         else if pendingActionConfirmation != nil { reason = L10n.text("launcher.mode.blocked.submission") }
         else if empty { reason = L10n.text("thinking.blocked.empty") }
         else if isClipboardInput { reason = L10n.text("thinking.blocked.clipboard") }

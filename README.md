@@ -50,7 +50,7 @@ Switch to a **temporary sticky note** to keep your draft visible above other win
 
 ## Your text and privacy
 
-Typing does not request an AI model. Notes title generation uses configured AI providers; grouping, writing help, and related history can also send relevant text. A configured fallback may send the same input to a second provider, with separate billing.
+Typing does not request an AI model. Notes title generation uses configured AI providers; grouping, writing help, and requested notes reviews can also send relevant text. A configured fallback may send the same input to a second provider, with separate billing.
 
 When Local Records is enabled, it can store unsent drafts on your Mac, with a default retention of 90 days. Review capture, export, and deletion controls in [settings](docs/product/settings.md).
 

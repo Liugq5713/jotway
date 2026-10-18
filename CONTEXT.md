@@ -26,7 +26,7 @@ _Avoid_：面板（仅指输入区域时）
 
 ### 思考提示（Thinking Prompt）
 
-对当前草稿的一条临时追问、待补依据或比较提示，在编辑区下方只读展示，用户在原编辑区自行补写。左下入口可手动请求；Writing Help 的“自动追问”默认关闭，开启后按停写规则更新。它不属于草稿、action、存入正文或 Notes AI 补充，行为见 [draft-thinking-prompts](openspec/specs/draft-thinking-prompts/spec.md)。
+对当前草稿的一条临时追问、待补依据或比较提示，在编辑区下方只读展示，用户在原编辑区自行补写。左下入口可手动请求；写作偏好的“自动追问”默认关闭，开启后按停写规则更新。它不属于草稿、action、存入正文或 Notes AI 补充，行为见 [draft-thinking-prompts](openspec/specs/draft-thinking-prompts/spec.md)。
 
 ## 路由
 

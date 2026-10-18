@@ -9,8 +9,8 @@ enum OpenAICompatible {
         let id: String                    // Source.id，同时作为日志 providerID
         let title: String                 // 设置页显示名
         let brand: String                 // 错误文案品牌名
-        let providerKey: APIKeyStore.Provider
-        let baseURL: URL                  // 固定 chat/completions 地址，不接受用户输入
+        let providerKey: APIKeyStore.Provider?
+        let baseURL: URL                  // Validated chat/completions endpoint
         let modelID: String               // 线上模型名
         let displayPrefix: String         // modelID/version 命名前缀
         let keyURL: URL                   // 申请 key 链接
@@ -18,12 +18,21 @@ enum OpenAICompatible {
         var extraBody: [String: Any] = [:] // 服务商专有请求字段（如 DeepSeek 的 thinking）
         var maxTokens = 8192
         var thinking = false
+        var idempotent = false
+        var maximumTokenLimit: Int? = nil
+        var requestBodyLimit: Int? = nil
+        var httpError: (@Sendable (Int) -> AIProviderPlugin.Failure)? = nil
+        var exactModel = true
+        var jsonMode = true
     }
 
     static func source(_ spec: Spec,
                        readKey explicitReadKey: (@MainActor @Sendable () throws -> String?)? = nil,
                        session suppliedSession: URLSession? = nil) -> AIProviderPlugin.Source {
-        let readKey: @MainActor @Sendable () throws -> String? = explicitReadKey ?? { try APIKeyStore.shared.load(for: spec.providerKey) }
+        let readKey: @MainActor @Sendable () throws -> String? = explicitReadKey ?? {
+            guard let provider = spec.providerKey else { return nil }
+            return try APIKeyStore.shared.load(for: provider)
+        }
         let network = URLSessionConfiguration.ephemeral
         network.timeoutIntervalForRequest = 300
         network.timeoutIntervalForResource = 300
@@ -39,7 +48,7 @@ enum OpenAICompatible {
             hasKey: { try readKey() != nil },
             version: { _ in version }, configure: { _ in
                 let key = try validatedKey(readKey(), brand: spec.brand)
-                return .init(version: version, modelID: model, providerID: spec.id) { request in
+                return .init(version: version, modelID: spec.exactModel ? model : nil, providerID: spec.id) { request in
                     try await generate(request, spec: spec, apiKey: key, session: session)
                 }
             })
@@ -53,24 +62,30 @@ enum OpenAICompatible {
         http.cachePolicy = .reloadIgnoringLocalCacheData
         http.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         http.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if spec.idempotent { http.setValue(UUID().uuidString, forHTTPHeaderField: "Idempotency-Key") }
         let tokens = spec.thinking ? request.maximumTokensForThinkingModel : request.maximumTokens ?? spec.maxTokens
         guard let tokens, tokens > 0 else {
             throw AIProviderPlugin.Failure(message: "A thinking token budget is required", runtimeLogCode: .configuration)
         }
+        if let limit = spec.maximumTokenLimit, tokens > limit {
+            throw AIProviderPlugin.Failure(message: L10n.text("settings.activation.token_limit", limit), runtimeLogCode: .configuration)
+        }
         let streaming = request.streaming || request.onPartial != nil
+        let instructions = request.instructions + (request.outputFormat == .json && !spec.jsonMode
+            ? "\nReturn only valid JSON matching the requested structure, without Markdown fences." : "")
         var body: [String: Any] = [
             "model": spec.modelID, "stream": streaming,
             "max_tokens": tokens,
-            "messages": [["role": "system", "content": request.instructions],
+            "messages": [["role": "system", "content": instructions],
                          ["role": "user", "content": request.content]]
         ]
         for (field, value) in spec.extraBody { body[field] = value }
         guard (request.maximumTokens ?? spec.maxTokens) > 0 else {
             throw AIProviderPlugin.Failure(message: "Unsupported token budget", runtimeLogCode: .configuration)
         }
-        if request.outputFormat == .json { body["response_format"] = ["type": "json_object"] }
+        if request.outputFormat == .json && spec.jsonMode { body["response_format"] = ["type": "json_object"] }
         http.httpBody = try JSONSerialization.data(withJSONObject: body)
-        guard (http.httpBody?.count ?? 0) <= request.maximumBytes else {
+        guard (http.httpBody?.count ?? 0) <= min(request.maximumBytes, spec.requestBodyLimit ?? request.maximumBytes) else {
             throw AIProviderPlugin.Failure(message: L10n.text("ai.error.request_too_large"), runtimeLogCode: .inputTooLarge)
         }
         if let body = http.httpBody {
@@ -134,7 +149,7 @@ enum OpenAICompatible {
         guard let value = (message["content"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
             throw AIProviderPlugin.Failure(message: L10n.text("ai.error.empty", spec.brand), runtimeLogCode: .format)
         }
-        let modelID = (object["model"] as? String).flatMap { $0.isEmpty ? nil : "\(spec.displayPrefix)/\($0)" }
+        let modelID = try returnedModel(object["model"], spec: spec)
         parsed = true
         return AIProviderPlugin.Response(result: value, error: nil, modelID: modelID)
     }
@@ -152,6 +167,7 @@ enum OpenAICompatible {
 
     private static func httpFailure(_ response: HTTPURLResponse, spec: Spec) -> AIProviderPlugin.Failure {
         let status = response.statusCode
+        if let custom = spec.httpError { return custom(status) }
         let key: String
         let code: RuntimeLog.Code
         switch status {
@@ -239,11 +255,8 @@ enum OpenAICompatible {
                 throw invalidResponse(spec)
             }
             if object["model"] != nil {
-                guard let observed = object["model"] as? String, !observed.isEmpty else {
-                    throw AIProviderPlugin.Failure(message: L10n.text("ai.error.model_unknown"), runtimeLogCode: .modelUnknown)
-                }
-                let qualified = "\(spec.displayPrefix)/\(observed)"
-                guard qualified == request.modelID, modelID == nil || modelID == qualified else {
+                let qualified = try returnedModel(object["model"], spec: spec)
+                guard (!spec.exactModel || qualified == request.modelID), modelID == nil || modelID == qualified else {
                     throw AIProviderPlugin.Failure(message: L10n.text("ai.error.model_mismatch"), runtimeLogCode: .modelMismatch)
                 }
                 modelID = qualified
@@ -286,6 +299,15 @@ enum OpenAICompatible {
         if error.code == .timedOut { return .timeout }
         return [.networkConnectionLost, .notConnectedToInternet, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed]
             .contains(error.code) ? .disconnected : .unavailable
+    }
+
+    private static func returnedModel(_ value: Any?, spec: Spec) throws -> String {
+        guard let value = value as? String, !value.isEmpty, value.utf8.count <= 256,
+              !["unknown", "default", "auto"].contains(value.lowercased()),
+              value.unicodeScalars.allSatisfy({ !CharacterSet.whitespacesAndNewlines.union(.controlCharacters).contains($0) }) else {
+            throw AIProviderPlugin.Failure(message: L10n.text("ai.error.model_unknown"), runtimeLogCode: .modelUnknown)
+        }
+        return "\(spec.displayPrefix)/\(value)"
     }
 
     private static func invalidResponse(_ spec: Spec) -> AIProviderPlugin.Failure {

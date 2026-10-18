@@ -40,7 +40,7 @@ enum AppleNotesMetadata {
             let locked = try values(0x70777072) // pwpr
             let shared = try values(0x73687264) // shrd
             guard try strings(0x49442020) == ids, Set(ids).count == ids.count else {
-                throw NotesHistoryError.stale
+                throw NotesReadError.stale
             }
             for offset in ids.indices {
                 guard !ids[offset].isEmpty, let creation = created[offset].dateValue,
@@ -51,7 +51,7 @@ enum AppleNotesMetadata {
             }
             await progress?(sources.count, count)
         }
-        guard Set(sources.map(\.id)).count == sources.count else { throw NotesHistoryError.stale }
+        guard Set(sources.map(\.id)).count == sources.count else { throw NotesReadError.stale }
         return sources
     }
 }

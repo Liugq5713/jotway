@@ -37,7 +37,7 @@ enum JotwayBootstrap {
                 alert.informativeText = reason.localizedDescription + "\n\n" + L10n.text("migration.recovery")
                 alert.addButton(withTitle: L10n.text("migration.retry"))
                 alert.addButton(withTitle: L10n.text("migration.choose"))
-                alert.addButton(withTitle: L10n.text("common.quit"))
+                alert.addButton(withTitle: L10n.text("menu.quit"))
                 NSApplication.shared.setActivationPolicy(.regular)
                 NSApplication.shared.activate(ignoringOtherApps: true)
                 switch alert.runModal() {

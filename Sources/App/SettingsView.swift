@@ -71,7 +71,7 @@ struct SettingsView: View {
             case .appearance: "circle.lefthalf.filled"
             case .ai: "sparkles"
             case .intent: "arrow.triangle.branch"
-            case .actions: "bolt.horizontal"
+            case .actions: "note.text"
             case .templates: "text.badge.plus"
             case .instructions: "text.alignleft"
             case .gettingStarted: "questionmark.circle"
@@ -144,6 +144,8 @@ struct SettingsView: View {
             }
             .background(Color(nsColor: .windowBackgroundColor))
         }
+        .environment(\.openAIServiceSettings, { selectedPage = .ai })
+        .environment(\.openWritingPreferences, { selectedPage = .instructions })
         .toggleStyle(.switch)
         .frame(minWidth: 760, idealWidth: 820, minHeight: 560, idealHeight: 640)
         .onAppear {
@@ -165,7 +167,7 @@ struct SettingsView: View {
                 selectedPage = .ai
             case .action(let id):
                 selectedPage = .actions
-                selectedActionID = id
+                selectedActionID = id == AppleNotesModule.moduleDescriptor.id ? nil : id
             }
             appState.settingsDestination = nil
         }
@@ -271,6 +273,24 @@ struct SettingsView: View {
     private var instructionsPage: some View {
         if appState.onTestAIConnection != nil {
             Form {
+                Section(L10n.text("thinking.settings.title")) {
+                    Toggle(L10n.text("thinking.settings.automatic"), isOn: Binding(
+                        get: { appState.automaticDraftThinkingPromptsEnabled },
+                        set: { appState.automaticDraftThinkingPromptsEnabled = $0 }))
+                    Text(L10n.text("thinking.settings.help")).font(.caption).foregroundStyle(.secondary)
+                }
+                if let module = appState.notesModule {
+                    Section(L10n.text("action.notes.supplement_preferences")) {
+                        if module.hasLegacyRewritePrompt {
+                            Text(L10n.text("action.notes.legacy_rewrite_help"))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        InstructionEditor(title: L10n.text("action.notes.supplement_preferences"), saved: module.supplementPrompt,
+                            defaultValue: AINotesSupplementProcessor.localizedDefaultPreference,
+                            explanation: L10n.text("action.notes.supplement_preferences_help"),
+                            compactFooter: true, onSave: { module.setSupplementPrompt($0) })
+                    }
+                }
                 Section(L10n.text("settings.instructions.background")) {
                     InstructionEditor(title: L10n.text("settings.instructions.background"), saved: appState.aiManualConfiguration.instructions,
                         defaultValue: "", explanation: L10n.text("settings.instructions.background.help"),
@@ -286,9 +306,13 @@ struct SettingsView: View {
         }
     }
 
+    @ViewBuilder
     private var actionsPage: some View {
-        ActionSettingsView(configuration: appState.actionConfiguration,
-                           selectedActionID: $selectedActionID)
+        if let selectedActionID, let settings = appState.actionRegistry.settings(for: selectedActionID) {
+            settings.makeView()
+        } else if let notes = appState.notesModule {
+            AppleNotesSettingsView(module: notes)
+        }
     }
 
     private func actionTile(icon: String, tint: Color) -> some View {
@@ -645,7 +669,7 @@ struct RecordShortcutOptions: View {
     }
 }
 
-/// Only the two plugin prompt headers use this style; collapsed content keeps its local draft and error.
+/// Settings disclosures use a full-width keyboard-accessible header and preserve local drafts while collapsed.
 struct PromptHeaderDisclosureStyle: DisclosureGroupStyle {
     func makeBody(configuration: Configuration) -> some View {
         HeaderAndContent(configuration: configuration)

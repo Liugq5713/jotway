@@ -105,6 +105,34 @@ kbd { display: inline-block; font: inherit; font-size: .85em; line-height: 1.5; 
 .action-grid a { font-size: .9rem; text-decoration: none; margin-top: auto; }
 .action-grid a:hover { text-decoration: underline; }
 .section-note { font-size: .9rem; color: var(--muted); max-width: 950px; margin-top: 20px; }
+.pricing { border-top: 1px solid var(--line); }
+.pricing-notice { padding: 20px 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--wash); margin-bottom: 24px; }
+.pricing-notice strong { color: var(--blue); }
+.pricing-notice p { margin-top: 4px; color: var(--muted); font-size: .9rem; }
+.pricing-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.plan { display: flex; flex-direction: column; padding: 28px; border: 1px solid var(--line); border-radius: 16px; }
+.plan-annual { border-color: var(--blue); background: #f7f9ff; }
+.plan-label { min-height: 44px; font-size: .8rem; color: var(--muted); }
+.plan-annual .plan-label { color: var(--blue); }
+.plan h3 { font-size: 1.4rem; }
+.plan-price { font-size: 3rem; font-weight: 650; letter-spacing: -.05em; line-height: 1.3; margin-top: 20px; }
+.plan-price span { font-size: 1rem; font-weight: 400; letter-spacing: 0; color: var(--muted); white-space: nowrap; }
+.plan-billing { font-size: .8rem; color: var(--muted); margin-top: 8px; }
+.plan-features { padding-left: 20px; margin: 24px 0 28px; font-size: .9rem; line-height: 1.7; }
+.plan-features li + li { margin-top: 10px; }
+.plan > .text-link, .plan-status { margin-top: auto; }
+.plan > .text-link { color: var(--blue); }
+.plan-status { font-size: .8rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; }
+.ai-trial { margin-top: 24px; padding: 24px 28px; background: var(--wash); border-radius: 12px; }
+.ai-trial p, .points-guide > p { color: var(--muted); margin-top: 8px; }
+.points-guide { margin-top: 40px; }
+.points-guide table { width: 100%; border-collapse: collapse; margin-top: 20px; text-align: left; font-size: .95rem; }
+.points-guide th, .points-guide td { padding: 16px; border-bottom: 1px solid var(--line); }
+.points-guide thead { background: var(--wash); font-size: .8rem; color: var(--muted); }
+.points-guide tbody th { font-weight: 500; }
+.points-guide th span { display: block; color: var(--muted); font-size: .8rem; font-weight: 400; margin-top: 4px; }
+.points-guide td, .points-guide thead th:last-child { text-align: right; white-space: nowrap; }
+.points-guide td { color: var(--blue); font-weight: 600; }
 .optional { display: grid; grid-template-columns: 1fr 1fr; gap: 80px; }
 .optional-copy { color: var(--muted); }
 .optional-copy p + p { margin-top: 20px; }
@@ -121,7 +149,7 @@ kbd { display: inline-block; font: inherit; font-size: .85em; line-height: 1.5; 
 .site-footer { display: flex; align-items: center; gap: 26px; border-top: 1px solid var(--line); padding-block: 32px; }
 .site-footer .brand { font-size: 1.1rem; }
 .site-footer p { font-size: .875rem; color: var(--muted); }
-.site-footer nav { display: flex; gap: 24px; margin-left: auto; font-size: .875rem; }
+.site-footer nav { display: flex; flex-wrap: wrap; gap: 12px 20px; margin-left: auto; font-size: .875rem; }
 .document-page { max-width: 900px; padding-bottom: 70px; }
 .page-intro { padding: 65px 0 50px; }
 .page-intro h1 { font-size: 3.8rem; }
@@ -194,7 +222,11 @@ kbd { display: inline-block; font: inherit; font-size: .85em; line-height: 1.5; 
     .closing { padding-block: 65px; }
     .site-footer { gap: 15px; }
     .site-footer p { margin-left: auto; }
-    .site-footer nav { width: 100%; justify-content: space-between; padding-top: 12px; margin-left: 0; }
+    .site-footer nav { width: 100%; flex-wrap: wrap; justify-content: space-between; padding-top: 12px; margin-left: 0; }
+    .pricing-grid { grid-template-columns: 1fr; }
+    .plan-label { min-height: 0; margin-bottom: 12px; }
+    .plan { padding: 24px; }
+    .points-guide th, .points-guide td { padding: 14px 10px; }
     .page-intro { padding: 40px 0; }
     .page-intro h1 { font-size: 3rem; }
     .document-section { padding-top: 30px; }

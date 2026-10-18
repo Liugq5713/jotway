@@ -23,12 +23,12 @@ struct NotesReviewControls: NSViewRepresentable {
             button.focusTarget = focusTarget
             button.launcherState = state
             button.send = send
-            button.isEnabled = state.modeSwitchBlockReason == nil
+            button.isEnabled = state.modeSwitchBlockReason == nil && state.reviewAIBlockReason == nil
             button.isCardHovered = isCardHovered
             button.increasesContrast = increasesContrast
             button.state = state.showsReview && state.reviewPeriod == button.period ? .on : .off
             let title = L10n.text(button.period.titleKey)
-            button.toolTip = state.modeSwitchBlockReason ?? title
+            button.toolTip = state.reviewAIBlockReason ?? state.modeSwitchBlockReason ?? title
             button.setAccessibilityLabel(title)
             button.setAccessibilityHelp(button.toolTip)
             button.setAccessibilityIdentifier("launcher-review-\(button.period.rawValue)")
@@ -44,13 +44,13 @@ final class NotesReviewButtonsView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         for (index, button) in buttons.enumerated() {
-            button.frame = NSRect(x: CGFloat(index) * 24, y: 0, width: 22, height: 22)
+            button.frame = NSRect(x: CGFloat(index) * 30, y: 0, width: 22, height: 22)
             addSubview(button)
         }
     }
 
     required init?(coder: NSCoder) { nil }
-    override var intrinsicContentSize: NSSize { NSSize(width: 46, height: 22) }
+    override var intrinsicContentSize: NSSize { NSSize(width: 52, height: 22) }
 }
 
 @MainActor
@@ -160,10 +160,8 @@ final class NotesReviewButton: NSButton {
             NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6).fill()
         }
         let color: NSColor = increasesContrast ? .labelColor : (emphasized ? EditorPalette.buttonText : EditorPalette.secondary)
-        let image = NSImage(systemSymbolName: period.systemImage, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(paletteColors: [color]))
-        image?.draw(in: bounds.insetBy(dx: 4, dy: 4), from: .zero, operation: .sourceOver,
-                    fraction: isEnabled ? 1 : 0.35)
+        let icon: EditorToolbarIcon = period == .weekly ? .weeklyReview : .monthlyReview
+        icon.draw(in: bounds, color: color, opacity: isEnabled ? 1 : 0.35)
         if keyboardFocused {
             NSColor.controlAccentColor.setStroke()
             let ring = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 6, yRadius: 6)

@@ -4,8 +4,8 @@ import Foundation
 /// Jotway 自有凭证文件，只访问本应用的本地目录。
 @MainActor
 final class APIKeyStore {
-    enum Provider: String, CaseIterable {
-        case deepSeek = "deepseek", moonshot, notesEmbedding
+    enum Provider: String, CaseIterable, Codable, Sendable {
+        case deepSeek = "deepseek", moonshot, personalAI, hostedAIActivation
     }
 
     enum Failure: Error, LocalizedError, Equatable, RuntimeLogError {

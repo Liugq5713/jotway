@@ -5,7 +5,7 @@ let defaultAISourceID = "deepSeek"
 func bundledAISources(keys: APIKeyStore = .shared) -> [AIProviderPlugin.Source] {
     // DeepSeek 与 Kimi 走进程内 HTTP，所有构建都提供。
     // 数组顺序即设置页展示顺序。
-    [DeepSeek.source(readKey: { try keys.load(for: .deepSeek) }),
+    [HostedAI.source(), DeepSeek.source(readKey: { try keys.load(for: .deepSeek) }),
      Moonshot.source(readKey: { try keys.load(for: .moonshot) })]
 }
 

@@ -414,11 +414,12 @@ struct EditorView: View {
                 NotesReviewControls(focusTarget: focusTarget, state: state, send: send,
                                     isCardHovered: isInputCardHovered,
                                     increasesContrast: colorSchemeContrast == .increased)
-                    .frame(width: 46, height: 22)
+                    .frame(width: 52, height: 22)
                     .fixedSize()
             }
             DraftThinkingPromptControl(focusTarget: focusTarget, state: state,
-                isCardHovered: isInputCardHovered, send: send)
+                isCardHovered: isInputCardHovered,
+                increasesContrast: colorSchemeContrast == .increased, send: send)
                 .frame(width: 22, height: 22)
             if state.mode == .quickInput {
                 HStack(alignment: .bottom, spacing: 8) {

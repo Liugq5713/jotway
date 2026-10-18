@@ -2,17 +2,44 @@
 
 > Role: **Current**
 
-The repository contains a static English-language website at `website/`. It is published at [liugq5713.github.io/jotway](https://liugq5713.github.io/jotway/) through GitHub Pages. Each deployment verifies the latest stable GitHub Release and updates the site's download details automatically.
+The repository contains a static English-language website at `website/`. The primary website is [jotway.pages.dev](https://jotway.pages.dev/), deployed to the Cloudflare Pages project `jotway` on its `main` production branch. The existing [GitHub Pages site](https://liugq5713.github.io/jotway/) has a separate deployment workflow that verifies the latest stable GitHub Release and updates its download details automatically.
+
+Cloudflare currently uses GitHub Releases-only mode: download calls to action lead to the repository's Releases page, and the home and installation pages disclose that the available build is not notarized by Apple. This mode does not advertise a verified direct DMG, publish a Sparkle feed, or relax the signed-release exporter. Its `release.json` has `status: unpublished`, meaning this site advertises no verified installer, not that GitHub has no releases. The product demo remains explicitly labeled as a development preview.
+
+## Cloudflare Pages deployment
+
+Build the current Releases-only site and upload the generated static directory using an authenticated Wrangler installation:
+
+```bash
+python3 scripts/website/build.py --github-releases-only
+node --check website/src/site.js
+npx wrangler pages deploy website/dist --project-name jotway --branch main
+```
+
+Only `website/dist/` is uploaded. No Cloudflare Git integration or automatic deployment workflow is configured; source changes require another build and upload. The existing GitHub Pages workflow and application update URL remain independent. To enable direct downloads later, verify a notarized release with the exporter and build with its metadata and appcast instead of `--github-releases-only`.
 
 ## Pages and behavior
+
+The following direct-download behavior applies to builds using verified release metadata. Releases-only mode uses the external download path described above.
 
 - `/`: Apple Notes capture and local application launching, confirmation and illustrative destination results, recovery and privacy. The primary call to action says “Download Jotway” and downloads the verified public DMG directly. “Installation & details” opens the download page; an unpublished build says “Check availability” and opens that page instead.
 - `/download/`: verified artifact facts, a DMG download, installation instructions, and source-build guidance. An unpublished build shows an availability message instead. Directory routes also resolve from `/download` on a directory-index static host.
 - `/privacy/`: draft lifetime, Action transfer, optional provider requests, full-text local feedback, retention and clearing boundaries. `/privacy` resolves in the same way.
+- `/terms/`: the Jotway individual-developer brand, free core features, planned paid AI service, renewal and cancellation, content and service boundaries.
+- `/refunds/`: the planned 14-day full-refund offer for initial monthly or annual purchases and renewals, request instructions, and cancellation/access consequences.
+- `/contact/`: the public support email `liugq5713@gmail.com`, billing and privacy request guidance. Residential account-verification addresses are not published on the website.
 
 Pages share `website/src/layout.html`, local styles, navigation and footer. The top navigation includes the GitHub repository and a direct download using the same verified release URL as the home page, with “Check availability” as the fallback when no public artifact is available. The footer's “Install guide” keeps release details and installation instructions accessible. A small dependency-free script drives the interactive product demo and copies an available checksum. Reading, navigation and downloads work without JavaScript. The site has no account system, analytics, external fonts or persistent browser preferences.
 
 The home page leads with Apple workflows. Other actions remain discoverable through the product guide. Enhanced examples are visibly labeled development previews requiring an unreleased source build; the download metadata is not evidence that a newer workspace feature is released. Privacy copy distinguishes local routing from optional Notes AI, Notes indexing, primary/fallback model disclosure and local records.
+
+## AI pricing preview
+
+The home page's `/#pricing` section is linked from every page's header and footer. It presents free core features alongside planned Jotway AI subscriptions: USD 4.99 monthly or USD 49 annually, both with a starting beta allowance of 500 AI points per month. Annual points are provided monthly. A planned one-time trial offers 30 points without a card. The point guide lists automatic title and grouping for one capture together at 1 point, a thinking prompt at 1 point, a deep insight at 5 points, and each weekly or monthly review at 20 points.
+
+The section explicitly labels subscriptions, trial activation and point billing as forthcoming. Paid cards have informational availability labels, not purchase controls. It does not collect payment details, activate a trial, grant points or change the service's existing token accounting. Core capture, editing and saving original text are described as free. All pricing content is static and readable without JavaScript.
+
+The footer links the terms, privacy, refunds and contact pages from every route. Terms and refunds explicitly describe the future paid offering rather than claiming checkout is available. Both monthly and annual purchases and renewals have a 14-day full-refund offer; using some AI points does not itself disqualify a timely request. Billing, cancellation, refunds and credit entitlement still need to be implemented and verified before enabling purchases. Privacy disclosures distinguish optional hosted AI, provider processing, website hosting, support messages and planned Paddle billing.
 
 ## Interactive product demo
 

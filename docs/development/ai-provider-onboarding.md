@@ -2,7 +2,7 @@
 
 > Role: **Reference**
 
-Use this recipe for a compile-time provider with a fixed endpoint and model catalog. User-defined base URLs are a different security model and are outside this path.
+Use this recipe for a compile-time provider with a fixed endpoint and model catalog. User-defined base URLs use PersonalModelConfiguration and the Claude/OpenAI-compatible adapters; see [provider implementation](../plugins/ai-provider-implementation.md). This recipe covers only compile-time sources.
 
 ## OpenAI-compatible provider
 
@@ -34,5 +34,3 @@ Before registering a source:
 - verify cancellation while queued and while running;
 - verify empty output and mismatched/unknown model IDs are rejected;
 - inspect runtime logs to confirm text, keys, and raw responses are absent.
-
-For non-text backends, implement `ModelEmbeddingInvocation` or `ModelJevInvocation` and bind it with `ModelConfiguration.bindEmbedding(profile:factory:)` or `bindJev(model:factory:)`. Preserve explicit vector-space identity and Jev scores/alias semantics; never wrap arbitrary JSON as a universal text result. See [implementation](../plugins/ai-provider-implementation.md) for exact seams.

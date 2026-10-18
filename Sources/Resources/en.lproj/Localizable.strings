@@ -39,9 +39,9 @@
 "settings.page.about" = "About";
 "settings.subtitle.general" = "Choose how Jotway opens and responds.";
 "settings.subtitle.appearance" = "Choose colors and a finish animation.";
-"settings.subtitle.ai" = "Connect a service for writing help.";
+"settings.subtitle.ai" = "Manage AI services, models and access keys.";
 "settings.subtitle.intent" = "Get app suggestions as you type. You choose what runs.";
-"settings.subtitle.actions" = "Choose where to save, search, or chat.";
+"settings.subtitle.actions" = "Save location, grouping, insights, and reviews.";
 "settings.subtitle.instructions" = "Share your background and writing preferences.";
 "settings.subtitle.getting_started" = "Type a thought, choose an app, and try it.";
 "settings.subtitle.about" = "Version, updates, and contact.";
@@ -49,7 +49,7 @@
 "settings.sidebar.configuration" = "Settings";
 "settings.sidebar.help" = "Help";
 "settings.sidebar.accessibility" = "Settings pages";
-"settings.actions.back" = "Back to Apps";
+"settings.actions.back" = "Back to Apple Notes";
 "settings.instructions.background" = "About Your Writing";
 "settings.instructions.background.help" = "All writing tools use this background to understand your text. It isn't part of your note. Changes apply to new requests.";
 "settings.instructions.unavailable" = "Writing Help Unavailable";
@@ -124,7 +124,7 @@
 "guide.step.confirm.title" = "Press Enter";
 "guide.step.confirm.detail" = "Press Enter to continue. Shift+Enter adds a new line. Clarify any unclear time first. Once the time is valid, press Enter once; Jotway waits for writing help to finish.";
 "guide.destination.help" = "Choose a Notes folder first. After saving, find the original in Notes.";
-"guide.configure_actions" = "Set Up Apps";
+"guide.configure_actions" = "Set Up Apple Notes";
 "guide.reopen" = "Open Jotway Again";
 "guide.reopen.label" = "Open Quick Entry";
 "guide.shortcut.not_set" = "Not Set";
@@ -152,9 +152,9 @@
 "guide.intent_ai" = "Suggestions and Writing";
 "guide.intent.help" = "Application names match locally. Use ⌥↑ / ⌥↓ to change the target. The target shown at the bottom runs only when you confirm.";
 "guide.intent.local_help" = "Try an application name or “save to notes.” Other text uses Notes. Typing does not send a draft to an intent service.";
-"guide.ai.help" = "Notes keeps your complete original. Optional Extra Ideas adds separate insights. If assistance fails, the original is still saved. Automatic tags are paused. Writing Help selects primary and fallback models for Notes titles, grouping and supplements.";
+"guide.ai.help" = "Notes keeps your complete original. Optional Extra Ideas adds separate insights. If assistance fails, the original is still saved. Automatic tags are paused. AI Services configures Jotway AI or one personal model for all text AI features.";
 "guide.open_intent" = "App Suggestions";
-"guide.open_actions" = "Set Up Apps";
+"guide.open_actions" = "Set Up Apple Notes";
 "guide.drafts_failures" = "Drafts and Problems";
 "guide.drafts.help" = "Hiding Quick Entry keeps your draft so you can keep writing. Quitting, restarting, or a crash clears it.";
 "guide.failures.help" = "If something fails, Jotway explains why and restores your text. If you've started a new draft, that draft stays untouched.";
@@ -285,7 +285,7 @@
 "launcher.target_unavailable" = "App Unavailable";
 "launcher.action_unavailable" = "This app option isn't available right now.";
 "launcher.application_unavailable" = "This app isn't available right now.";
-"launcher.no_default_action" = "No app is ready to save. Choose a save location in Settings → Apps.";
+"launcher.no_default_action" = "No app is ready to save. Choose a save location in Settings → Apple Notes.";
 "launcher.open_failed_preserved" = "Couldn't open “%@”. Your text is kept.";
 "launcher.opened_clear_failed" = "The app opened, but your draft couldn't be cleared. Your text is still here.";
 "launcher.system_open_failed" = "Your Mac couldn't find an app to open.";
@@ -328,7 +328,7 @@
 "ai.error.truncated" = "%@ cut the reply short, so it wasn't saved. Shorten your text and try again.";
 "ai.error.incomplete" = "%@ didn't finish writing. Try again later.";
 "ai.error.empty" = "%@ returned no text.";
-"ai.error.missing_key" = "Save your %@ access key in Settings → Writing Help first.";
+"ai.error.missing_key" = "Save your %@ access key in Settings → AI Services first.";
 "ai.error.invalid_key" = "Your %@ access key looks incorrect. Paste it again.";
 "ai.error.request_too_large" = "The text and instructions together are too long for the writing service.";
 "ai.error.provider_empty" = "The writing service returned no text.";
@@ -407,80 +407,28 @@
 
 
 /* Settings navigation and access keys */
-"settings.page.ai" = "Writing Help";
-"settings.page.actions" = "Apps";
+"settings.page.ai" = "AI Services";
+"settings.page.actions" = "Apple Notes";
 "settings.page.instructions" = "Writing Preferences";
 "settings.key.accessibility" = "%@ access key";
 
-// Notes history and embedding service
-"notes.history.title" = "Related History";
-"notes.history.enable" = "Enable Related History";
-"notes.history.privacy" = "Indexing starts automatically once Notes access and the embedding service key are ready. It reads text from your selected Notes folders. Text fragments and search queries are sent to Alibaba Cloud to create embeddings. Related fragments are also sent to the selected Deep Model service when Add Extra Ideas is enabled. The rebuildable index stays on this Mac. Clear Index pauses indexing and keeps text-free origin records so generated additions stay out of future indexing. Locked, unreadable and attachment content may not be covered.";
-"notes.history.service" = "Embedding Service";
-"notes.history.test" = "Test Connection";
-"notes.history.test.success" = "Connection and embedding response verified using fixed sample text.";
-"notes.history.details" = "Model, endpoint and storage";
-"notes.history.key_storage" = "Your separate key is stored in a restricted local Jotway file, never in preferences or the index. Testing sends only a fixed, non-private sample.";
-"notes.history.all_folders" = "All accessible accounts and folders";
-"notes.history.load_folders" = "Choose Folders…";
-"notes.history.scope_count" = "Selected folders: %d";
-"notes.history.saved_folder" = "Saved folder (load folders to resolve): %@";
-"notes.history.remove_scope" = "Remove";
-"notes.history.authorize" = "Allow Notes Access";
-"notes.history.resume" = "Resume Indexing";
-"notes.history.paused" = "Automatic indexing is paused. Resume when you're ready.";
-"notes.history.refresh" = "Refresh";
-"notes.history.cancel" = "Cancel Sync";
-"notes.history.clear" = "Clear Index";
-"notes.history.progress" = "Processed %d of %d notes";
-"notes.history.phase.folders" = "Finding Notes folders…";
-"notes.history.phase.found_folders" = "Finding Notes folders · %d found";
-"notes.history.phase.metadata" = "Scanning folder %d of %d · %d notes found";
-"notes.history.phase.checking" = "Checking notes for changes…";
-"notes.history.phase.reading" = "Reading note %d of %d…";
-"notes.history.phase.embedding" = "Making note %d of %d searchable · %d of %d text fragments";
-"notes.history.phase.saving" = "Saving indexed notes…";
-"notes.history.phase.finishing" = "Finishing sync…";
-"notes.history.elapsed" = "Elapsed: %d seconds";
-"notes.history.cancelling" = "Stopping after the current Notes request…";
-"notes.history.searchable" = "Searchable notes: %d";
-"notes.history.attachments" = "Attachments not extracted: %d";
-"notes.history.last_sync" = "Last successful sync (any saved scope): %@";
-"notes.history.search" = "Search History";
-"notes.history.query" = "Ask about an idea in your old notes";
-"notes.history.search_button" = "Search";
-"notes.history.modified" = "Modified: %@";
-"notes.history.open" = "Open in Notes";
+"notes.review.all_folders" = "All accessible accounts and folders";
+"notes.review.load_folders" = "Choose Folders…";
+"notes.review.scope_count" = "Selected folders: %d";
+"notes.review.saved_folder" = "Saved folder (load folders to resolve): %@";
+"notes.review.remove_scope" = "Remove";
+"notes.review.authorize" = "Allow Notes Access";
 "notes.source.open_failed" = "Couldn't Open Note";
 "notes.source.permission" = "Allow Jotway to access Notes in System Settings → Privacy & Security → Automation, then try the link again.";
 "notes.source.unavailable" = "This source note could not be opened. It may have been deleted, or it may be available only on the Mac where the link was created.";
-"notes.history.no_hits" = "No related sources found. Similarity is a retrieval filter, not a confidence score.";
-"notes.history.choose_scope" = "Select at least one folder before indexing.";
-"notes.history.cleared" = "Index cleared. Automatic indexing is paused until you resume. Your Notes and operation records were not changed.";
-"notes.history.cancelled" = "Indexing is paused. Completed batches are kept; resume to continue.";
-"notes.history.error.authentication" = "Embedding key was rejected (401/403). Replace it in Embedding Service.";
-"notes.history.error.response" = "The embedding service returned an invalid response. No vectors were accepted.";
-"notes.history.error.unavailable" = "History is temporarily unavailable. You can still save your original draft.";
-"notes.history.error.rebuild" = "The embedding profile changed. Clear the index, then click Index Notes to rebuild.";
-"notes.history.error.stale" = "History configuration or index changed. Try again with the current settings.";
-"notes.history.error.tooLarge" = "Content exceeds the bounded history processing size.";
-"notes.history.error.busy" = "Embedding requests are busy. Try again shortly.";
-"notes.history.error.credentials" = "The embedding key could not be stored. Check local file access.";
-"notes.history.error.permission" = "Notes access is unavailable. Allow Notes Access, or review System Settings → Privacy & Security → Automation → Jotway → Notes.";
-"notes.history.state.locked" = "Locked notes skipped";
-"notes.history.state.pending" = "Empty or not yet synced";
-"notes.history.state.empty" = "No indexable text";
-"notes.history.state.failed" = "Processing failed";
-"notes.history.state.unreadable" = "Unreadable notes";
+"notes.read.error.response" = "Notes returned an invalid response.";
+"notes.read.error.unavailable" = "Notes content is temporarily unavailable. You can still save your original draft.";
+"notes.read.error.stale" = "Notes content or configuration changed. Try again with the current settings.";
+"notes.read.error.tooLarge" = "Notes content exceeds the supported reading size.";
+"notes.read.error.permission" = "Notes access is unavailable. Allow Notes Access, or review System Settings → Privacy & Security → Automation → Jotway → Notes.";
 
 "action.notes.tags_paused" = "Automatic tags are paused. Your saved tag preferences are kept. Tags you write in the original text stay unchanged.";
-"notes.history.error.ambiguous" = "The original text cannot be separated reliably from generated content. This note is skipped.";
-"notes.history.state.ambiguous" = "Original boundary unclear — skipped";
-"notes.history.state.reprocessing" = "Awaiting extraction update";
-"notes.history.candidates" = "Found %d candidate notes";
-"notes.history.coverage" = "Searchable: %d · Awaiting extraction: %d · Failed: %d";
-"notes.history.partial_results" = "Some notes may not be searchable yet, or a full sync has not completed. Results may be incomplete. Use Refresh to continue indexing.";
-"notes.history.candidate_help" = "These are candidates for AI selection. Saved related history may include fewer notes.";
+"notes.read.error.ambiguous" = "The original text cannot be separated reliably from generated content. This note is skipped.";
 
 "action.codex.title" = "Run with Codex";
 "action.codex.settings_name" = "Codex";
@@ -512,9 +460,9 @@
 "notes.review.regenerate" = "Review settings changed. Close and reopen this review to generate it again.";
 "notes.review.empty" = "Not enough content to build a review.";
 "notes.review.failed" = "Couldn't build the summary just now. Try again.";
-"notes.review.unavailable.disabled" = "Notes Review is off. Turn it on in Related History settings.";
-"notes.review.unavailable.not_ready" = "Enable and sync Related History to get a notes review.";
-"notes.review.coverage" = "Based on indexed notes only.";
+"notes.review.unavailable.disabled" = "Notes Review is off. Turn it on in Apple Notes settings.";
+"notes.review.unavailable.not_ready" = "Allow Notes access and configure AI Services to get a notes review.";
+"notes.review.coverage" = "Based only on readable excerpts from the selected folders; some content was skipped.";
 "notes.review.note_count" = "%d notes";
 "notes.review.themes" = "Notable themes";
 "notes.review.theme_count" = "(%d)";
@@ -537,14 +485,14 @@
 
 "notes.grouping.title" = "Daily Project Notes";
 "notes.grouping.toggle" = "Group today's ideas automatically";
-"notes.grouping.help" = "Your Fast Model compares the new idea with complete originals in today's managed notes. Both configured services may receive this text. Earlier days stay unchanged. AI additions have a separate switch.";
-"notes.grouping.configured" = "Primary Fast Model is configured";
-"notes.grouping.unconfigured" = "DeepSeek is not configured. Ideas will be saved separately.";
+"notes.grouping.help" = "The active AI service compares new ideas with complete originals in today’s managed notes. Earlier days stay unchanged. AI additions have a separate switch.";
+"notes.grouping.configured" = "AI is configured";
+"notes.grouping.unconfigured" = "AI is not configured. Ideas will be saved separately.";
 "notes.grouping.configure" = "Configure…";
 "notes.grouping.key_failed" = "The DeepSeek key could not be saved.";
 
 "browser_source.enable" = "Chrome Source";
-"browser_source.help" = "Add the current Chrome page near a copy. This may not be the exact source. Check before saving. Links may contain private details. Sources follow your draft’s AI, history, and Local Records settings.";
+"browser_source.help" = "Add the current Chrome page near a copy. This may not be the exact source. Check before saving. Links may contain private details. Sources follow your draft’s AI and Local Records settings.";
 "browser_source.allowed" = "Chrome access allowed";
 "browser_source.unavailable" = "Chrome access unavailable. Text capture still works.";
 "browser_source.retry" = "Allow Chrome Access";
@@ -614,37 +562,28 @@
 
 "notes.title.heading" = "Initial note title";
 
-"notes.title.help" = "Every new note uses the fast model to summarize its first original entry, independently of daily grouping and AI additions. If title generation fails, the complete original is saved once with a pending title. Jotway retries only on the same day; edits in Notes stop automatic replacement. Appending keeps the current title.";
+"notes.title.help" = "Each new note uses the active AI service for its first title, independently of grouping and AI additions. On failure, the original is saved with a pending title. Same-day recovery never switches providers; hosted failures pause automatic retries.";
 
-"notes.title.unconfigured" = "Configure the fast model below to generate titles. Originals can still be saved with a pending title.";
+"notes.title.unconfigured" = "Configure AI below to generate titles. Originals can still be saved with a pending title.";
 
-"settings.ai.binding_invalid" = "Saved model settings could not be read. Choose and save your models to repair them.";
+"settings.ai.binding_invalid" = "The saved AI configuration is unavailable. Save a personal model to repair it.";
 
-"settings.ai.fast" = "Fast Model";
 
-"settings.ai.deep" = "Deep Model";
 
-"settings.ai.primary" = "Primary Model";
 
-"settings.ai.fallback" = "Fallback Model";
 
 "settings.ai.none" = "None";
 
-"settings.ai.swap" = "Swap Primary and Fallback";
 
 "settings.ai.ready" = "Ready";
 
 "settings.ai.not_ready" = "Not configured";
 
-"settings.ai.embedding" = "Embedding Service";
 
 "settings.ai.services" = "Service Keys";
 
-"settings.ai.fast_help" = "Used for Notes titles, grouping and draft thinking prompts. An unavailable fallback does not prevent the primary model from working.";
 
-"settings.ai.deep_help" = "Used for Notes supplements. Kimi Code always thinks and may take longer before returning text.";
 
-"settings.ai.fallback_privacy" = "A fallback may send the same text and related Notes context to a second service. Each service bills its own account. Connection tests call only the selected model.";
 
 "settings.ai.connection.succeeded_title" = "%@ connected successfully.";
 
@@ -674,7 +613,7 @@
 // Draft thinking prompts
 "thinking.settings.title" = "Thinking Prompts";
 "thinking.settings.automatic" = "Automatic follow-up prompts";
-"thinking.settings.help" = "Off by default. When enabled, a pause of about one second sends your current draft to the fast model for one prompt. Prompts are temporary and never added to your saved text.";
+"thinking.settings.help" = "Off by default. When enabled, a pause of about one second sends your current draft to the active AI service. A temporary prompt appears only when it can help you think further; otherwise, it stays quiet. Prompts never enter saved text.";
 "thinking.open" = "Ask for a thinking prompt";
 "thinking.title" = "Thinking prompt · AI";
 "thinking.snapshot" = "Based on the draft when generated";
@@ -682,8 +621,8 @@
 "thinking.close" = "Close thinking prompt";
 "thinking.loading" = "Thinking…";
 "thinking.empty" = "No useful prompt this time. Keep writing or try another.";
-"thinking.unconfigured" = "Set up a fast model in Writing Help to get prompts.";
-"thinking.configure" = "Open Writing Help";
+"thinking.unconfigured" = "Set up AI in AI Services to get prompts.";
+"thinking.configure" = "Open AI Services";
 "thinking.too_large" = "This draft exceeds the prompt input limit. Your full text is unchanged.";
 "thinking.timeout" = "The prompt timed out. You can retry.";
 "thinking.failed" = "Could not get a usable prompt. You can retry.";
@@ -719,8 +658,88 @@
 "recent_documents.newer" = "Newer document";
 "recent_documents.older" = "Older document";
 
-/* Account-owned embedding configuration. */
-"notes.history.endpoint" = "Embedding service URL";
-"notes.history.endpoint_help" = "Paste the HTTPS DashScope embedding URL for your own workspace. No workspace is preconfigured. Saving does not test the service; changing it requires rebuilding an existing index. Clear the URL to disconnect.";
-"notes.history.save_endpoint" = "Save Service URL";
-"notes.history.error.configuration" = "Enter a valid HTTPS DashScope embedding URL for your workspace.";
+
+"launcher.ai.requires_configuration" = "Configure the required AI model in AI Services first";
+
+// Jotway AI activation
+"settings.activation.title" = "Jotway AI";
+"settings.activation.active" = "Jotway AI is active";
+"settings.activation.remaining" = "Available tokens (last checked)";
+"settings.activation.held" = "%@ tokens reserved for pending requests.";
+"settings.activation.refresh" = "Refresh Quota";
+"settings.activation.remove" = "Remove Code";
+"settings.activation.replacement" = "New activation code";
+"settings.activation.code" = "Activation code";
+"settings.activation.checking" = "Checking…";
+"settings.activation.activate" = "Activate";
+"settings.activation.help" = "Paste an activation code. All text AI calls then use Jotway AI; your personal configuration stays saved.";
+"settings.activation.privacy" = "Text goes through Jotway to its models. Input and output share the token balance. Keep your code private.";
+"settings.activation.required" = "Activate Jotway AI in AI Services first.";
+"settings.activation.invalid" = "This activation code is invalid or has been replaced. Ask the person who sent it for a new code.";
+"settings.activation.disabled" = "This code has been disabled. Contact the person who sent it.";
+"settings.activation.empty" = "Not enough quota for this request. Contact the person who sent your code to add more.";
+"settings.activation.duplicate" = "This request was already received. Refresh your quota before trying again.";
+"settings.activation.busy" = "Another request is running, or the service is busy. Try again shortly.";
+"settings.activation.rejected" = "The service could not accept this request. Try a shorter text.";
+"settings.activation.unavailable" = "Jotway AI is temporarily unavailable. Refresh your quota before retrying; an interrupted request may hold tokens.";
+"settings.activation.unreachable" = "Could not reach Jotway AI. Check your connection and try again.";
+"settings.activation.options" = "Model Options";
+"settings.activation.no_fallback" = "Jotway AI uses one selected model per request. Failures never switch to another paid service.";
+"settings.activation.token_limit" = "This service supports at most %d output tokens per request.";
+
+"settings.activation.change" = "Change Code";
+"settings.activation.cancel_change" = "Cancel Change";
+"settings.activation.unverified_status" = "Checking activation";
+"settings.activation.invalid_status" = "Code invalid or replaced";
+"settings.activation.disabled_status" = "Access disabled";
+"settings.activation.no_credits_status" = "No credits remaining";
+"settings.activation.low_credits_status" = "Not enough credits for this request";
+"settings.activation.unavailable_status" = "Unable to confirm access";
+"settings.activation.next_step" = "Open Quick Entry, write a thought, then choose the thinking prompt icon below the editor.";
+"thinking.hosted_settings" = "Jotway AI Settings";
+
+"settings.ai.personal.title" = "Personal Model";
+
+"settings.ai.personal.openai" = "OpenAI-compatible";
+
+"settings.ai.personal.service" = "Service Type";
+
+"settings.ai.personal.url" = "API Base URL";
+
+"settings.ai.personal.url_help" = "Enter the API base URL, usually ending in /v1; do not include /messages or /chat/completions. HTTPS only.";
+
+"settings.ai.personal.model" = "Model ID";
+
+"settings.ai.personal.help" = "One model handles titles, thinking prompts, grouping, AI additions and reviews. Requests never switch to a backup model.";
+
+"settings.ai.personal.hosted_active" = "Jotway AI is in use. Your personal model stays saved and resumes after you remove the activation code.";
+
+"settings.ai.personal.test_hosted" = "With an activation code, Test Connection also uses Jotway AI and its quota. Personal keys are not used.";
+
+"settings.ai.personal.privacy" = "Text and related context go to the configured service and are billed to that account. Save first, then test with sample text.";
+
+
+"settings.ai.personal.invalid" = "Enter a valid HTTPS API base URL and a nonempty model ID without whitespace.";
+
+"settings.ai.personal.required" = "Activate Jotway AI or configure a personal model in AI Services.";
+
+"settings.ai.personal.key_required" = "Enter an API key. Changing the service type or address requires entering the key again.";
+
+"settings.ai.personal.key_saved" = "Saved; leave blank to keep it";
+
+"settings.ai.personal.key_enter" = "Enter your API key";
+
+"settings.activation.remove_help" = "Removing the code resumes your saved personal model for new requests.";
+
+// Central AI service configuration
+"settings.ai.services.current" = "Current Text Service";
+"settings.ai.services.unconfigured" = "Not Configured";
+"settings.ai.services.hosted" = "All text AI features use Jotway AI while an activation code is saved.";
+"settings.ai.services.personal" = "Without a Jotway code, all text AI features use your personal model.";
+"settings.ai.services.personal_unused" = "Not needed while Jotway AI is active";
+"settings.ai.services.personal_saved" = "Saved · not in use";
+"settings.ai.services.advanced" = "Advanced";
+"settings.ai.services.open" = "Open AI Services";
+"settings.ai.services.preferences" = "Open Writing Preferences";
+
+"notes.review.privacy" = "Reviews read recent original text from the selected Notes folders only when requested, then send bounded excerpts to your active text AI service. No background indexing or embedding service is used.";

@@ -78,7 +78,7 @@ The lower detail card reads the current Notes plaintext by document ID and provi
 
 A lightbulb in the footer opens one temporary AI thinking prompt below the editor in either mode. It offers a question, a missing piece of evidence or a comparison criterion; the user continues in the original editor. The prompt shares the lower area with document detail and action content, and never becomes draft or saved text. Manual results remain tied to their generation snapshot.
 
-Writing Help offers an independent, default-off Automatic follow-up prompts preference. When enabled, settled edits can update the prompt without taking focus; closing it suppresses automatic reopening until the text changes. Menus, document viewing and protected input take precedence. Only the current draft goes to the fast model chain. See [Thinking prompts](../../openspec/specs/draft-thinking-prompts/spec.md) for request, privacy and lifetime boundaries.
+Writing Help offers an independent, default-off Automatic follow-up prompts preference. When enabled, settled edits are evaluated in the background, and only a useful prompt opens the lower panel without taking focus. Loading, empty results and failures stay silent; closing it suppresses automatic reopening until the text changes. Menus, document viewing and protected input take precedence. Only the current draft goes to the fast model chain. See [Thinking prompts](../../openspec/specs/draft-thinking-prompts/spec.md) for request, privacy and lifetime boundaries.
 
 ## Bundled actions
 
