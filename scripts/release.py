@@ -234,8 +234,11 @@ def notarize_and_staple(artifact, profile, *, application=False):
         if application:
             upload = Path(directory) / "Jotway.zip"
             run("ditto", "-c", "-k", "--keepParent", artifact, upload)
+        keychain = os.environ.get("JOTWAY_SIGNING_KEYCHAIN", "").strip()
         response = json.loads(run("xcrun", "notarytool", "submit", upload,
-                                  "--keychain-profile", profile, "--wait", "--output-format", "json", capture=True))
+                                  "--keychain-profile", profile,
+                                  *(["--keychain", keychain] if keychain else []),
+                                  "--wait", "--output-format", "json", capture=True))
         if response.get("status") != "Accepted" or not response.get("id"):
             raise ValueError("Apple 公证尚未 Accepted，停止发布。")
     run("xcrun", "stapler", "staple", artifact)

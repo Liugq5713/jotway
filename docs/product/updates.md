@@ -16,7 +16,7 @@ Updates retain `com.liuguangqi.jotway` and preserve its persistent data. Install
 
 ## Signing configuration
 
-macOS code signing and Sparkle update signing are separate. The app and its nested services use the persistent certificate selected by `JOTWAY_SIGNING_IDENTITY` or `.secrets/signing-identity`; an unconfigured checkout uses ad-hoc signing. Both development packaging and release re-signing retain the selected identity. See [Stable local signing](../development/environment.md#stable-local-signing) for setup and permission continuity. Local configuration does not provision CI credentials. The public workflow requires a separately provisioned Developer ID identity and notarization keychain profile; absent credentials stop it.
+macOS code signing and Sparkle update signing are separate. The app and its nested services use the persistent certificate selected by `JOTWAY_SIGNING_IDENTITY` or `.secrets/signing-identity`; an unconfigured checkout uses ad-hoc signing. Both development packaging and release re-signing retain the selected identity. See [Stable local signing](../development/environment.md#stable-local-signing) for setup and permission continuity. Local configuration does not provision CI credentials. The public workflow imports the Developer ID identity and creates a notarization profile in a temporary keychain from repository Actions secrets; absent credentials stop it.
 
 The public update key is checked into `Resources/Info.plist`. Its private key is stored in `.secrets/sparkle-private.key` at the repository root. The `.secrets` directory has mode `700`, the private-key file has mode `600`, and the directory is excluded from Git. Local online releases read this file; `SPARKLE_PRIVATE_KEY`, when provided, takes precedence. Dry runs do not read the private key.
 
@@ -25,6 +25,25 @@ The same private key must be configured as the repository Actions secret `SPARKL
 Keep the local private-key file and a secure backup across builds and releases. Do not regenerate it for each release: installed clients trust the existing public key. Never commit, print, or pass the private key as a command-line argument. Local packaging and CI supply it to Sparkle through standard input.
 
 The appcast and installer files are public. The signing key grants authority to sign Jotway updates and remains private.
+
+### GitHub-hosted Mac signing setup
+
+Hosted runners start without the project's Developer ID private key or notarization profile. Configure these repository Actions settings before publishing:
+
+| Name | Setting | Content |
+| --- | --- | --- |
+| `JOTWAY_SIGNING_IDENTITY` | Secret or variable | The fixed Developer ID Application certificate's SHA-1 fingerprint. |
+| `JOTWAY_SIGNING_CERTIFICATE_BASE64` | Secret | Base64-encoded `.p12` containing that certificate and its private key. |
+| `JOTWAY_SIGNING_CERTIFICATE_PASSWORD` | Secret | The `.p12` export password. |
+| `JOTWAY_NOTARY_API_KEY_BASE64` | Secret | Base64-encoded App Store Connect team API private key (`.p8`) with notarization access. |
+| `JOTWAY_NOTARY_KEY_ID` | Secret | The API key ID. |
+| `JOTWAY_NOTARY_ISSUER_ID` | Secret | The API key issuer ID. |
+
+`SPARKLE_PRIVATE_KEY` remains required for update signatures. `JOTWAY_NOTARY_PROFILE` is optional and defaults to `jotway-release`; it names the profile created by CI and does not replace Apple credentials. Enter private material only through repository Actions secrets, never in source, issues, or chat. Keep the same Developer ID identity and Sparkle key across releases.
+
+`scripts/ci-signing.py prepare` imports the certificate into a temporary keychain, checks the configured identity, grants the signing tools access, and validates/stores Apple notarization credentials there. Credential files have restricted permissions and are removed after import; an always-running cleanup step restores the original keychain search list and removes the temporary keychain. `release.py` uses that keychain for notarization. Local release credentials and the default keychain are unchanged.
+
+The **Release readiness** workflow runs when release configuration changes and can also be run manually. It validates signing setup without building an installer, uploading an app, creating tags, or publishing a release. Missing configuration is reported by name in workflow annotations. After updating secrets, rerun readiness before creating the next release tag. Native credential setup requires a Mac; `python3 scripts/ci-signing.py check` only checks presence and can run on other platforms.
 
 ## Local release flow
 

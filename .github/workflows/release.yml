@@ -56,12 +56,20 @@ jobs:
             --version-baseline \
             --output "$RUNNER_TEMP/previous-release.json"
 
+      - name: Prepare Developer ID and notarization credentials
+        env:
+          JOTWAY_SIGNING_IDENTITY: ${{ secrets.JOTWAY_SIGNING_IDENTITY || vars.JOTWAY_SIGNING_IDENTITY }}
+          JOTWAY_SIGNING_CERTIFICATE_BASE64: ${{ secrets.JOTWAY_SIGNING_CERTIFICATE_BASE64 }}
+          JOTWAY_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.JOTWAY_SIGNING_CERTIFICATE_PASSWORD }}
+          JOTWAY_NOTARY_API_KEY_BASE64: ${{ secrets.JOTWAY_NOTARY_API_KEY_BASE64 }}
+          JOTWAY_NOTARY_KEY_ID: ${{ secrets.JOTWAY_NOTARY_KEY_ID }}
+          JOTWAY_NOTARY_ISSUER_ID: ${{ secrets.JOTWAY_NOTARY_ISSUER_ID }}
+          JOTWAY_NOTARY_PROFILE: ${{ secrets.JOTWAY_NOTARY_PROFILE }}
+        run: python3 scripts/ci-signing.py prepare
+
       - name: Build and verify public distribution DMG
         env:
-          # The runner must already have this Developer ID and notary profile provisioned.
-          # Missing credentials fail closed; an ad-hoc package must never reach publication.
-          JOTWAY_SIGNING_IDENTITY: ${{ secrets.JOTWAY_SIGNING_IDENTITY }}
-          JOTWAY_NOTARY_PROFILE: ${{ secrets.JOTWAY_NOTARY_PROFILE }}
+          JOTWAY_SIGNING_IDENTITY: ${{ secrets.JOTWAY_SIGNING_IDENTITY || vars.JOTWAY_SIGNING_IDENTITY }}
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           ./scripts/release.py "${{ steps.version.outputs.version }}" \
@@ -126,3 +134,7 @@ jobs:
           name: Jotway-website-${{ steps.version.outputs.version }}
           path: website/dist/
           if-no-files-found: error
+
+      - name: Clean release credentials
+        if: always()
+        run: python3 scripts/ci-signing.py cleanup
