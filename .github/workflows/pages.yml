@@ -59,6 +59,7 @@ jobs:
         run: |
           python3 scripts/website/publish-metadata.py \
             --repository "$GITHUB_REPOSITORY" \
+            --allow-ad-hoc \
             --output "$RUNNER_TEMP/website-release.json" \
             --appcast-output "$RUNNER_TEMP/appcast.xml"
 

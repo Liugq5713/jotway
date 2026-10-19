@@ -76,7 +76,7 @@ The artifact producer `scripts/release.py` reads bundle metadata from the packag
 To refresh the offline snapshot from GitHub's latest stable release and build it:
 
 ```bash
-python3 scripts/website/publish-metadata.py --output website/release.json --appcast-output /tmp/jotway-appcast.xml
+python3 scripts/website/publish-metadata.py --allow-ad-hoc --output website/release.json --appcast-output /tmp/jotway-appcast.xml
 python3 scripts/website/build.py --appcast /tmp/jotway-appcast.xml
 ```
 
@@ -84,13 +84,17 @@ To verify a specific release against a local artifact, the original explicit for
 
 ```bash
 python3 scripts/website/publish-metadata.py \
+  --allow-ad-hoc \
   --release release/<version-build>/release.json \
   --tag v<version> \
-  --output website/release.json
-python3 scripts/website/build.py
+  --output website/release.json \
+  --appcast-output /tmp/jotway-appcast.xml
+python3 scripts/website/build.py --appcast /tmp/jotway-appcast.xml
 ```
 
 The exporter requires `gh`. Without `--tag`, it selects GitHub's latest stable release. Without `--release`, it reads the original artifact record from that release's public `release.json` attachment. With `--release`, it first verifies the local DMG against the supplied record. Both modes inspect the actual release and matching uploaded asset, reject drafts, prereleases, or mismatched artifacts, then download the DMG's public URL without credentials and verify its size and SHA-256 against the artifact record.
+
+The repository's release and Pages workflows explicitly pass `--allow-ad-hoc` for personal-developer distribution. It accepts ad-hoc application signing with an unnotarized DMG and rejects contradictory Apple verification claims. Checksum, appcast and update-signature verification remain required. The home and download pages identify unnotarized builds; exported `dmgCodeSigning`, when supplied by the artifact record, also shows whether the DMG is unsigned. Without this option, public export requires a Developer ID/notarized artifact. These checks establish artifact integrity and update authenticity, not Apple approval of a personal build.
 
 Publication date and URLs come from GitHub; version, build, minimum OS, architecture, filename, size, hash, signing and notarization come from the artifact record. Notes come from that same record, with a link to the full GitHub Release. If the artifact notes contain Chinese text, the English page links to the unchanged original notes in `release.json` instead of inventing a translation. No page separately defines these facts. The exporter never uploads a release or deploys a site.
 

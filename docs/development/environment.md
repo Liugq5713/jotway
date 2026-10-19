@@ -96,6 +96,8 @@ If startup shows recovery, close other Jotway instances and retry. If access is 
 
 After successful migration, the direct location owns new writes and the original container is only the earlier snapshot. Keep both and back up or explicitly migrate new content before returning to an older build; no automatic reverse migration occurs. Notes, Chrome and Accessibility remain separate permissions. The app does not reset TCC or promise that identity continuity prevents every reauthorization request.
 
-## Public distribution gate
+## Distribution modes
 
-Local `build-app.sh` packages are development artifacts, even when a certificate is selected. Public `release.py` requires an available fixed Developer ID identity and a pre-provisioned `JOTWAY_NOTARY_PROFILE` keychain profile. It verifies signed entitlements, nested runtime and timestamps, submits the app and DMG to Apple, staples and validates them, and requires Gatekeeper acceptance before generating public metadata. Missing conditions fail closed. `--offline` retains an explicitly non-public development package. See [Updates](../product/updates.md).
+Local `build-app.sh` packages are development artifacts, even when a certificate is selected. The tag workflow uses `release.py --ad-hoc` for personal distribution: ad-hoc application signing, unsigned/unnotarized DMG, SHA-256 and Sparkle update-signature verification, with the actual signing state disclosed on downloads. No Apple distribution credentials are needed for this mode.
+
+Without `--ad-hoc` or `--offline`, `release.py` requires an available fixed Developer ID identity and a pre-provisioned `JOTWAY_NOTARY_PROFILE` keychain profile. It verifies signed entitlements, nested runtime and timestamps, submits the app and DMG to Apple, staples and validates them, and requires Gatekeeper acceptance. Missing conditions fail closed for that mode. `--offline` retains an explicitly local development package with updates disabled. See [Updates](../product/updates.md).

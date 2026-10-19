@@ -16,7 +16,9 @@ Updates retain `com.liuguangqi.jotway` and preserve its persistent data. Install
 
 ## Signing configuration
 
-macOS code signing and Sparkle update signing are separate. The app and its nested services use the persistent certificate selected by `JOTWAY_SIGNING_IDENTITY` or `.secrets/signing-identity`; an unconfigured checkout uses ad-hoc signing. Both development packaging and release re-signing retain the selected identity. See [Stable local signing](../development/environment.md#stable-local-signing) for setup and permission continuity. Local configuration does not provision CI credentials. The public workflow imports the Developer ID identity and creates a notarization profile in a temporary keychain from repository Actions secrets; absent credentials stop it.
+macOS code signing and Sparkle update signing are separate. The tag workflow publishes personal-developer builds: the application and nested services use ad-hoc signing, the DMG is unsigned, and Apple notarization is not requested. This needs no Developer ID certificate, Apple developer membership, or notarization credentials. The GitHub Release and website disclose that state. Sparkle signatures and SHA-256 verification remain required.
+
+Local packaging can instead use the persistent certificate selected by `JOTWAY_SIGNING_IDENTITY` or `.secrets/signing-identity`; an unconfigured checkout uses ad-hoc signing. See [Stable local signing](../development/environment.md#stable-local-signing) for setup and permission continuity. A release without `--ad-hoc` or `--offline` explicitly selects Developer ID distribution and still requires the configured certificate and `JOTWAY_NOTARY_PROFILE`; missing credentials do not silently change that mode.
 
 The public update key is checked into `Resources/Info.plist`. Its private key is stored in `.secrets/sparkle-private.key` at the repository root. The `.secrets` directory has mode `700`, the private-key file has mode `600`, and the directory is excluded from Git. Local online releases read this file; `SPARKLE_PRIVATE_KEY`, when provided, takes precedence. Dry runs do not read the private key.
 
@@ -26,37 +28,18 @@ Keep the local private-key file and a secure backup across builds and releases. 
 
 The appcast and installer files are public. The signing key grants authority to sign Jotway updates and remains private.
 
-### GitHub-hosted Mac signing setup
-
-Hosted runners start without the project's Developer ID private key or notarization profile. Configure these repository Actions settings before publishing:
-
-| Name | Setting | Content |
-| --- | --- | --- |
-| `JOTWAY_SIGNING_IDENTITY` | Secret or variable | The fixed Developer ID Application certificate's SHA-1 fingerprint. |
-| `JOTWAY_SIGNING_CERTIFICATE_BASE64` | Secret | Base64-encoded `.p12` containing that certificate and its private key. |
-| `JOTWAY_SIGNING_CERTIFICATE_PASSWORD` | Secret | The `.p12` export password. |
-| `JOTWAY_NOTARY_API_KEY_BASE64` | Secret | Base64-encoded App Store Connect team API private key (`.p8`) with notarization access. |
-| `JOTWAY_NOTARY_KEY_ID` | Secret | The API key ID. |
-| `JOTWAY_NOTARY_ISSUER_ID` | Secret | The API key issuer ID. |
-
-`SPARKLE_PRIVATE_KEY` remains required for update signatures. `JOTWAY_NOTARY_PROFILE` is optional and defaults to `jotway-release`; it names the profile created by CI and does not replace Apple credentials. Enter private material only through repository Actions secrets, never in source, issues, or chat. Keep the same Developer ID identity and Sparkle key across releases.
-
-`scripts/ci-signing.py prepare` imports the certificate into a temporary keychain, checks the configured identity, grants the signing tools access, and validates/stores Apple notarization credentials there. Credential files have restricted permissions and are removed after import; an always-running cleanup step restores the original keychain search list and removes the temporary keychain. `release.py` uses that keychain for notarization. Local release credentials and the default keychain are unchanged.
-
-The **Release readiness** workflow runs when release configuration changes and can also be run manually. It validates signing setup without building an installer, uploading an app, creating tags, or publishing a release. Missing configuration is reported by name in workflow annotations. After updating secrets, rerun readiness before creating the next release tag. Native credential setup requires a Mac; `python3 scripts/ci-signing.py check` only checks presence and can run on other platforms.
-
 ## Local release flow
 
 Preview without building, writing files, or reading the private key:
 
 ```bash
-./scripts/release.py --dry-run --notes "本次更新内容"
+./scripts/release.py --ad-hoc --dry-run --notes "本次更新内容"
 ```
 
-Build an online-enabled local release using `.secrets/sparkle-private.key`, or the `SPARKLE_PRIVATE_KEY` environment variable when supplied:
+Build an online-enabled personal-developer release using `.secrets/sparkle-private.key`, or the `SPARKLE_PRIVATE_KEY` environment variable when supplied:
 
 ```bash
-./scripts/release.py patch --notes "本次更新内容"
+./scripts/release.py patch --ad-hoc --notes "本次更新内容"
 ```
 
 For an offline package that needs no update-signing key:
@@ -65,9 +48,9 @@ For an offline package that needs no update-signing key:
 ./scripts/release.py patch --offline --notes "本次更新内容"
 ```
 
-The script builds the release application with bundled actions and AI providers, writes display/build versions into the release copy, signs and verifies it using the selected identity, then creates and verifies the arm64 DMG. Online packaging generates `appcast.xml` with Sparkle's `generate_appcast`, embeds the provided release notes, and verifies the DMG signature using the public key embedded in the application. The feed specifies the package's minimum macOS version and Apple silicon requirement. Only full updates are published.
+The script builds the release application with bundled actions and AI providers, writes display/build versions into the release copy, signs and verifies it, then creates and verifies the arm64 DMG. `--ad-hoc` explicitly uses ad-hoc application signing and leaves the DMG unsigned and unnotarized. Online packaging generates `appcast.xml` with Sparkle's `generate_appcast`, embeds the provided release notes, and verifies the DMG's update signature using the public key embedded in the application. The feed specifies the package's minimum macOS version and Apple silicon requirement. Only full updates are published.
 
-`release.py` writes a local `release.json` containing version, build, filename, architecture, minimum macOS, creation time, byte length, SHA-256, release notes, source commit, signing status, and `updatesEnabled`. Local metadata remains unpublished until the GitHub workflow publishes and verifies the assets. The command does not publish a GitHub release or modify the installed app. Its public path uploads app/DMG artifacts to Apple for notarization; `--offline` performs no notarization upload.
+`release.py` writes a local `release.json` containing version, build, filename, architecture, minimum macOS, creation time, byte length, SHA-256, release notes, source commit, application/DMG signing status, and `updatesEnabled`. Local metadata remains unpublished until the GitHub workflow publishes and verifies the assets. The command does not publish a GitHub release or modify the installed app. Only Developer ID mode uploads app/DMG artifacts to Apple for notarization. Both `--ad-hoc` and `--offline` perform no notarization upload; the flags are mutually exclusive because offline mode disables updates.
 
 Build numbers are the greater of the current UTC Unix timestamp in seconds and one above all known build numbers. The local release history and an optional `--previous-release` metadata file provide the lower bound. The previous stable release must have a lower display version as well. This avoids repeated build numbers on clean CI runners or after a clock rollback. Keep local `release/*/release.json` records for successive local builds.
 
@@ -79,11 +62,13 @@ A semver tag such as `v0.1.2` triggers the release workflow. Releases run serial
 
 1. requires the signing secret and verifies the previous stable release's version/build baseline;
 2. rejects an equal or older display version and chooses a higher build number;
-3. builds the DMG and generates its signed update entry;
+3. builds an ad-hoc application and unsigned, unnotarized DMG, then generates its signed update entry;
 4. attaches the DMG, `appcast.xml`, `release.json`, and `SHA256SUMS.txt` to the GitHub Release;
 5. verifies the public downloads and update signature, then builds a website artifact.
 
-The previous-release check uses `publish-metadata.py --version-baseline`. It verifies the stable tag, metadata, public DMG size and SHA-256, and the Sparkle signature when online updates are enabled, then writes only `version` and `build` for the next release's lower bound. Historical ad-hoc or unnotarized releases can establish this baseline so the first Developer ID/notarized release is possible. Baseline output contains no website download metadata or appcast and cannot be used to advertise an installer. New public packages and website exports still require all Developer ID, notarization, stapling and Gatekeeper checks.
+The previous-release check uses `publish-metadata.py --version-baseline`. It verifies the stable tag, metadata, public DMG size and SHA-256, and the Sparkle signature when online updates are enabled, then writes only `version` and `build` for the next release's lower bound. Historical ad-hoc or unnotarized releases can establish this baseline. Baseline output contains no website download metadata or appcast and cannot be used to advertise an installer.
+
+The release and Pages workflows pass `--allow-ad-hoc` when exporting public metadata. That permits personal releases only when metadata explicitly reports ad-hoc application signing and no Apple notarization; contradictory Apple verification claims are rejected. Public downloads, SHA-256, feed consistency and Sparkle signatures are still verified. Without this option the exporter retains its Developer ID/notarization requirement. Personal releases are marked unnotarized on the home page, download page and GitHub Release. On first launch, macOS may require the user to allow the build through Privacy & Security after checking its source and checksum.
 
 The Pages workflow runs after successful release workflow completion, stable release publishing/edits, website changes, or manual dispatch. It checks out `main`, resolves the latest stable release, verifies the public DMG's size, SHA-256 and EdDSA signature, validates the feed against that package, and deploys the feed alongside the website. Verification or build failures stop deployment. An older release without online-update metadata produces a valid empty feed during the transition.
 
@@ -93,6 +78,6 @@ Publication uses the repository's `GITHUB_TOKEN`; only the signing operation rec
 
 `--notes` is required, including for previews. The script does not infer notes from commits or call an AI service. The tag workflow uses the version label for embedded notes and asks GitHub to generate the Release body; the website links to the full GitHub description.
 
-Public packages must pass Developer ID, nested Hardened Runtime, secure timestamps, Apple Accepted notarization, staple validation and Gatekeeper checks. `JOTWAY_NOTARY_PROFILE` names the pre-provisioned keychain profile. Any missing or failed condition stops publication without falling back to ad-hoc. Release metadata reports `ad-hoc`, `developer-id` (verified against Apple's certificate requirement), or `certificate` for other certificate signatures such as local self-signed identities. Self-signed identities are for local development, not public distribution. Only explicit local development packaging permits ad-hoc signing and reports itself as non-public. Sparkle's EdDSA signature authenticates downloaded updates; it does not replace Developer ID signing or Apple notarization. First installation remains a manual DMG installation subject to macOS's normal checks.
+Developer ID releases must pass nested Hardened Runtime, secure timestamps, Apple Accepted notarization, staple validation and Gatekeeper checks. `JOTWAY_NOTARY_PROFILE` names the pre-provisioned keychain profile. Any missing or failed condition stops that mode without falling back to ad-hoc. Release metadata reports `ad-hoc`, `developer-id` (verified against Apple's certificate requirement), or `certificate` for other certificate signatures such as local self-signed identities. Self-signed identities remain for local development. Personal distribution is an explicit `--ad-hoc` choice and records notarization, stapling, Gatekeeper acceptance and Developer ID distribution verification as false. Sparkle's EdDSA signature authenticates downloaded updates and does not claim Apple notarization. First installation remains a manual DMG installation subject to macOS's normal checks.
 
 The non-sandboxed runtime, independent OCR sandbox, compatible update identity and source-preserving upgrade are specified in [Direct distribution runtime](../../openspec/specs/direct-distribution-runtime/spec.md).

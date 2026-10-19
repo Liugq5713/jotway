@@ -8,26 +8,30 @@
 
 ### Requirement: Direct distribution uses an explicitly configured runtime
 
-官网／DMG 构建的已签名主应用 SHALL 不启用 App Sandbox。公开发布包 SHALL 使用 Developer ID 签名、Hardened Runtime、安全时间戳及有效 Apple 公证；开发包 SHALL 如实标示其签名和公证状态，不把本地构建宣称为已公证发布。应用 SHALL 保持既有 bundle identifier 与兼容签名身份，不以本方案生成 Mac App Store 包。
+官网／DMG 构建的已签名主应用 SHALL 不启用 App Sandbox。Developer ID 正式包 SHALL 使用 Developer ID 签名、Hardened Runtime、安全时间戳及有效 Apple 公证。个人开发者分发 SHALL 显式选择 ad-hoc 应用签名与未签名、未公证 DMG，公开如实标示其状态，保留文件完整性校验及在线更新的 Sparkle 签名；不得将其宣称为已公证或已通过 Gatekeeper 的正式包。应用 SHALL 保持既有 bundle identifier 与兼容签名身份，不以本方案生成 Mac App Store 包。
 
 #### Scenario: Inspect a release artifact
-- **WHEN** 正式包进入公开发布检查
+- **WHEN** Developer ID 正式包进入公开发布检查
 - **THEN** 实际签名显示主应用非沙箱，主程序与嵌套代码的签名及 Hardened Runtime 校验通过，公证与 Gatekeeper 验证通过；缺失任一发布条件不得发布
 
 #### Scenario: Developer build without distribution credentials
-- **WHEN** 只构建本地开发包，或正式发布所需证书／公证条件不可用
+- **WHEN** 只构建本地开发包，或已选择 Developer ID 模式但所需证书／公证条件不可用
 - **THEN** 可保留明确标示的开发产物，但不得自动降级签名身份、宣称正式包合格或绕过发布检查
 
+#### Scenario: Personal developer explicitly publishes without Apple distribution credentials
+- **WHEN** 个人开发者显式选择 `--ad-hoc` 发布且未提供 Apple 证书或公证凭据
+- **THEN** 构建 ad-hoc 签名应用和未签名、未公证 DMG，校验 DMG、SHA-256 与 Sparkle 更新签名，在 Release 与下载页标示实际状态，不请求 Apple 公证或伪造其验证结果
+
 #### Scenario: Local signing identity has no Apple Team ID
-- **WHEN** 本地开发包使用 ad-hoc 或没有 Apple Team ID 的自签名身份
-- **THEN** 保留 Hardened Runtime，仅主应用使用临时生成的 library-validation 例外以加载内嵌 Sparkle；OCR helper 的独立沙箱不变，公开发布校验必须拒绝该例外
+- **WHEN** 本地开发包或显式个人分发包使用 ad-hoc，或本地开发包使用没有 Apple Team ID 的自签名身份
+- **THEN** 保留 Hardened Runtime，仅主应用使用临时生成的 library-validation 例外以加载内嵌 Sparkle；OCR helper 的独立沙箱不变，Developer ID 正式发布校验必须拒绝该例外
 
 #### Scenario: Signing identity has an Apple Team ID
 - **WHEN** 本地开发包或正式包的签名包含 Apple Team ID
 - **THEN** 主应用保留 library validation，不生成本地加载例外
 
 #### Scenario: Distribution artifact contains the local loading exception
-- **WHEN** 公开发布检查发现主应用启用了本地 library-validation 例外
+- **WHEN** Developer ID 正式发布检查发现主应用启用了本地 library-validation 例外
 - **THEN** 拒绝该产物，不进入公证或发布流程
 
 ### Requirement: Upgrade preserves existing application state before normal startup

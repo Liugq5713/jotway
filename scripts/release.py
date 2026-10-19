@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a signed Sparkle update and DMG; use --offline for a local-only package."""
+"""Build a Sparkle update and DMG; --ad-hoc supports personal distribution."""
 import argparse
 import base64
 import binascii
@@ -224,7 +224,7 @@ def create_appcast(output, dmg, version, build, notes, public_key, private_key):
 
 def distribution_configuration(identity, profile):
     if identity == "-" or not profile:
-        raise ValueError("公开发布要求固定 Developer ID 身份及 JOTWAY_NOTARY_PROFILE；不会降级。仅本地开发使用 --offline。")
+        raise ValueError("Developer ID 模式要求固定签名身份及 JOTWAY_NOTARY_PROFILE；不会自动降级。个人分发请显式使用 --ad-hoc，本地开发使用 --offline。")
 
 
 def notarize_and_staple(artifact, profile, *, application=False):
@@ -234,11 +234,8 @@ def notarize_and_staple(artifact, profile, *, application=False):
         if application:
             upload = Path(directory) / "Jotway.zip"
             run("ditto", "-c", "-k", "--keepParent", artifact, upload)
-        keychain = os.environ.get("JOTWAY_SIGNING_KEYCHAIN", "").strip()
         response = json.loads(run("xcrun", "notarytool", "submit", upload,
-                                  "--keychain-profile", profile,
-                                  *(["--keychain", keychain] if keychain else []),
-                                  "--wait", "--output-format", "json", capture=True))
+                                  "--keychain-profile", profile, "--wait", "--output-format", "json", capture=True))
         if response.get("status") != "Accepted" or not response.get("id"):
             raise ValueError("Apple 公证尚未 Accepted，停止发布。")
     run("xcrun", "stapler", "staple", artifact)
@@ -255,6 +252,7 @@ def release(args):
     environment_key = os.environ.pop("SPARKLE_PRIVATE_KEY", None)
     info = plistlib.loads((ROOT / "Resources/Info.plist").read_bytes())
     update_config = update_configuration(info) if not args.offline else None
+    developer_id = not (args.offline or args.ad_hoc)
     previous = json.loads(args.previous_release.read_text()) if args.previous_release else None
     timestamp = int(datetime.now(timezone.utc).timestamp())
     version, build = choose_version(args.version, info, release_versions(), timestamp, previous)
@@ -269,13 +267,15 @@ def release(args):
     if args.dry_run:
         if args.offline:
             print("预览：构建 release App → 本地 DMG → SHA-256 校验 → 本地发行记录；在线更新关闭。")
+        elif args.ad_hoc:
+            print("预览：验证 Sparkle 密钥 → ad-hoc App → 未签名、未公证 DMG → 已签名 appcast.xml；无需 Apple 发布凭据。")
         else:
             print(f"预览：校验签名密钥 → release App → DMG → 已签名 appcast.xml → 发行记录；更新源 {update_config[0]}。")
         print("预览不读取或验证私钥、不构建、不写入文件、不上传。")
         return
-    identity = resolve_identity()
+    identity = "-" if args.ad_hoc else resolve_identity()
     profile = os.environ.get("JOTWAY_NOTARY_PROFILE", "").strip()
-    if not args.offline:
+    if developer_id:
         distribution_configuration(identity, profile)
     private_key = load_private_key(environment_key) if update_config else None
     RELEASE.mkdir(exist_ok=True)
@@ -313,7 +313,7 @@ def release(args):
             sign_app(app, identity)
             code_signing = signing_kind(app)
             notary_ids = []
-            if not args.offline:
+            if developer_id:
                 verify_distribution_app(app)
                 notary_ids.append(notarize_and_staple(app, profile, application=True))
             architecture = run("lipo", "-archs", app / "Contents/MacOS/Jotway", capture=True).strip()
@@ -322,7 +322,7 @@ def release(args):
             dmg = output / f"{APP_NAME}-{version}-{build}-arm64.dmg"
             create_dmg(stage, dmg)
         run("hdiutil", "verify", dmg)
-        if not args.offline:
+        if developer_id:
             run("codesign", "--sign", identity, "--timestamp", dmg)
             notary_ids.append(notarize_and_staple(dmg, profile))
         appcast = None
@@ -334,15 +334,19 @@ def release(args):
                     "bytes": dmg.stat().st_size, "architecture": architecture,
                     "minimumMacOS": info["LSMinimumSystemVersion"],
                     "createdAt": datetime.now(timezone.utc).isoformat(),
-                    "codeSigning": code_signing, "notarized": not args.offline, "published": False,
-                    "distributionVerified": not args.offline, "notarySubmissionIDs": notary_ids,
-                    "stapled": not args.offline, "gatekeeperAccepted": not args.offline,
+                    "codeSigning": code_signing, "dmgCodeSigning": "developer-id" if developer_id else "unsigned",
+                    "notarized": developer_id, "published": False,
+                    "distributionVerified": developer_id, "notarySubmissionIDs": notary_ids,
+                    "stapled": developer_id, "gatekeeperAccepted": developer_id,
                     "updatesEnabled": not args.offline}
         (output / "release.json").write_text(json.dumps(metadata, indent=2, ensure_ascii=False) + "\n")
         print(f"\n本地 DMG：{dmg}\nSHA-256：{digest}\n发行记录：{output / 'release.json'}")
         if appcast:
             print(f"已验证签名的更新清单：{appcast}")
-        print(f"应用包签名：{code_signing}，{'开发包，未公证，不可公开发布' if args.offline else '已通过公证、staple 与 Gatekeeper'}；未发布，在线更新{'关闭' if args.offline else '已启用'}。")
+        status = ("本地开发包，未公证" if args.offline else
+                  "个人分发包：DMG 未签名、未经过 Apple 公证" if args.ad_hoc else
+                  "已通过公证、staple 与 Gatekeeper")
+        print(f"应用包签名：{code_signing}，{status}；未发布，在线更新{'关闭' if args.offline else '已启用'}。")
     finally:
         lock.unlink()
 
@@ -352,7 +356,10 @@ def main():
     parser.add_argument("version", nargs="?", default="patch", help="patch（默认）/ minor / major / x.y.z")
     parser.add_argument("--notes", required=True, help="手动填写更新说明（必填）")
     parser.add_argument("--dry-run", action="store_true", help="预览下一版本和更新说明，不构建或写入文件")
-    parser.add_argument("--offline", action="store_true", help="生成关闭在线更新的本地包，无需 Sparkle 私钥")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--offline", action="store_true", help="生成关闭在线更新的本地包，无需 Sparkle 私钥")
+    mode.add_argument("--ad-hoc", action="store_true",
+                      help="个人分发：ad-hoc 应用及未签名、未公证 DMG；保留 Sparkle 更新签名")
     parser.add_argument("--previous-release", type=Path,
                         help="经验证的上一稳定 release.json；新版本和构建号必须高于它")
     args = parser.parse_args()

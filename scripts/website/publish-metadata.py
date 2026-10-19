@@ -46,9 +46,13 @@ def main():
     parser.add_argument('--tag', help='Stable vMAJOR.MINOR.PATCH tag; defaults to GitHub latest release')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--appcast-output', type=Path, help='Write the verified public feed (empty for older releases)')
-    parser.add_argument('--version-baseline', action='store_true',
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--version-baseline', action='store_true',
                         help='Export only the previous version/build, permitting historical signing states; '
                              'still verify public artifact bytes and any Sparkle signature')
+    mode.add_argument('--allow-ad-hoc', action='store_true',
+                      help='Also permit explicitly unnotarized ad-hoc personal releases; '
+                           'still verify checksums and any Sparkle signature')
     args = parser.parse_args()
     if args.version_baseline and (args.release or args.appcast_output):
         parser.error('--version-baseline cannot be combined with --release or --appcast-output.')
@@ -70,10 +74,18 @@ def main():
         record = json.loads(read_public_asset(release, 'release.json'))
     # A historical release can establish the version floor without satisfying
     # today's distribution policy. Never export it as a new website download.
-    if not args.version_baseline and (record.get('codeSigning') != 'developer-id' or not all(
-            record.get(key) is True for key in
-            ('notarized', 'distributionVerified', 'stapled', 'gatekeeperAccepted'))):
-        raise ValueError('Public download requires a verified Developer ID, notarized, stapled and Gatekeeper-accepted artifact.')
+    developer_id = (record.get('codeSigning') == 'developer-id'
+                    and record.get('dmgCodeSigning', 'developer-id') == 'developer-id'
+                    and all(record.get(key) is True for key in
+                            ('notarized', 'distributionVerified', 'stapled', 'gatekeeperAccepted')))
+    ad_hoc = (args.allow_ad_hoc and record.get('codeSigning') == 'ad-hoc'
+              and record.get('notarized') is False
+              and record.get('dmgCodeSigning', 'unsigned') == 'unsigned'
+              and all(record.get(key, False) is False for key in
+                      ('distributionVerified', 'stapled', 'gatekeeperAccepted')))
+    if not args.version_baseline and not (developer_id or ad_hoc):
+        raise ValueError('Public download requires a verified Developer ID artifact, '
+                         'or --allow-ad-hoc for an explicitly unnotarized personal release.')
     if record['version'] != tag[1:]:
         raise ValueError('Tag does not match the artifact version.')
     if Path(record['file']).name != record['file']:
@@ -84,6 +96,8 @@ def main():
     exported.update(schemaVersion=1, status='published', releaseDate=release['published_at'],
                     downloadURL=asset['browser_download_url'], releaseURL=release['html_url'],
                     updatesEnabled=record.get('updatesEnabled', False))
+    if 'dmgCodeSigning' in record:
+        exported['dmgCodeSigning'] = record['dmgCodeSigning']
     validate(exported)
     appcast = read_public_asset(release, 'appcast.xml') if exported['updatesEnabled'] else empty_feed()
     signature = validate_feed(appcast, exported)

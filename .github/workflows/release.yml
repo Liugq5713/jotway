@@ -56,25 +56,31 @@ jobs:
             --version-baseline \
             --output "$RUNNER_TEMP/previous-release.json"
 
-      - name: Prepare Developer ID and notarization credentials
-        env:
-          JOTWAY_SIGNING_IDENTITY: ${{ secrets.JOTWAY_SIGNING_IDENTITY || vars.JOTWAY_SIGNING_IDENTITY }}
-          JOTWAY_SIGNING_CERTIFICATE_BASE64: ${{ secrets.JOTWAY_SIGNING_CERTIFICATE_BASE64 }}
-          JOTWAY_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.JOTWAY_SIGNING_CERTIFICATE_PASSWORD }}
-          JOTWAY_NOTARY_API_KEY_BASE64: ${{ secrets.JOTWAY_NOTARY_API_KEY_BASE64 }}
-          JOTWAY_NOTARY_KEY_ID: ${{ secrets.JOTWAY_NOTARY_KEY_ID }}
-          JOTWAY_NOTARY_ISSUER_ID: ${{ secrets.JOTWAY_NOTARY_ISSUER_ID }}
-          JOTWAY_NOTARY_PROFILE: ${{ secrets.JOTWAY_NOTARY_PROFILE }}
-        run: python3 scripts/ci-signing.py prepare
-
       - name: Build and verify public distribution DMG
         env:
-          JOTWAY_SIGNING_IDENTITY: ${{ secrets.JOTWAY_SIGNING_IDENTITY || vars.JOTWAY_SIGNING_IDENTITY }}
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
+          set +e
           ./scripts/release.py "${{ steps.version.outputs.version }}" \
+            --ad-hoc \
             --previous-release "$RUNNER_TEMP/previous-release.json" \
-            --notes "Jotway ${{ github.ref_name }}"
+            --notes "Jotway ${{ github.ref_name }} (ad-hoc application signing; unsigned DMG; not notarized by Apple)" \
+            2>&1 | tee "$RUNNER_TEMP/release-build.log"
+          release_codes=("${PIPESTATUS[@]}")
+          release_status="${release_codes[0]}"
+          if [ "$release_status" -eq 0 ]; then release_status="${release_codes[1]}"; fi
+          if [ "$release_status" -ne 0 ]; then
+            python3 - "$RUNNER_TEMP/release-build.log" <<'PY'
+          from pathlib import Path
+          import re, sys
+          lines = Path(sys.argv[1]).read_text(errors='replace').splitlines()
+          errors = [line for line in lines if re.search(r'(^|\s)error:|release 失败：', line)]
+          for error in errors[:20]:
+              escaped = error.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f'::error::{escaped}')
+          PY
+          fi
+          exit "$release_status"
 
       - name: Create checksum file
         shell: bash
@@ -102,9 +108,18 @@ jobs:
           python3 - "$RELEASE_DIR/release.json" <<'PY'
           import json, sys
           record = json.load(open(sys.argv[1]))
-          assert record.get('codeSigning') == 'developer-id'
-          assert all(record.get(key) is True for key in ('notarized', 'distributionVerified', 'stapled', 'gatekeeperAccepted'))
+          assert record.get('codeSigning') == 'ad-hoc'
+          assert record.get('dmgCodeSigning') == 'unsigned'
+          assert record.get('updatesEnabled') is True
+          assert all(record.get(key) is False for key in ('notarized', 'distributionVerified', 'stapled', 'gatekeeperAccepted'))
           PY
+          cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
+          Personal-developer build: the application uses ad-hoc signing. The DMG is unsigned and has not been notarized by Apple.
+
+          macOS may block the first launch. Verify the source and SHA256SUMS.txt, then allow the app in System Settings → Privacy & Security if you trust the build.
+
+          Sparkle update signatures and download checksums are verified independently of Apple signing.
+          NOTES
           gh release create "${{ github.ref_name }}" \
             "$RELEASE_DIR"/*.dmg \
             "$RELEASE_DIR/release.json" \
@@ -112,6 +127,7 @@ jobs:
             "$RELEASE_DIR/SHA256SUMS.txt" \
             --title "Jotway ${{ github.ref_name }}" \
             --verify-tag \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
             --generate-notes
 
       - name: Verify public download and build website artifact
@@ -122,6 +138,7 @@ jobs:
             --release "$RELEASE_DIR/release.json" \
             --repository "$GITHUB_REPOSITORY" \
             --tag "$GITHUB_REF_NAME" \
+            --allow-ad-hoc \
             --output "$RELEASE_DIR/website-release.json" \
             --appcast-output "$RUNNER_TEMP/appcast.xml"
           python3 scripts/website/build.py \
@@ -134,7 +151,3 @@ jobs:
           name: Jotway-website-${{ steps.version.outputs.version }}
           path: website/dist/
           if-no-files-found: error
-
-      - name: Clean release credentials
-        if: always()
-        run: python3 scripts/ci-signing.py cleanup

@@ -29,8 +29,10 @@ def release_content(record):
     fields = [('Version', record['version']), ('Build', record['build']),
               ('Minimum macOS', record['minimumMacOS']), ('CPU architecture', record['architecture']),
               ('File', record['file']), ('File size', f"{record['bytes'] / 1024 / 1024:.2f} MiB · {record['bytes']:,} bytes"),
-              ('Signing', sign), ('Apple notarization', 'Notarized' if record['notarized'] else 'Not notarized'),
+              ('Application signing', sign), ('Apple notarization', 'Notarized' if record['notarized'] else 'Not notarized'),
               ('Packaged at (UTC)' if local else 'Released at (UTC)', record['releaseDate'])]
+    if 'dmgCodeSigning' in record:
+        fields.append(('DMG signing', 'Unsigned' if record['dmgCodeSigning'] == 'unsigned' else 'Developer ID signing'))
     facts = ''.join(f'<div><dt>{escape(name)}</dt><dd>{escape(str(value))}</dd></div>' for name, value in fields)
     facts += f'''<div class="wide"><dt>SHA-256</dt><dd><code id="checksum">{record['sha256']}</code><br>
 <button class="checksum-copy" id="copy-checksum" type="button">Copy checksum</button><span id="copy-status" role="status"></span></dd></div>
@@ -138,6 +140,12 @@ def main():
               'signing_guidance': ('The current packaging process uses ad-hoc signing without Apple notarization. ' if metadata['status'] == 'unpublished'
                                    else 'See the artifact details above for signing and notarization status. ')
                                   + 'On first launch, macOS may ask you to allow the app in System Settings → Privacy & Security. Verify the source and checksum first.'}
+    if published and not metadata['notarized']:
+        common['release_summary'] += ' · Not notarized by Apple'
+        common['signing_guidance'] = ('This personal-developer build uses ad-hoc application signing '
+                                      'and has not been notarized by Apple. macOS may block it on first launch. '
+                                      'Verify the source and SHA-256 checksum, then use System Settings → '
+                                      'Privacy & Security to allow it if you trust the build.')
     if args.github_releases_only:
         common.update(
             home_cta='View GitHub releases',

@@ -46,6 +46,8 @@ def validate(metadata, *, allow_local=False):
         raise ValueError('Invalid SHA-256.')
     if metadata['codeSigning'] not in ('ad-hoc', 'developer-id', 'certificate', 'unsigned') or type(metadata['notarized']) is not bool:
         raise ValueError('Unknown signing/notarization state.')
+    if 'dmgCodeSigning' in metadata and metadata['dmgCodeSigning'] not in ('unsigned', 'developer-id'):
+        raise ValueError('Unknown DMG signing state.')
     date = datetime.fromisoformat(metadata['releaseDate'].replace('Z', '+00:00'))
     if date.tzinfo is None:
         raise ValueError('Release date must include a timezone.')
