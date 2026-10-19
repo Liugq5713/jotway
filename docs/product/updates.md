@@ -58,11 +58,13 @@ For development delivery, `./scripts/build-app.sh release --update` replaces and
 
 A semver tag such as `v0.1.2` triggers the release workflow. Releases run serially across tags. The workflow:
 
-1. requires the signing secret and verifies the previous stable public release;
+1. requires the signing secret and verifies the previous stable release's version/build baseline;
 2. rejects an equal or older display version and chooses a higher build number;
 3. builds the DMG and generates its signed update entry;
 4. attaches the DMG, `appcast.xml`, `release.json`, and `SHA256SUMS.txt` to the GitHub Release;
 5. verifies the public downloads and update signature, then builds a website artifact.
+
+The previous-release check uses `publish-metadata.py --version-baseline`. It verifies the stable tag, metadata, public DMG size and SHA-256, and the Sparkle signature when online updates are enabled, then writes only `version` and `build` for the next release's lower bound. Historical ad-hoc or unnotarized releases can establish this baseline so the first Developer ID/notarized release is possible. Baseline output contains no website download metadata or appcast and cannot be used to advertise an installer. New public packages and website exports still require all Developer ID, notarization, stapling and Gatekeeper checks.
 
 The Pages workflow runs after successful release workflow completion, stable release publishing/edits, website changes, or manual dispatch. It checks out `main`, resolves the latest stable release, verifies the public DMG's size, SHA-256 and EdDSA signature, validates the feed against that package, and deploys the feed alongside the website. Verification or build failures stop deployment. An older release without online-update metadata produces a valid empty feed during the transition.
 

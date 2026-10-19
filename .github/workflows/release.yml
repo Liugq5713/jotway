@@ -47,12 +47,13 @@ jobs:
             exit 1
           fi
 
-      - name: Verify previous stable release
+      - name: Verify previous stable release version baseline
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/website/publish-metadata.py \
             --repository "$GITHUB_REPOSITORY" \
+            --version-baseline \
             --output "$RUNNER_TEMP/previous-release.json"
 
       - name: Build and verify public distribution DMG

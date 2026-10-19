@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify a stable GitHub release's public artifact and export site metadata.
+"""Verify a stable GitHub release and export site metadata or a version baseline.
 
 Read-only network access: this command never publishes a release or deploys a site.
 """
@@ -46,7 +46,12 @@ def main():
     parser.add_argument('--tag', help='Stable vMAJOR.MINOR.PATCH tag; defaults to GitHub latest release')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--appcast-output', type=Path, help='Write the verified public feed (empty for older releases)')
+    parser.add_argument('--version-baseline', action='store_true',
+                        help='Export only the previous version/build, permitting historical signing states; '
+                             'still verify public artifact bytes and any Sparkle signature')
     args = parser.parse_args()
+    if args.version_baseline and (args.release or args.appcast_output):
+        parser.error('--version-baseline cannot be combined with --release or --appcast-output.')
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', args.repository):
         raise ValueError('Invalid repository.')
     if args.tag and not re.fullmatch(r'v\d+\.\d+\.\d+', args.tag):
@@ -63,8 +68,11 @@ def main():
         record = json.loads(args.release.read_text())
     else:
         record = json.loads(read_public_asset(release, 'release.json'))
-    if record.get('codeSigning') != 'developer-id' or not all(record.get(key) is True for key in
-            ('notarized', 'distributionVerified', 'stapled', 'gatekeeperAccepted')):
+    # A historical release can establish the version floor without satisfying
+    # today's distribution policy. Never export it as a new website download.
+    if not args.version_baseline and (record.get('codeSigning') != 'developer-id' or not all(
+            record.get(key) is True for key in
+            ('notarized', 'distributionVerified', 'stapled', 'gatekeeperAccepted'))):
         raise ValueError('Public download requires a verified Developer ID, notarized, stapled and Gatekeeper-accepted artifact.')
     if record['version'] != tag[1:]:
         raise ValueError('Tag does not match the artifact version.')
@@ -108,8 +116,10 @@ def main():
         args.appcast_output.parent.mkdir(parents=True, exist_ok=True)
         args.appcast_output.write_bytes(appcast)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(exported, ensure_ascii=False, indent=2) + '\n')
-    print(f'Public artifact verified ({tag}); wrote {args.output}')
+    result = {key: exported[key] for key in ('version', 'build')} if args.version_baseline else exported
+    args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n')
+    print(f'Public artifact verified ({tag}); wrote '
+          f'{"version baseline" if args.version_baseline else "site metadata"} to {args.output}')
 
 
 if __name__ == '__main__':
