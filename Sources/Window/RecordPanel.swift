@@ -37,6 +37,8 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
     private let state: LauncherViewState
     private let send: (LauncherEvent) -> Void
     private var keyMonitor: Any?
+    private var isRefreshingKeyboardFocus = false
+    private var keyboardFocusRequest = UUID()
     /// 手动拖过的高度（§3.3 手动拖拽优先）：本会话内自动长高让位，重新唤起恢复。
     private var manualInputCardHeight: CGFloat? {
         didSet { editorHostingView?.rootView.manualInputCardHeight = manualInputCardHeight }
@@ -52,6 +54,13 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
     private var dragStartOrigin: CGPoint?
     private var draggedFrame: CGRect?
     private var dragEndMonitor: Any?
+    private var dragStartMonitor: Any?
+    private var dragGlobalEndMonitor: Any?
+    private var dragLossTimer: Timer?
+    private var dragToken: UUID?
+    private var dragScreenID: String?
+    private var cancelledNativeDrag = false
+    private let dragGuides = RecordPanelDragGuides()
     private var mode: LauncherMode = .quickInput
     private struct GeometrySnapshot {
         let frame: NSRect
@@ -128,6 +137,11 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
         container.addSubview(edgeGlow)
         contentView = container
         installKeyMonitor()
+        dragStartMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            self?.cancelUserDrag()
+            self?.cancelledNativeDrag = false
+            return event
+        }
         NotificationCenter.default.addObserver(
             self, selector: #selector(screenParametersChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil
@@ -135,6 +149,10 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(reduceMotionChanged),
             name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil
+        )
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(dragSpaceChanged),
+            name: NSWorkspace.activeSpaceDidChangeNotification, object: nil
         )
     }
 
@@ -147,22 +165,30 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
             NSEvent.removeMonitor(keyMonitor)
         }
         if let dragEndMonitor { NSEvent.removeMonitor(dragEndMonitor) }
+        if let dragStartMonitor { NSEvent.removeMonitor(dragStartMonitor) }
+        if let dragGlobalEndMonitor { NSEvent.removeMonitor(dragGlobalEndMonitor) }
+        dragLossTimer?.invalidate()
+        dragGuides.hide()
     }
 
     override func close() {
+        keyboardFocusRequest = UUID()
         cancelUserDrag()
         send(.panelDismissed)
         appState?.cancelRecordShortcutTrial()
         edgeGlow.stop()
+        focusTarget.decorationBackground?.suspend()
         cancelSubmissionAnimation()
         super.close()
     }
 
     override func orderOut(_ sender: Any?) {
+        keyboardFocusRequest = UUID()
         cancelUserDrag()
         send(.panelDismissed)
         appState?.cancelRecordShortcutTrial()
         edgeGlow.stop()
+        focusTarget.decorationBackground?.suspend()
         super.orderOut(sender)
     }
 
@@ -170,6 +196,7 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
     func hideForApplicationLaunch() {
         cancelSubmissionAnimation()
         edgeGlow.stop()
+        focusTarget.decorationBackground?.suspend()
         orderOut(nil)
         if let origin = preFadeOrigin { setFrameOrigin(origin); preFadeOrigin = nil }
         alphaValue = 1
@@ -177,8 +204,11 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
 
     /// 浮动记录窗口给设置帮助让位，保留编辑器、选区与历史现场。
     func hideForGettingStarted() {
+        keyboardFocusRequest = UUID()
+        cancelUserDrag()
         cancelSubmissionAnimation()
         edgeGlow.stop()
+        focusTarget.decorationBackground?.suspend()
         super.orderOut(nil)
         if let origin = preFadeOrigin { setFrameOrigin(origin); preFadeOrigin = nil }
         alphaValue = 1
@@ -189,11 +219,19 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
         send(.panelPresented)
         // 取得键盘焦点即点亮聚焦光（切走到别的 app 由 resignKey 熄灭）；start 幂等不重播。
         edgeGlow.start(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        focusTarget.decorationBackground?.resume()
     }
 
     /// 切走到别的 app → 面板失焦：自动暂存草稿（§10.1），但**不关闭**面板（键盘流约定）。
     override func resignKey() {
+        if isRefreshingKeyboardFocus {
+            super.resignKey()
+            return
+        }
+        keyboardFocusRequest = UUID()
+        cancelUserDrag()
         edgeGlow.stop()
+        focusTarget.decorationBackground?.suspend()
         super.resignKey()
         send(.externalFocusChanged)
         send(.preserveDraft)
@@ -213,21 +251,42 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
                     fallbackID: NSScreen.main.map { RecordPanelPlacement.snapshot($0).id })
             }
         }
-        orderFrontRegardless()
-        makeKey()
-        animateIn()
         contentView?.layoutSubtreeIfNeeded()
-        layoutEdgeGlow()
         focusTextEditor()
+        bringForwardForInput()
+        animateIn()
+        layoutEdgeGlow()
         edgeGlow.start(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
-        // 仅在编辑器尚未创建或尚未取得焦点时重试，避免再次移动刚设置的光标。
-        if focusTarget.textView == nil || firstResponder !== focusTarget.textView {
+        focusTarget.decorationBackground?.resume()
+        // 重试必须覆盖窗口未取得焦点的情况；失焦、隐藏或再次唤起会使旧请求失效。
+        if !isKeyWindow || focusTarget.textView == nil || firstResponder !== focusTarget.textView {
+            let request = keyboardFocusRequest
+            let sourcePID = NSWorkspace.shared.frontmostApplication?.processIdentifier
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.isVisible, self.isKeyWindow,
-                      self.focusTarget.textView == nil || self.firstResponder !== self.focusTarget.textView else { return }
-                self.focusTextEditor()
+                guard let self, self.isVisible, self.keyboardFocusRequest == request,
+                      NSWorkspace.shared.frontmostApplication?.processIdentifier == sourcePID,
+                      NSApp.keyWindow == nil || NSApp.keyWindow === self,
+                      self.attachedSheet == nil, NSApp.modalWindow == nil else { return }
+                if self.focusTarget.textView == nil || self.firstResponder !== self.focusTarget.textView {
+                    self.focusTextEditor()
+                }
+                if !self.isKeyWindow { self.makeKeyAndOrderFront(nil) }
             }
         }
+    }
+
+    /// 显式唤起时重新申请系统键盘焦点，不改变前台应用或编辑器内容。
+    func bringForwardForInput() {
+        keyboardFocusRequest = UUID()
+        if isKeyWindow, !NSApp.isActive, focusTarget.textView?.hasMarkedText() != true {
+            // 非激活面板的本地 key 状态可能残留；重复 makeKey 会跳过焦点交接。
+            // 通过公开的窗口排序 API 释放再取得焦点，不把这次刷新当成用户关闭或失焦。
+            isRefreshingKeyboardFocus = true
+            super.orderOut(nil)
+            isRefreshingKeyboardFocus = false
+        }
+        orderFrontRegardless()
+        makeKeyAndOrderFront(nil)
     }
 
     /// 与真实唤起共用，允许用合成显示器离屏验证选屏和偏好恢复。
@@ -309,35 +368,51 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
 
     private func adjustingFrame(_ update: () -> Void) {
         let wasAdjusting = isAdjustingFrame
+        let previousSize = frame.size
         isAdjustingFrame = true
-        defer { isAdjustingFrame = wasAdjusting }
+        defer {
+            isAdjustingFrame = wasAdjusting
+            if !wasAdjusting, frame.size != previousSize { updateDragGuides() }
+        }
         update()
     }
 
-    /// 保留本次运行的尺寸；换屏或显示器可用区域缩小时仅收敛越界部分。
-    func constrainSize(to visibleFrame: NSRect, proposedFrame: NSRect? = nil) {
-        guard visibleFrame.width >= 1, visibleFrame.height >= 1,
-              [visibleFrame.minX, visibleFrame.minY, visibleFrame.width, visibleFrame.height].allSatisfy(\.isFinite) else { return }
+    private func sizeConstraints(on visibleFrame: NSRect) -> (minimum: CGSize, maximum: CGSize) {
         let margin = min(16, max(0, (visibleFrame.width - 44) / 2))
         let maximumWidth = min(1200, visibleFrame.width - margin * 2)
         let minimumWidth = min(mode == .sticky ? LauncherMetrics.stickyMinWidth : 360, maximumWidth)
         let maximumHeight = min(LauncherMetrics.inputCardMaxHeight + LauncherMetrics.cardGap + 300, visibleFrame.height)
         let minimumHeight = editorHostingView?.rootView.minimumInputCardHeight(for: maximumHeight)
             ?? min(mode == .sticky ? LauncherMetrics.stickyMinHeight : LauncherMetrics.inputCardMinHeight, maximumHeight)
-        var constrained = proposedFrame ?? frame
-        constrained.size.width = min(max(constrained.width, minimumWidth), maximumWidth)
-        constrained.size.height = min(max(constrained.height, minimumHeight), maximumHeight)
+        return (CGSize(width: minimumWidth, height: minimumHeight), CGSize(width: maximumWidth, height: maximumHeight))
+    }
+
+    private func constrainedFrame(_ proposed: CGRect, to visibleFrame: CGRect) -> CGRect {
+        let limits = sizeConstraints(on: visibleFrame)
+        let margin = min(16, max(0, (visibleFrame.width - 44) / 2))
+        var constrained = proposed
+        constrained.size.width = min(max(constrained.width, limits.minimum.width), limits.maximum.width)
+        constrained.size.height = min(max(constrained.height, limits.minimum.height), limits.maximum.height)
         constrained.origin.x = min(max(constrained.minX, visibleFrame.minX + margin), visibleFrame.maxX - margin - constrained.width)
         constrained.origin.y = min(max(constrained.minY, visibleFrame.minY), visibleFrame.maxY - constrained.height)
+        return constrained
+    }
+
+    /// 保留本次运行的尺寸；换屏或显示器可用区域缩小时仅收敛越界部分。
+    func constrainSize(to visibleFrame: NSRect, proposedFrame: NSRect? = nil) {
+        guard visibleFrame.width >= 1, visibleFrame.height >= 1,
+              [visibleFrame.minX, visibleFrame.minY, visibleFrame.width, visibleFrame.height].allSatisfy(\.isFinite) else { return }
+        let limits = sizeConstraints(on: visibleFrame)
+        let constrained = constrainedFrame(proposedFrame ?? frame, to: visibleFrame)
         adjustingFrame {
             // 先放宽旧下限，再设置新边界；小屏切回大屏时也不产生 min > max。
-            contentMinSize = NSSize(width: min(contentMinSize.width, minimumWidth),
-                                    height: min(contentMinSize.height, minimumHeight))
-            contentMaxSize = NSSize(width: maximumWidth, height: maximumHeight)
-            contentMinSize = NSSize(width: minimumWidth, height: minimumHeight)
+            contentMinSize = NSSize(width: min(contentMinSize.width, limits.minimum.width),
+                                    height: min(contentMinSize.height, limits.minimum.height))
+            contentMaxSize = limits.maximum
+            contentMinSize = limits.minimum
             if constrained != frame { setFrame(constrained, display: true) }
         }
-        editorHostingView?.rootView.maximumContentHeight = maximumHeight
+        editorHostingView?.rootView.maximumContentHeight = limits.maximum.height
         if manualInputCardHeight != nil { updateManualInputCardHeight() }
     }
 
@@ -402,11 +477,13 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
     func windowWillStartLiveResize(_ notification: Notification) {
         guard !isAdjustingFrame, let event = NSApp.currentEvent, event.window === self,
               event.type == .leftMouseDown || event.type == .leftMouseDragged else { return }
+        cancelUserDrag()
         manualInputCardHeight = lastInputCardHeight
     }
 
     func windowDidResize(_ notification: Notification) {
         layoutEdgeGlow() // 辉光无 autoresizingMask，窗口尺寸变化时统一重算（含兜底 resize 动画路径）。
+        if !isAdjustingFrame { updateDragGuides() }
         guard !isAdjustingFrame, manualInputCardHeight != nil else { return }
         stickyLowerAreaBaseFrame = nil
         updateManualInputCardHeight()
@@ -431,6 +508,8 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
     }
 
     func windowDidChangeScreen(_ notification: Notification) {
+        // Drag targets use raw-frame intersection; do not constrain or steer the pointer mid-drag.
+        if dragToken != nil { updateDragGuides(); return }
         // 搜索伸缩及动效可能触发此通知；只有手动跨屏才更新本次显示的目标。
         guard !isAdjustingFrame, dragStartOrigin != nil || inLiveResize, let screen else { return }
         presentationScreen = RecordPanelPlacement.snapshot(screen)
@@ -442,68 +521,121 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
         guard !isAdjustingFrame, !inLiveResize, preFadeOrigin == nil,
               let event = NSApp.currentEvent, event.window === self,
               event.type == .leftMouseDown || event.type == .leftMouseDragged else { return }
+        guard !cancelledNativeDrag || event.type == .leftMouseDown else { return }
         beginUserDrag()
     }
 
     func windowDidMove(_ notification: Notification) {
         guard dragStartOrigin != nil, !isAdjustingFrame, !inLiveResize else { return }
-        if frame.origin != dragStartOrigin { stickyLowerAreaBaseFrame = nil }
-        draggedFrame = frame
+        recordUserDragMovement()
         if NSEvent.pressedMouseButtons & 1 == 0 { endUserDrag() }
     }
 
-    func beginUserDrag() {
-        guard dragStartOrigin == nil else { return }
+    @discardableResult
+    func beginUserDrag(customLoop: Bool = false) -> UUID {
+        if let dragToken { return dragToken }
+        let token = UUID()
+        dragToken = token
+        cancelledNativeDrag = false
         dragStartOrigin = frame.origin
         draggedFrame = nil
-        dragEndMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
-            self?.endUserDrag()
+        dragScreenID = nil
+        dragEndMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp, .keyDown]) { [weak self] event in
+            if event.type == .leftMouseUp, !customLoop { self?.endUserDrag(token: token) }
+            else if event.type == .keyDown, event.keyCode == 53 { self?.cancelUserDrag(token: token) }
             return event
         }
+        dragGlobalEndMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
+            self?.endUserDrag(token: token)
+        }
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                // If no matching release reached either monitor, retire rather than save a stale gesture.
+                if NSEvent.pressedMouseButtons & 1 == 0 { self?.cancelUserDrag(token: token) }
+            }
+        }
+        dragLossTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+        return token
     }
+
+    func isUserDragActive(_ token: UUID) -> Bool { dragToken == token }
 
     /// 自有把手明确标记每次移动；不依赖鼠标松开后可能延迟到达的窗口通知。
-    func moveForUserDrag(to origin: CGPoint) {
-        guard dragStartOrigin != nil else { return }
+    func moveForUserDrag(to origin: CGPoint, token: UUID) {
+        guard isUserDragActive(token), !inLiveResize else { return }
         if origin != frame.origin { stickyLowerAreaBaseFrame = nil }
         adjustingFrame { setFrameOrigin(origin) }
-        draggedFrame = frame
+        recordUserDragMovement()
     }
 
-    func endUserDrag(in screens: [RecordPanelPlacement.Screen] = RecordPanelPlacement.screens) {
-        let start = dragStartOrigin
-        let moved = draggedFrame
-        cancelUserDrag()
-        guard let moved, moved.origin != start,
-              let target = RecordPanelPlacement.screen(containing: moved, in: screens) else { return }
-        if mode == .quickInput {
-            appState?.saveRecordPanelOffset(RecordPanelPlacement.offset(for: moved, on: target), on: target.id)
-        }
+    private func recordUserDragMovement() {
+        guard dragToken != nil, frame.origin != dragStartOrigin || draggedFrame != nil else { return }
+        stickyLowerAreaBaseFrame = nil
+        draggedFrame = frame
+        updateDragGuides()
+    }
+
+    private func dragAlignment(in screens: [RecordPanelPlacement.Screen]) -> RecordPanelPlacement.DragAlignment? {
+        guard let target = RecordPanelPlacement.dragScreen(containing: frame, in: screens, previousID: dragScreenID),
+              target.visibleFrame.width >= 1, target.visibleFrame.height >= 1 else { return nil }
+        return RecordPanelPlacement.dragAlignment(for: frame, on: target,
+            constrainedFrame: constrainedFrame(frame, to: target.visibleFrame))
+    }
+
+    private func updateDragGuides() {
+        guard dragToken != nil, draggedFrame != nil, !inLiveResize else { return }
+        guard let alignment = dragAlignment(in: RecordPanelPlacement.screens) else { dragGuides.hide(); return }
+        dragScreenID = alignment.screen.id
+        dragGuides.update(alignment, around: frame, for: self)
+    }
+
+    func endUserDrag(token: UUID? = nil, in screens: [RecordPanelPlacement.Screen] = RecordPanelPlacement.screens) {
+        guard let active = dragToken, token == nil || token == active else { return }
+        let alignment = draggedFrame == nil ? nil : dragAlignment(in: screens)
+        cancelUserDrag(token: active)
+        guard let alignment else { return }
+        let target = alignment.screen
         presentationScreen = target
-        constrainSize(to: target.visibleFrame)
+        adjustingFrame { constrainSize(to: target.visibleFrame, proposedFrame: alignment.releaseFrame) }
+        if mode == .quickInput {
+            appState?.saveRecordPanelOffset(RecordPanelPlacement.offset(for: frame, on: target), on: target.id)
+        }
         if mode == .sticky { stickyGeometry = snapshotGeometry() }
     }
 
-    private func cancelUserDrag() {
+    func cancelUserDrag(token: UUID? = nil) {
+        if let token, token != dragToken { return }
+        if dragToken != nil { cancelledNativeDrag = true }
+        dragToken = nil
         dragStartOrigin = nil
         draggedFrame = nil
+        dragScreenID = nil
+        dragGuides.hide()
         if let dragEndMonitor { NSEvent.removeMonitor(dragEndMonitor) }
         dragEndMonitor = nil
+        if let dragGlobalEndMonitor { NSEvent.removeMonitor(dragGlobalEndMonitor) }
+        dragGlobalEndMonitor = nil
+        dragLossTimer?.invalidate()
+        dragLossTimer = nil
     }
 
     @objc private func reduceMotionChanged(_ notification: Notification) {
         edgeGlow.setReducedMotion(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        updateDragGuides()
     }
 
     @objc private func screenParametersChanged(_ notification: Notification) {
         updateScreenConfiguration(in: RecordPanelPlacement.screens)
     }
 
+    @objc private func dragSpaceChanged(_ notification: Notification) { cancelUserDrag() }
+
     func updateScreenConfiguration(in screens: [RecordPanelPlacement.Screen]) {
+        cancelUserDrag()
         guard let target = screens.first(where: { $0.id == presentationScreen?.id })
             ?? RecordPanelPlacement.screen(containing: frame, in: screens)
             ?? RecordPanelPlacement.targetScreen(in: screens, cursor: .zero, followsCursor: false) else { return }
-        cancelUserDrag()
         presentationScreen = target
         constrainSize(to: target.visibleFrame)
         if preFadeOrigin != nil { preFadeOrigin = frame.origin }
@@ -536,6 +668,7 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
     /// 关闭：淡出 + 上飘 8pt，0.12s，结束后 orderOut 并复位透明度
     func animateOut(reduceMotion: Bool = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
                     completion: @escaping @MainActor () -> Void) {
+        keyboardFocusRequest = UUID()
         if mode == .sticky { stickyGeometry = snapshotGeometry() }
         cancelUserDrag()
         hideGeneration += 1
@@ -543,6 +676,7 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
         preFadeOrigin = frame.origin
         let duration = reduceMotion ? 0.10 : 0.12
         edgeGlow.stop(duration: duration)
+        focusTarget.decorationBackground?.suspend()
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = duration
             ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
@@ -565,7 +699,11 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
     /// 在编辑区清空之前保留本次画面。只缓存自己的视图，不截取其他应用或屏幕。
     /// 准备阶段不显示窗口，也可用于离屏验证；无法缓存时由退场路径直接关闭。
     func prepareSubmissionAnimation() {
+        cancelUserDrag()
         edgeGlow.stop()
+        focusTarget.decorationBackground?.suspend()
+        // Snapshot preparation can be cancelled if the editor rejects clearing the draft.
+        defer { focusTarget.decorationBackground?.resume() }
         cancelSubmissionAnimation()
         guard let contentView else { return }
         contentView.layoutSubtreeIfNeeded()
@@ -833,9 +971,6 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
         let reason: EditorTextView.ReplacementReason = focusTarget.preserveSelectionOnNextFocus ? .synchronize : .restoreDraft
         guard textView.setPlainText(text.wrappedValue, reason: reason) else { return }
         focusTarget.preserveSelectionOnNextFocus = false
-        if !isKeyWindow {
-            makeKey()
-        }
         makeFirstResponder(textView)
     }
 
@@ -851,10 +986,15 @@ final class RecordPanel: NSPanel, NSWindowDelegate {
         guard event.window === self, isVisible, isKeyWindow,
               attachedSheet == nil, NSApp.modalWindow == nil,
               let textView = focusTarget.textView,
-              !textView.hasMarkedText() else { return event }
+              !textView.hasMarkedText(), !state.isComposingText else { return event }
 
-        // 历史翻阅（↑/↓）与处理面板（⌘O）已随沉淀层退场；编辑器保留原生按键行为。
-        return event
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        guard modifiers == .command, event.charactersIgnoringModifiers?.lowercased() == "j" else { return event }
+        guard !event.isARepeat, let prompt = state.thinkingPrompt,
+              prompt.blockReason == nil, prompt.display != .loading else { return nil }
+        send(.requestThinkingPrompt)
+        focusTarget.restoreEditorFocus()
+        return nil
     }
 }
 

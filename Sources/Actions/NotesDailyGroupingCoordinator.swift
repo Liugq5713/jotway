@@ -1,24 +1,15 @@
 import Foundation
 
-/// One module-owned FIFO serializes original saves and refresh writes across suspension points.
-/// Generation runs outside this FIFO; only its latest still-valid version may reenter to write.
+/// One module-owned FIFO serializes original saves and guarded title writes across suspension points.
 @MainActor
 final class NotesDailyGroupingCoordinator {
     typealias Run = @MainActor @Sendable (AppleNotes.Request) async throws -> AppleNotes.Response
-    struct RefreshWork: Sendable {
-        let processor: any NotesSupplementProcessor
-        var validate: @Sendable () async throws -> Void = { try Task.checkCancellation() }
-    }
-    typealias Processor = @MainActor @Sendable (NotesDailyDocument, String) async throws -> RefreshWork
     private enum SaveError: Error { case metadataUnavailable, preparationInvalidated }
     struct Configuration: Sendable {
-        let supplementsEnabled: Bool
         var classifier: NotesGroupingClassifier? = nil
         var titleGenerator: NotesInitialTitleGenerator? = nil
         var validateTitle: @MainActor @Sendable () throws -> Void = { try Task.checkCancellation() }
         let validateOriginal: @MainActor @Sendable () throws -> Void
-        let validateRefresh: @MainActor @Sendable () throws -> Void
-        let processor: Processor
     }
     private let store: NotesDailyGroupingStore
     private let index: NotesOriginStore
@@ -26,7 +17,6 @@ final class NotesDailyGroupingCoordinator {
     private let run: Run
     private let now: @MainActor @Sendable () -> Date
     private let timeZone: @MainActor @Sendable () -> TimeZone
-    private let refreshTimeout: Duration
     private let groupingTimeout: Duration
     private let classificationTimeout: Duration
     private let cacheBudget: Int
@@ -36,15 +26,12 @@ final class NotesDailyGroupingCoordinator {
     private var cacheBytes = 0
     private var access: UInt64 = 0
     private var tail: Task<Void, Never>?
-    private var refreshes: [String: (id: UUID, task: Task<Void, Never>)] = [:]
-    private var recoveredScopes = Set<String>()
     private var titleTail: Task<Void, Never>?
     private var titleWorker: (key: String, id: UUID, task: Task<Void, Never>)?
 
     init(store: NotesDailyGroupingStore, index: NotesOriginStore, classifier: NotesGroupingClassifier,
          run: @escaping Run, now: @escaping @MainActor @Sendable () -> Date = { Date() },
          timeZone: @escaping @MainActor @Sendable () -> TimeZone = { .current },
-         refreshTimeout: Duration = .seconds(300),
          groupingTimeout: Duration = NotesGroupingClassifier.overallTimeout,
          classificationTimeout: Duration = NotesGroupingClassifier.timeout,
          cacheBudget: Int = 16 * 1024 * 1024) {
@@ -54,16 +41,9 @@ final class NotesDailyGroupingCoordinator {
         self.run = run
         self.now = now
         self.timeZone = timeZone
-        self.refreshTimeout = min(.seconds(300), max(.zero, refreshTimeout))
         self.groupingTimeout = min(NotesGroupingClassifier.overallTimeout, max(.zero, groupingTimeout))
         self.classificationTimeout = min(NotesGroupingClassifier.timeout, max(.zero, classificationTimeout))
         self.cacheBudget = max(0, cacheBudget)
-    }
-
-    func cancelRefreshes() {
-        refreshes.values.forEach { $0.task.cancel() }
-        refreshes.removeAll()
-        recoveredScopes.removeAll()
     }
 
     func save(original: String, entryID: String, folderID: String, submittedAt: Date,
@@ -175,10 +155,9 @@ final class NotesDailyGroupingCoordinator {
                             }
                         }
                         do {
-                            let saved = try await saveManaged(original: original, entryID: entryID, submittedAt: submittedAt,
+                            _ = try await saveManaged(original: original, entryID: entryID, submittedAt: submittedAt,
                                 submittedZone: submittedZone, scope: current, title: title, candidate: selected, configuration: configuration)
                             diagnostics.update { $0.savedAs = selected == nil ? .new : .append }
-                            scheduleRefresh(saved, configuration: configuration)
                             return await completion(entryID)
                         } catch SaveError.metadataUnavailable {
                             diagnostics.update { $0.reason = .metadata }
@@ -200,10 +179,9 @@ final class NotesDailyGroupingCoordinator {
                     let current = scope(folderID)
                     activateScope(current)
                     do {
-                        let saved = try await saveManaged(original: original, entryID: entryID, submittedAt: submittedAt,
+                        _ = try await saveManaged(original: original, entryID: entryID, submittedAt: submittedAt,
                             submittedZone: submittedZone, scope: current, title: nil, candidate: nil, configuration: configuration)
                         diagnostics.update { $0.savedAs = .new }
-                        scheduleRefresh(saved, configuration: configuration)
                         return await completion(entryID)
                     } catch SaveError.metadataUnavailable {
                         diagnostics.update { $0.reason = .metadata }
@@ -221,30 +199,6 @@ final class NotesDailyGroupingCoordinator {
         }
     }
 
-    /// Called after configuration is ready, once per same-day scope. Never resumes yesterday.
-    func resume(folderID: String, configuration: Configuration) async {
-        startTitles(folderID: folderID, configuration: configuration)
-        let current = scope(folderID)
-        activateScope(current)
-        let key = current.folderID + "|" + current.day + "|" + current.timeZoneID
-        guard recoveredScopes.insert(key).inserted else { return }
-        do {
-            let values = try await serial { [self] in
-                try configuration.validateOriginal()
-                activateScope(current)
-                let deadline = ContinuousClock.now.advanced(by: groupingTimeout - classificationTimeout)
-                try await reconcile(scope: current, deadline: deadline)
-                return try await candidates(scope: current, deadline: deadline)
-            }
-            for value in values where value.snapshot.generatedRevision != value.snapshot.originalRevision {
-                scheduleRefresh(value, configuration: configuration)
-            }
-        } catch {
-            recoveredScopes.remove(key)
-            emit(.failed, code: RuntimeLog.code(error))
-        }
-    }
-
     private struct Candidate: Sendable {
         let snapshot: NotesDailyGroupingStore.Snapshot
         let document: NotesDailyDocument
@@ -256,7 +210,6 @@ final class NotesDailyGroupingCoordinator {
         cache.removeAll()
         cacheBytes = 0
         cacheScope = nil
-        recoveredScopes.removeAll()
     }
 
     private func activateScope(_ current: NotesDailyScope) {
@@ -400,19 +353,13 @@ final class NotesDailyGroupingCoordinator {
                              configuration: Configuration) async throws -> Candidate {
         let prior = candidate?.snapshot
         let groupID = prior?.groupID ?? UUID().uuidString
-        refreshes.removeValue(forKey: groupID)?.task.cancel()
         var entries = candidate?.document.entries ?? []
         entries.append(.init(identity: .init(id: entryID, submittedAt: submittedAt,
             timeZoneID: submittedZone, sequence: entries.count), text: original))
         let initial = candidate == nil ? try await initialTitle(original, proposed: title, configuration: configuration) : nil
         let document = NotesDailyDocument(title: title ?? initial?.title ?? NotesInitialTitleGenerator.placeholder(for: original), scope: current, entries: entries,
-                                         generated: configuration.supplementsEnabled ? candidate?.document.generated : nil)
-        let coverage: Date?
-        if let revision = prior?.generatedRevision, let old = candidate?.document,
-           old.entries.indices.contains(revision - 1) {
-            coverage = old.entries[revision - 1].identity.submittedAt
-        } else { coverage = nil }
-        let rendered = document.renderRetainingGenerated(coveredAt: coverage)
+                                         generated: candidate?.document.generated)
+        let rendered = document.render()
         let next = NotesDailyGroupingStore.Snapshot(groupID: groupID, noteID: prior?.noteID, scope: current,
             originalRevision: entries.count, generatedRevision: document.generated == nil ? nil : prior?.generatedRevision,
             entries: entries.map(\.identity), boundary: rendered.boundary,
@@ -529,62 +476,6 @@ final class NotesDailyGroupingCoordinator {
         }
     }
 
-    private func scheduleRefresh(_ candidate: Candidate, configuration: Configuration) {
-        guard configuration.supplementsEnabled, candidate.snapshot.layout == .grouped, let noteID = candidate.snapshot.noteID else { return }
-        let groupID = candidate.snapshot.groupID
-        refreshes.removeValue(forKey: groupID)?.task.cancel()
-        let id = UUID()
-        let deadline = ContinuousClock.now.advanced(by: refreshTimeout)
-        let task = Task { [weak self] in
-            guard let self else { return }
-            await NotesGroupingDiagnostics.$current.withValue(nil) { [self] in
-                defer { if refreshes[groupID]?.id == id { refreshes.removeValue(forKey: groupID) } }
-                do {
-                    try configuration.validateRefresh()
-                    let work = try await configuration.processor(candidate.document, noteID)
-                    let remaining = ContinuousClock.now.duration(to: deadline)
-                    guard remaining > .zero else { emit(.timeout, code: .timeout); return }
-                    let result = try await work.processor.process(candidate.document.original, timeout: remaining)
-                    guard let preparation = result.report.preparation,
-                          [NotesSupplementResult.Preparation.generated, .validEmpty].contains(preparation) else {
-                        emit(result.outcome, code: result.report.preparation == .timeout ? .timeout : .unavailable)
-                        return
-                    }
-                    try await serial { [self] in
-                        try configuration.validateRefresh()
-                        try await work.validate()
-                        guard ContinuousClock.now < deadline, refreshes[groupID]?.id == id,
-                              scope(candidate.snapshot.scope.folderID) == candidate.snapshot.scope,
-                              let current = try await store.snapshot(groupID: groupID), !current.conflicted,
-                              current.originalRevision == candidate.snapshot.originalRevision,
-                              current.entries == candidate.snapshot.entries,
-                              current.boundary.regions.filter({ $0.kind != .title })
-                                == candidate.snapshot.boundary.regions.filter({ $0.kind != .title })
-                        else { throw NotesReadError.stale }
-                        // A title may have completed while this model request was running.
-                        let (source, body) = try await read(noteID, deadline: deadline)
-                        try NotesUpdateGuard(noteID: noteID, scope: current.scope, boundary: current.boundary)
-                            .validate(source: source, body: body, at: now(), timeZone: timeZone())
-                        let latest = try NotesDailyDocument.recover(snapshot: current, body: body)
-                        let rendered = latest.render(supplement: result.supplement)
-                        let next = NotesDailyGroupingStore.Snapshot(groupID: groupID, noteID: noteID, scope: current.scope,
-                            originalRevision: current.originalRevision, generatedRevision: current.originalRevision,
-                            entries: current.entries, boundary: rendered.boundary, layout: current.layout, title: current.title)
-                        let pending = NotesDailyGroupingStore.Pending(operationID: UUID().uuidString, kind: .refresh,
-                            previousBodyHash: current.boundary.bodyHash, snapshot: next)
-                        _ = try await write(pending, content: rendered.content, previous: current, validate: {
-                            try configuration.validateRefresh()
-                            try await work.validate()
-                            guard ContinuousClock.now < deadline else { throw NotesReadError.stale }
-                        })
-                        emit(.success)
-                    }
-                } catch { emit(error is CancellationError ? .cancelled : .discarded, code: RuntimeLog.code(error)) }
-            }
-        }
-        refreshes[groupID] = (id, task)
-    }
-
     private func rawSave(_ original: String, folderID: String,
                          validate: @escaping @MainActor @Sendable () throws -> Void) async throws -> ActionOutcome {
         try validate()
@@ -618,16 +509,16 @@ final class NotesDailyGroupingCoordinator {
         .init(localized: "error.notes.save_uncertain", code: .processFailed, executionOutcome: .unknown)
     }
 
-    private func emit(_ outcome: RuntimeLog.Outcome, code: RuntimeLog.Code? = nil, stage: RuntimeLog.Stage = .notesRefresh) {
+    private func emit(_ outcome: RuntimeLog.Outcome, code: RuntimeLog.Code? = nil, stage: RuntimeLog.Stage = .notesOriginalSave) {
         let log = RuntimeLog.current ?? RuntimeLog.Context()
         log.emit(.stageFinished, .init(stage: stage, outcome: outcome, errorCode: code, actionID: "apple-notes"))
     }
 }
 
 extension NotesDailyGroupingCoordinator {
-    /// Ordinary preparation completes before entering the same FIFO as grouped saves and updates.
+    /// Ordinary originals share the same FIFO and readback rules as grouped saves.
     func saveIndependent(original: String, entryID: String, folderID: String, submittedAt: Date,
-                         supplement: NotesSupplement, configuration: Configuration) async throws -> ActionOutcome {
+                         configuration: Configuration) async throws -> ActionOutcome {
         try await serial { [self] in
             try configuration.validateOriginal()
             var current = scope(folderID)
@@ -649,9 +540,9 @@ extension NotesDailyGroupingCoordinator {
                 timeZoneID: timeZone().identifier, sequence: 0)
             let document = NotesDailyDocument(title: initial.title ?? NotesInitialTitleGenerator.placeholder(for: original),
                 scope: current, entries: [.init(identity: entry, text: original)], layout: .independent)
-            let rendered = document.render(supplement: supplement)
+            let rendered = document.render()
             let next = NotesDailyGroupingStore.Snapshot(groupID: UUID().uuidString, scope: current,
-                originalRevision: 1, generatedRevision: rendered.content.itemCount > 0 ? 1 : nil,
+                originalRevision: 1, generatedRevision: nil,
                 entries: [entry], boundary: rendered.boundary, layout: .independent,
                 title: titleMetadata(initial, entryID: entryID, configuration: configuration))
             do {
@@ -803,7 +694,7 @@ extension NotesDailyGroupingCoordinator {
                           current.scope == scope(current.scope.folderID), var state = current.title,
                           [.pending, .paused].contains(state.state), state.firstEntryID == metadata.firstEntryID
                     else { throw NotesReadError.stale }
-                    // Merge only the title into the latest confirmed body after concurrent append/refresh.
+                    // Merge only the title into the latest confirmed body after a concurrent original append.
                     let (source, body) = try await read(noteID, deadline: .now.advanced(by: .seconds(30)))
                     try NotesUpdateGuard(noteID: noteID, scope: current.scope, boundary: current.boundary)
                         .validate(source: source, body: body, at: now(), timeZone: timeZone())

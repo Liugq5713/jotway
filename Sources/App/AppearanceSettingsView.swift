@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// All choices write through the existing app-level binding and saved theme preference.
+/// Visual choices apply immediately through bindings or shared local preferences.
 struct AppearanceSettingsView: View {
     @Binding var themeMode: ThemeMode
     @Binding var submissionEffect: SubmissionEffect
+    @AppStorage(EditorBackgroundStyle.defaultsKey) private var editorBackground: EditorBackgroundStyle = .cat
     @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
@@ -17,18 +18,27 @@ struct AppearanceSettingsView: View {
                 .padding(.vertical, 8)
             } header: {
                 Text(L10n.text("settings.general.theme"))
-            } footer: {
-                Text(L10n.text("settings.appearance.saved_help"))
             }
-            Section(L10n.text("settings.general.submission_effect")) {
-                settingRow(L10n.text("settings.general.submission_effect.help")) {
-                    Picker(L10n.text("settings.general.submission_effect"), selection: $submissionEffect) {
-                        ForEach(SubmissionEffect.allCases, id: \.self) { effect in
-                            Text(effect.title).tag(effect)
-                        }
+            Section {
+                Picker(L10n.text("settings.appearance.background"), selection: $editorBackground) {
+                    ForEach(EditorBackgroundStyle.allCases, id: \.self) { style in
+                        Text(style.title).tag(style)
                     }
-                    .pickerStyle(.menu)
                 }
+                .pickerStyle(.menu)
+                .help(L10n.text("settings.appearance.background.help"))
+                .accessibilityHint(L10n.text("settings.appearance.background.help"))
+                .accessibilityIdentifier("editor-background-style")
+            }
+            Section {
+                Picker(L10n.text("settings.general.submission_effect"), selection: $submissionEffect) {
+                    ForEach(SubmissionEffect.allCases, id: \.self) { effect in
+                        Text(effect.title).tag(effect)
+                    }
+                }
+                .pickerStyle(.menu)
+                .help(L10n.text("settings.general.submission_effect.help"))
+                .accessibilityHint(L10n.text("settings.general.submission_effect.help"))
             }
         }
         .formStyle(.grouped)
@@ -51,12 +61,9 @@ struct AppearanceSettingsView: View {
                 }
                 Text(mode.title)
                     .font(.body.weight(.semibold))
-                Text(mode.detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
             .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, minHeight: 116, alignment: .topLeading)
+            .frame(maxWidth: .infinity, minHeight: 88, alignment: .topLeading)
             .padding(14)
             .background(isSelected ? Color.accentColor.opacity(0.08) : Color.primary.opacity(0.025),
                         in: RoundedRectangle(cornerRadius: 12))

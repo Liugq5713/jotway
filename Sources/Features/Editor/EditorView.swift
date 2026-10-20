@@ -12,6 +12,7 @@ final class EditorFocusTarget {
     }
 
     @ObservationIgnored weak var textView: NSTextView?
+    @ObservationIgnored weak var decorationBackground: (any EditorDecorationView)?
     @ObservationIgnored weak var modeButton: NSButton?
     @ObservationIgnored var recentDocumentButtons: [NSButton] = []
     @ObservationIgnored var recentDocumentCommandButtons: [Int: NSButton] = [:]
@@ -187,6 +188,7 @@ private struct TargetMenuScrollTarget: Equatable {
 
 struct EditorView: View {
     @Binding var text: String
+    @AppStorage(EditorBackgroundStyle.defaultsKey) private var editorBackground: EditorBackgroundStyle = .cat
     var appState: AppState? = nil
     @Environment(\.openSettings) private var openSettings
     @Environment(\.colorScheme) private var colorScheme
@@ -378,6 +380,14 @@ struct EditorView: View {
             .frame(height: manualInputCardHeight.map {
                 max(min($0, maximumInputCardHeight(for: maximumContentHeight)), minimumInputCardHeight)
             })
+            .backgroundPreferenceValue(EditorDecorationBoundsKey.self) { anchors in
+                GeometryReader { proxy in
+                    decorationBackground(controlRects: anchors.controls.map { proxy[$0] },
+                                         targetRect: anchors.target.map { proxy[$0] })
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
             .background(
                 GeometryReader { proxy in
                     Color.clear.preference(key: LauncherInputCardHeightKey.self,
@@ -391,6 +401,32 @@ struct EditorView: View {
             }
         )
         .onHover { isInputCardHovered = $0 }
+        .onContinuousHover { phase in
+            guard let cat = focusTarget.decorationBackground as? EditorCatView else { return }
+            switch phase {
+            case .active(let location): cat.trackPointer(location)
+            case .ended: cat.trackPointer(nil)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func decorationBackground(controlRects: [CGRect], targetRect: CGRect?) -> some View {
+        switch editorBackground {
+        case .cat:
+            EditorCatBackground(focusTarget: focusTarget,
+                                enabled: state.mode == .quickInput && !state.isReadingGettingStarted,
+                                isReading: isOverlayVisible, colorScheme: colorScheme,
+                                controlRects: controlRects, targetRect: targetRect,
+                                hasDraftContent: hasDraftContent)
+        case .shark:
+            EditorSharkBackground(focusTarget: focusTarget,
+                                  enabled: state.mode == .quickInput && !state.isReadingGettingStarted,
+                                  isReading: isOverlayVisible, colorScheme: colorScheme,
+                                  controlRects: controlRects)
+        case .none:
+            EmptyView()
+        }
     }
 
     // MARK: - 动作行（固定 22pt，始终占位）
@@ -403,12 +439,14 @@ struct EditorView: View {
                         increasesContrast: colorSchemeContrast == .increased)
                 .frame(width: 22, height: 22)
                 .frame(height: LauncherMetrics.actionRowHeight)
+                .editorDecorationExclusion()
             if state.canShowRecentDocuments {
                 RecentDocumentControls(focusTarget: focusTarget, state: state,
                                        isCardHovered: isInputCardHovered,
                                        increasesContrast: colorSchemeContrast == .increased, send: send)
                     .frame(width: 22, height: 22)
                     .frame(height: LauncherMetrics.actionRowHeight)
+                    .editorDecorationExclusion()
             }
             if state.mode == .quickInput {
                 NotesReviewControls(focusTarget: focusTarget, state: state, send: send,
@@ -416,12 +454,14 @@ struct EditorView: View {
                                     increasesContrast: colorSchemeContrast == .increased)
                     .frame(width: 22, height: 22)
                     .fixedSize()
+                    .editorDecorationExclusion()
             }
             if hasDraftContent {
                 DraftThinkingPromptControl(focusTarget: focusTarget, state: state,
                     isCardHovered: isInputCardHovered,
                     increasesContrast: colorSchemeContrast == .increased, send: send)
                     .frame(width: 22, height: 22)
+                    .editorDecorationExclusion()
             }
             if state.mode == .quickInput {
                 HStack(alignment: .bottom, spacing: 8) {
@@ -431,6 +471,7 @@ struct EditorView: View {
                         Spacer(minLength: 0)
                     }
                     actionTarget
+                        .editorDecorationPerch()
                 }
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { actionRowWidth = $0 }
             } else {
@@ -926,28 +967,34 @@ private final class WindowDragNSView: NSView {
         let originStart = window.frame.origin
         let mouseStart = NSEvent.mouseLocation
         let recordPanel = window as? RecordPanel
+        let dragToken = recordPanel?.beginUserDrag(customLoop: true)
         var didDrag = false
-        defer { recordPanel?.endUserDrag() }
+        defer { if let dragToken { recordPanel?.cancelUserDrag(token: dragToken) } }
         while true {
+            if let recordPanel, let dragToken, !recordPanel.isUserDragActive(dragToken) { break }
             guard let next = window.nextEvent(
                 matching: [.leftMouseDragged, .leftMouseUp],
-                until: .distantFuture,
+                until: Date(timeIntervalSinceNow: 0.1),
                 inMode: .default,
                 dequeue: true
-            ) else { break }
+            ) else {
+                if NSEvent.pressedMouseButtons & 1 == 0 { break }
+                continue
+            }
+            if let recordPanel, let dragToken, !recordPanel.isUserDragActive(dragToken) { break }
             if next.type == NSEvent.EventType.leftMouseUp {
+                if let dragToken { recordPanel?.endUserDrag(token: dragToken) }
                 if !didDrag { onClick?() }
                 break
             }
-            didDrag = true
             let mouse = NSEvent.mouseLocation
             let origin = NSPoint(
                 x: originStart.x + mouse.x - mouseStart.x,
                 y: originStart.y + mouse.y - mouseStart.y
             )
-            if let recordPanel {
-                recordPanel.beginUserDrag()
-                recordPanel.moveForUserDrag(to: origin)
+            if origin != originStart { didDrag = true }
+            if let recordPanel, let dragToken {
+                recordPanel.moveForUserDrag(to: origin, token: dragToken)
             } else {
                 window.setFrameOrigin(origin)
             }
@@ -961,6 +1008,12 @@ private final class EditorScrollView: NSScrollView {
     override func tile() {
         super.tile()
         (documentView as? EditorTextView)?.finishDeferredSelectionScroll()
+        (documentView as? EditorTextView)?.focusTarget?.decorationBackground?.invalidateGeometry()
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        (documentView as? EditorTextView)?.focusTarget?.decorationBackground?.noteActivity()
+        super.scrollWheel(with: event)
     }
 }
 
@@ -987,6 +1040,7 @@ private struct EditorTextViewRepresentable: NSViewRepresentable {
         scrollView.focusRingType = .none // 去掉聚焦时输入框四周的蓝色描边
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
+        scrollView.contentView.postsBoundsChangedNotifications = true
 
         let textView = EditorTextView(usingTextLayoutManager: true)
         textView.focusRingType = .none
@@ -1028,6 +1082,7 @@ private struct EditorTextViewRepresentable: NSViewRepresentable {
         scrollView.documentView = textView
         focusTarget.textView = textView
         context.coordinator.textView = textView
+        focusTarget.decorationBackground?.invalidateGeometry()
         return scrollView
     }
 
@@ -1057,7 +1112,9 @@ private struct EditorTextViewRepresentable: NSViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
-            (notification.object as? EditorTextView)?.validateTemplateSelection()
+            guard let editor = notification.object as? EditorTextView else { return }
+            editor.validateTemplateSelection()
+            editor.focusTarget?.decorationBackground?.noteActivity()
         }
 
         func textDidChange(_ notification: Notification) {
@@ -1156,6 +1213,7 @@ final class EditorTextView: NSTextView {
         updatePlaceholderVisibility()
         reportContentHeight()
         lastReportedText = string
+        focusTarget?.decorationBackground?.invalidateGeometry()
         needsDisplay = true
         return true
     }
@@ -1378,6 +1436,7 @@ final class EditorTextView: NSTextView {
         }
         onContentHeightChange(height)
         finishDeferredSelectionScroll()
+        focusTarget?.decorationBackground?.invalidateGeometry()
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -1386,6 +1445,7 @@ final class EditorTextView: NSTextView {
     }
 
     override func insertText(_ insertString: Any, replacementRange: NSRange) {
+        focusTarget?.decorationBackground?.noteActivity()
         super.insertText(insertString, replacementRange: replacementRange)
         updatePlaceholderVisibility()
         reportComposition(hasMarkedText())
@@ -1393,11 +1453,13 @@ final class EditorTextView: NSTextView {
 
     override func unmarkText() {
         super.unmarkText()
+        focusTarget?.decorationBackground?.noteActivity()
         updatePlaceholderVisibility()
         reportComposition(hasMarkedText())
     }
 
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        focusTarget?.decorationBackground?.noteActivity()
         reportComposition(true)
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
         updatePlaceholderVisibility()
@@ -1484,6 +1546,7 @@ final class EditorTextView: NSTextView {
         lastReportedText = string
         updatePlaceholderVisibility()
         reportContentHeight()
+        focusTarget?.decorationBackground?.noteActivity()
     }
 
     private func observeUndoChangesIfNeeded() {
@@ -1511,7 +1574,14 @@ final class EditorTextView: NSTextView {
         NotificationCenter.default.removeObserver(self)
     }
 
+    override func mouseDown(with event: NSEvent) {
+        focusTarget?.decorationBackground?.setSelecting(true)
+        defer { focusTarget?.decorationBackground?.setSelecting(false) }
+        super.mouseDown(with: event)
+    }
+
     override func keyDown(with event: NSEvent) {
+        focusTarget?.decorationBackground?.noteActivity()
         // 非激活面板下 app 不激活，主菜单 key equivalent 路由（Cmd+C/V/X/A/Z）不可用：
         // 菜单匹配失败后事件穿透到 keyDown，若不接手则整组编辑快捷键全断。
         // 这里手动派发到对应动作。

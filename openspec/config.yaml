@@ -1,1 +1,12 @@
 schema: spec-driven
+context: |
+  开始规划前读取仓库 AGENTS.md 的 Change Workflow 和 Testing，按其选择流程及验证范围。
+rules:
+  proposal:
+    - 只写问题、目标行为、受影响能力及必要影响；实现方法和验收细节分别留给 design、specs/tasks。
+  design:
+    - 仅在 schema 所列条件适用时生成；只记录需要解释的技术选择及取舍，引用 proposal/specs，不复述范围、场景或通用仓库约束。
+  specs:
+    - 只覆盖改变的可观察行为及必要边界。MODIFIED 仍须保留完整需求块及原有场景；不要为缩短文档丢失既有契约。
+  tasks:
+    - 按可交付改动组织任务，引用规格和设计而不重复展开；验证遵循 AGENTS.md 的 Testing，不默认加入全量测试、临时验证程序或人工验收门槛。

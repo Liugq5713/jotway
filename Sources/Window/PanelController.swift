@@ -60,6 +60,11 @@ final class PanelController: NSObject, NSWindowDelegate {
         self.presentActionSetup = presentActionSetup
         super.init()
         session.handleEffect = { [weak self] effect in self?.handleSessionEffect(effect) ?? false }
+        intentObservers.append(NotificationCenter.default.addObserver(
+            forName: SelectedTextPermission.didGrantNotification, object: SelectedTextPermission.shared,
+            queue: .main) { [weak session] _ in
+                MainActor.assumeIsolated { session?.send(.selectedTextPermissionRecovered) }
+            })
         for name in [ActionRegistry.didChangeNotification] {
             intentObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak session] _ in
                 MainActor.assumeIsolated { session?.send(.refreshConfiguration) }
@@ -340,6 +345,7 @@ final class PanelController: NSObject, NSWindowDelegate {
             // 淡出动画中再次唤起：直接淡回，草稿状态原样保留
             isHidingPanel = false
             session.send(.panelPresented)
+            panel.bringForwardForInput()
             panel.animateIn()
             return
         }
@@ -388,8 +394,7 @@ final class PanelController: NSObject, NSWindowDelegate {
                     panel.animateIn() // 让旧淡出回调失效，不执行它原本的窗口切换。
                 }
                 // 不再填回草稿、不粘贴剪贴板、不移动光标，也不改变组词和撤销现场。
-                panel.orderFrontRegardless()
-                panel.makeKey()
+                panel.bringForwardForInput()
                 preservesEditorAfterGettingStarted = false
             } else {
                 panel.showPanel()
@@ -589,9 +594,8 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.cancelSubmissionAnimation()
         isHidingPanel = false
         panel.alphaValue = 1
-        panel.orderFrontRegardless()
-        panel.makeKey()
         panel.makeFirstResponder(editorFocusTarget.textView)
+        panel.bringForwardForInput()
         session.send(.panelVisibilityChanged(panel.isVisible))
         preservesEditorAfterGettingStarted = false
     }
@@ -730,7 +734,9 @@ final class PanelController: NSObject, NSWindowDelegate {
             var selected: SelectedText?
             var unauthorized = false
             if let selectionSource {
-                switch await selectedTextReader.read(source: selectionSource, until: deadline) {
+                switch await selectedTextReader.read(source: selectionSource, until: deadline, permissionObserved: { observation in
+                    Task { @MainActor in SelectedTextPermission.shared.observe(observation) }
+                }) {
                 case .selected(let value): selected = value
                 case .unauthorized: unauthorized = true
                 default: break
@@ -857,9 +863,8 @@ final class PanelController: NSObject, NSWindowDelegate {
             panel.cancelSubmissionAnimation()
             isHidingPanel = false
             panel.alphaValue = 1
-            panel.orderFrontRegardless()
-            panel.makeKey()
             panel.makeFirstResponder(editorFocusTarget.textView)
+            panel.bringForwardForInput()
             session.send(.panelVisibilityChanged(panel.isVisible))
             preservesEditorAfterGettingStarted = false
         } else {

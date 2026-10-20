@@ -67,4 +67,42 @@ enum RecordPanelPlacement {
         CGPoint(x: frame.minX - screen.visibleFrame.minX,
                 y: screen.visibleFrame.maxY - frame.maxY)
     }
+
+    struct DragAlignment: Equatable {
+        let screen: Screen
+        let defaultFrame: CGRect
+        let alignsCenter: Bool
+        let alignsTop: Bool
+        let releaseFrame: CGRect
+    }
+
+    /// Drag selection uses the raw window frame, with stable ties independent of opening preferences.
+    static func dragScreen(containing frame: CGRect, in screens: [Screen], previousID: String?) -> Screen? {
+        var candidates: [Screen] = []
+        var largestArea: CGFloat = 0
+        for screen in screens {
+            let intersection = frame.intersection(screen.frame)
+            guard !intersection.isNull, intersection.width > 0, intersection.height > 0 else { continue }
+            let area = intersection.width * intersection.height
+            if area > largestArea { candidates = [screen]; largestArea = area }
+            else if area == largestArea { candidates.append(screen) }
+        }
+        return candidates.first { $0.id == previousID } ?? candidates.first
+    }
+
+    /// The caller supplies the existing size/bounds constraints without moving the actual window.
+    /// Preview and release use this same calculation, in global AppKit points.
+    static func dragAlignment(for frame: CGRect, on screen: Screen,
+                              constrainedFrame: CGRect? = nil) -> DragAlignment {
+        let freeFrame = constrainedFrame ?? frame
+        let target = CGRect(origin: origin(for: freeFrame.size, on: screen, savedOffset: nil),
+                            size: freeFrame.size)
+        let alignsCenter = abs(frame.midX - target.midX) <= 8
+        let alignsTop = abs(frame.maxY - target.maxY) <= 8
+        var release = freeFrame
+        if alignsCenter { release.origin.x = target.minX }
+        if alignsTop { release.origin.y = target.minY }
+        return DragAlignment(screen: screen, defaultFrame: target, alignsCenter: alignsCenter,
+                             alignsTop: alignsTop, releaseFrame: release)
+    }
 }

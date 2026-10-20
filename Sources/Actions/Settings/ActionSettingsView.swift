@@ -108,7 +108,6 @@ struct ActionSettingsView: View {
 struct AppleNotesSettingsView: View {
     let module: AppleNotesModule
     @Environment(\.openAIServiceSettings) private var openAIServiceSettings
-    @Environment(\.openWritingPreferences) private var openWritingPreferences
 
     var body: some View {
         // The editable preferences live in UserDefaults; the module revision drives their UI refresh.
@@ -119,45 +118,26 @@ struct AppleNotesSettingsView: View {
                 defaultLocation: L10n.text("action.notes.default_location"), privacyPane: "Automation",
                 name: { $0.name }, authorize: { try await module.authorizeAndSetDefaultDestination() },
                 load: { try await module.loadDestinations() }, save: { try module.setDestination($0) })
-            Section(L10n.text("notes.title.heading")) {
-                Text(L10n.text("notes.title.help"))
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                Text(module.hasGroupingConfiguration ? L10n.text("notes.grouping.configured")
-                    : L10n.text("notes.title.unconfigured"))
-                    .font(.caption).foregroundStyle(.secondary)
-            }
             Section(L10n.text("notes.grouping.title")) {
                 Toggle(L10n.text("notes.grouping.toggle"), isOn: Binding(
                     get: { module.isDailyGroupingEnabled }, set: { module.setDailyGroupingEnabled($0) }))
                     .accessibilityIdentifier("notes-daily-grouping-toggle")
                 Text(L10n.text("notes.grouping.help"))
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                HStack {
-                    Text(module.hasGroupingConfiguration ? L10n.text("notes.grouping.configured")
-                        : L10n.text("notes.grouping.unconfigured"))
-                    Spacer()
-                    Button(L10n.text("settings.ai.services.open"), action: openAIServiceSettings)
-                        .accessibilityIdentifier("notes-grouping-ai-services")
+                if !module.hasGroupingConfiguration {
+                    HStack {
+                        Text(L10n.text("notes.settings.ai_setup"))
+                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        Spacer()
+                        Button(L10n.text("settings.ai.services.open"), action: openAIServiceSettings)
+                            .accessibilityIdentifier("notes-grouping-ai-services")
+                    }
                 }
-            }
-            Section(L10n.text("action.notes.ai_supplements")) {
-                settingRow(L10n.text("action.notes.supplement_help")) {
-                    Toggle(L10n.text("action.notes.supplement_toggle"), isOn: Binding(
-                        get: { module.isAISupplementEnabled }, set: { module.setAISupplementEnabled($0) }))
-                        .accessibilityIdentifier("notes-ai-supplement-toggle")
-                }
-                Button(L10n.text("settings.ai.services.preferences"), action: openWritingPreferences)
-                    .accessibilityIdentifier("notes-writing-preferences")
             }
             Section(L10n.text("notes.review.title")) {
                 Toggle(L10n.text("notes.review.enable"),
                        isOn: Binding(get: { module.isReviewEnabled }, set: { module.setReviewEnabled($0) }))
-                Text(L10n.text("notes.review.enable.help")).font(.caption).foregroundStyle(.secondary)
                 NotesReviewScopeView(library: module.reviewLibrary)
-            }
-            Section(L10n.text("action.notes.tags")) {
-                Text(L10n.text("action.notes.tags_paused"))
-                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -185,9 +165,11 @@ private struct StorageDestinationSection<Destination: Identifiable>: View where 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(destination.map(name) ?? defaultLocation).font(.body.weight(.medium))
                         .fixedSize(horizontal: false, vertical: true)
-                    Text(L10n.text(destination == nil ? "action.settings.authorize_help" : "action.settings.destination_help"))
-                        .font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if destination == nil {
+                        Text(L10n.text("action.settings.authorize_help"))
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 Spacer(minLength: 12)
                 if task != nil { ProgressView().controlSize(.small) }

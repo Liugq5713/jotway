@@ -32,7 +32,22 @@ final class LauncherViewState {
     var hasPreparedDraft = false
     var hasUnsavedChanges = false
     var hasFailedSubmission = false
-    var message: String?
+    var message: String? {
+        didSet { ownsSelectedTextPermissionNotice = false }
+    }
+    private var ownsSelectedTextPermissionNotice = false
+
+    func showSelectedTextPermissionNotice(_ text: String) {
+        guard message == nil else { return }
+        message = text
+        ownsSelectedTextPermissionNotice = true
+    }
+
+    func clearSelectedTextPermissionNotice() {
+        guard ownsSelectedTextPermissionNotice else { return }
+        message = nil
+    }
+
     var isReadingGettingStarted = false
     var isComposingText = false
     var intentTitle: String?

@@ -55,6 +55,8 @@ Delete a Work document after its resulting behavior has been synced into the rel
 | [Jev API](integrations/jev-api-research.md) | Reference: retired Jev protocol and historical diagnostics only |
 | [Cloudflare Workers AI proxy](integrations/cloudflare-workers-ai-research.md) | Reference: proxy integration, mainland China latency, and measurement boundaries |
 | [Launcher competitor research](development/launcher-competitor-research.md) | Reference: Raycast, Alfred, and LaunchBar capabilities and Jotway comparison boundaries |
+| [ASCII shark background](development/ascii-shark-background-research.md) | Reference: upstream rendering and licensing, native editor fit, and typing-aware motion feasibility |
+| [ASCII cat motion](development/ascii-cat-motion-research.md) | Reference: disappearance and return discontinuities, offscreen evidence, and character-motion options |
 | [Application matching research](development/application-matching-research.md) | Reference: Raycast search behavior, Tinycast matching and ranking, and Jotway application-search gaps |
 | [AI development plans](development/ai-development-plans-research.md) | Reference: readable plan templates, acceptance criteria, and agent handoffs |
 | [Codex sidebar visibility](development/codex-sidebar-research.md) | Reference: background-session discovery, community workarounds, and app-server integration options |
@@ -64,13 +66,14 @@ Delete a Work document after its resulting behavior has been synced into the rel
 | [Capture and thinking mechanisms](development/capture-and-thinking-mechanisms-research.md) | Reference: primary evidence, product mechanisms, work/life reflection, and candidate validation |
 | [Personal Agent context strategies](development/personal-agent-context-research.md) | Reference: full context, targeted retrieval, and global summaries for personal questions |
 | [AI provider onboarding](development/ai-provider-onboarding.md) | Reference: adding an AI source |
+| [BYOK 接入参考](development/byok-provider-onboarding-research.md) | Reference: 开源项目的服务商配置方式、Jotway 当前差异与交互初稿 |
 | [AI provider implementation](plugins/ai-provider-implementation.md) | Reference: provider request path |
 | [Third-party notices](../THIRD_PARTY_NOTICES.md) | Reference: dependency sources and licenses |
 
 ## Maintenance rules
 
-1. Write the smallest Work brief that makes a change testable: scenario, current behavior, target behavior, non-goals, and acceptance criteria.
+1. Choose the lightweight or full workflow using [AGENTS.md — Change Workflow](../AGENTS.md#change-workflow). Small changes need no Work document; when one is needed, keep only the scope and acceptance information needed to carry out the change.
 2. Keep Current docs and their detailed specs timeless. Do not append delivery dates, build durations, PIDs, local installation receipts, or chronological implementation logs.
-3. After implementation, sync the change's delta specs into `openspec/specs/`, update the relevant Current document when its behavior or structure changed, and delete the completed Work brief. Git is the archive.
+3. After implementation, update the affected main spec directly for lightweight changes, or sync delta specs for OpenSpec changes. Update Current docs only where behavior or structure changed; link to detailed specs instead of repeating their scenarios. Delete completed Work briefs. Git is the archive.
 4. Keep research only when its sources or uncertainty boundaries will be reused.
 5. Create a decision record only when the choice is hard to reverse, surprising without context, and the result of a real trade-off.

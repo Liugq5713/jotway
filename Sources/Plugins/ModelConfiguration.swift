@@ -103,23 +103,30 @@ final class ModelConfiguration {
 
     func savePersonalModel(_ proposed: PersonalModelConfiguration, key rawKey: String) throws {
         var next = try proposed.normalized()
-        let entered = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        let key: String
-        if !entered.isEmpty { key = try OpenAICompatible.validatedKey(entered, brand: "AI") }
-        else {
-            // Never send an existing credential to a newly entered host or protocol.
-            guard let current = personalModel, current.baseURL == next.baseURL, current.service == next.service,
-                  let saved = try keys.load(for: current.credential) else {
-                throw AIProviderPlugin.Failure(message: L10n.text("settings.ai.personal.key_required"), runtimeLogCode: .configuration)
-            }
-            key = saved
-        }
+        let key = try personalKey(for: next, enteredKey: rawKey)
         next.credential = .personalAI
         let data = try JSONEncoder().encode(next)
         try keys.save(key, for: .personalAI)
         preferences.set(data, forKey: PersonalModelConfiguration.preferenceKey)
         personalModel = next; bindingIssue = nil
         advanceCredentialVersion(.personalAI); changed()
+    }
+
+    func canReusePersonalKey(for proposed: PersonalModelConfiguration) -> Bool {
+        guard let next = try? proposed.normalizedDestination(), let current = personalModel else { return false }
+        return current.baseURL == next.baseURL && current.service == next.service && hasPersonalKey
+    }
+
+    /// Shared by saving and explicit discovery. Never forward a saved key to a new destination.
+    func personalKey(for proposed: PersonalModelConfiguration, enteredKey rawKey: String) throws -> String {
+        let next = try proposed.normalizedDestination()
+        let entered = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !entered.isEmpty { return try OpenAICompatible.validatedKey(entered, brand: "AI") }
+        guard let current = personalModel, current.baseURL == next.baseURL, current.service == next.service,
+              let saved = try keys.load(for: current.credential) else {
+            throw AIProviderPlugin.Failure(message: L10n.text("settings.ai.personal.key_required"), runtimeLogCode: .configuration)
+        }
+        return try OpenAICompatible.validatedKey(saved, brand: "AI")
     }
     func removePersonalKey() throws {
         try removeKey(for: personalModel?.credential ?? .personalAI)

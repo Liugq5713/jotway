@@ -1,7 +1,7 @@
 import Foundation
 
-/// Content and execution diagnostics travel separately; only the deadline winner is adopted.
-struct NotesSupplementResult: Sendable {
+/// Read compatibility for old content-free supplement diagnostics. No new producer uses this type.
+enum LegacyNotesSupplementDiagnostics: Sendable {
     enum Preparation: String, Codable, Sendable {
         case disabled, generated, validEmpty = "valid_empty"
         // Decode existing diagnostics without producing new history results.
@@ -23,26 +23,10 @@ struct NotesSupplementResult: Sendable {
 
         var bounded: Self {
             var value = self
-            value.itemCount = itemCount.map { min(max(0, $0), NotesSupplement.maximumItemCount) }
-            value.adoptedItemCount = adoptedItemCount.map { min(max(0, $0), NotesSupplement.maximumItemCount) }
+            value.itemCount = itemCount.map { min(max(0, $0), 3) }
+            value.adoptedItemCount = adoptedItemCount.map { min(max(0, $0), 3) }
             return value
         }
     }
 
-    var supplement: NotesSupplement = .empty
-    var report = Report()
-
-    static func empty(_ reason: Preparation) -> Self {
-        .init(report: .init(preparation: reason))
-    }
-
-    var outcome: RuntimeLog.Outcome {
-        switch report.preparation {
-        case .timeout: .timeout
-        case .stale: .discarded
-        case .cancelled: .cancelled
-        case .configurationMissing, .providerError, .invalidOutput: .failed
-        default: .success
-        }
-    }
 }

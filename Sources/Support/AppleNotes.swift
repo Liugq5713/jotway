@@ -1,6 +1,5 @@
 import AppKit
 import Carbon
-import NaturalLanguage
 
 /// 通过备忘录公开的 Apple Event 接口保存与回读；正文始终作为数据传递。
 enum AppleNotes {
@@ -110,7 +109,7 @@ enum AppleNotes {
 
     /// Preserve the original once; Notes determines its title from the supplied body.
     /// A span inside pre prevents HTML's special handling of a newline immediately after <pre>.
-    static func content(fromPlainText text: String, supplement: NotesSupplement = .empty,
+    static func content(fromPlainText text: String,
                         tags: [String] = []) -> Content {
         let original = normalizedLines(text)
         func preservedBlock(_ value: String, region: String,
@@ -125,51 +124,8 @@ enum AppleNotes {
             }.joined(separator: "\n")
             return "<pre data-jotway-region=\"\(region)\" style=\"font-family: \(fontFamily); font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0;\"><span>\(escaped)</span></pre>"
         }
-        var html = preservedBlock(original, region: "original")
-        var plaintext = original
-        // Saved content follows the draft's language independently of the English app UI.
-        let language = NLLanguageRecognizer.dominantLanguage(for: original)
-        let isChinese = language == .simplifiedChinese || language == .traditionalChinese
-        func label(_ english: String, _ chinese: String) -> String { isChinese ? chinese : english }
-        // Apply bounds at the final write boundary too, including non-model processors.
-        var usedText = [original]
-        let items = Array(supplement.items.filter { item in
-            guard AINotesSupplementProcessor.validAddition(item.text),
-                  !usedText.contains(where: { AINotesSupplementProcessor.overlaps(item.text, $0) }) else { return false }
-            usedText.append(item.text)
-            return true
-        }.prefix(NotesSupplement.maximumItemCount))
-        // Each row supplies the same visible text to HTML and the provenance tail.
-        // Empty div rows provide spacing without paragraph margins or quote indentation.
-        var rows: [(text: String, html: String)] = []
-        func row(_ text: String = "", html: String? = nil) {
-            rows.append((text, html ?? (text.isEmpty ? "<br>" : escapedHTML(text))))
-        }
-        func heading(_ text: String) {
-            row()
-            row(text, html: "<b>\(escapedHTML(text))</b>")
-            row()
-        }
-        if !items.isEmpty { row(NotesContentFormat.divider) }
-        if !items.isEmpty {
-            heading(label(NotesContentFormat.englishInsights, NotesContentFormat.chineseInsights))
-            for (index, item) in items.enumerated() {
-                if index > 0 { row() }
-                row(item.text)
-            }
-        }
-        if !rows.isEmpty {
-            let trailingBreaks = original.reversed().prefix(while: { $0 == "\n" }).count
-            plaintext += String(repeating: "\n", count: max(0, 2 - trailingBreaks))
-                + rows.map(\.text).joined(separator: "\n")
-            // The pre block supplies its own terminating newline when one is missing.
-            let blankRows = max(0, 2 - max(1, trailingBreaks))
-            html += "<div data-jotway-region=\"generated\" style=\"font-family: -apple-system, Helvetica, sans-serif; font-size: 14px;\">"
-                + String(repeating: "<div><br></div>", count: blankRows)
-                + rows.map { "<div>\($0.html)</div>" }.joined() + "</div>"
-        }
-        // Tag preferences and legacy processor fields remain stored but never append text.
-        return Content(html: html, plaintext: plaintext + "\n", itemCount: items.count)
+        // Legacy tag preferences remain stored but never append text.
+        return Content(html: preservedBlock(original, region: "original"), plaintext: original + "\n")
     }
 
     private static func normalizedLines(_ text: String) -> String {

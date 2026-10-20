@@ -138,7 +138,8 @@ final class NotesReview {
         invalidate()
     }
 
-    /// Closing discards work and all pending snapshots, while valid completed caches survive.
+    /// Cancel superseded work and pending snapshots, while valid completed caches survive.
+    /// Hiding the review surface does not cancel this app-owned task.
     func cancel() {
         requestID = nil
         requestIdentity = nil
@@ -169,7 +170,11 @@ final class NotesReview {
         library.refreshPermission()
         let current = identity
         let changedPeriod = self.period != period
-        if !force, !changedPeriod, isLoading, requestIdentity == current { return }
+        let end = now()
+        let start = period.windowStart(through: end)
+        // Reopening resumes the frozen request, unless today's date boundary changed.
+        if !force, !changedPeriod, isLoading, current.ready, requestIdentity == current,
+           period != .today || requestMetadata?.windowStart == start { return }
         cancel()
         self.period = period
         observedIdentity = current
@@ -179,8 +184,6 @@ final class NotesReview {
             onChange?()
             return
         }
-        let end = now()
-        let start = period.windowStart(through: end)
         if !force, let cached = cache[period], cached.identity == current,
            end >= cached.metadata.windowEnd,
            end.timeIntervalSince(cached.cachedAt) < cacheTTL,
@@ -249,7 +252,7 @@ final class NotesReview {
             guard requestID == id, self.period == period else { return }
             if self.identity != identity { invalidate(); return }
             summary = nil
-            // A closed/superseded request was rejected above. Cancellation from
+            // A superseded request was rejected above. Cancellation from
             // an otherwise current provider is a failed generation, never an empty success.
             failed = true
         }
@@ -369,14 +372,14 @@ final class NotesReview {
 
     static func parse(_ output: String, noteCount: Int, windowStart: Date, windowEnd: Date) -> NotesReviewSummary? {
         guard output.utf8.count <= 65_536,
-              let object = AINotesSupplementProcessor.jsonPayload(output) as? [String: Any] else { return nil }
+              let object = NotesReviewResponseParser.jsonPayload(output) as? [String: Any] else { return nil }
         // Preserve recoverable formats and per-item filtering; only explicit, correctly
         // typed empty fields constitute an empty success.
         guard object["overview"] == nil || object["overview"] is String,
               object["themes"] == nil || object["themes"] is [Any],
               object["unresolved"] == nil || object["unresolved"] is [Any],
               let result = parsedFields(object, noteCount: noteCount, windowStart: windowStart, windowEnd: windowEnd) else { return nil }
-        let normalizedOverview = AINotesSupplementProcessor.normalizedParagraph((object["overview"] as? String) ?? "")
+        let normalizedOverview = NotesReviewResponseParser.normalizedParagraph((object["overview"] as? String) ?? "")
         guard result.overview == normalizedOverview else { return nil }
         if result.isEmpty {
             guard let overview = object["overview"] as? String, overview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -388,14 +391,14 @@ final class NotesReview {
 
     /// Shared field guards for complete output and readable prefix snapshots.
     static func parsedFields(_ object: [String: Any], noteCount: Int, windowStart: Date, windowEnd: Date) -> NotesReviewSummary? {
-        let overview = AINotesSupplementProcessor.normalizedParagraph((object["overview"] as? String) ?? "")
+        let overview = NotesReviewResponseParser.normalizedParagraph((object["overview"] as? String) ?? "")
         let cleanOverview = overview.count <= 600 && !overview.contains("<") && !overview.contains("://")
             && overview.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) }
         var themes: [NotesReviewSummary.Theme] = []
         for entry in (object["themes"] as? [Any]) ?? [] {
             guard themes.count < 3 else { break }
             let dict = entry as? [String: Any]
-            let title = AINotesSupplementProcessor.normalizedParagraph((dict?["title"] as? String) ?? (entry as? String) ?? "")
+            let title = NotesReviewResponseParser.normalizedParagraph((dict?["title"] as? String) ?? (entry as? String) ?? "")
             guard isCleanLine(title), title.count <= 60, !themes.contains(where: { $0.title == title }) else { continue }
             let rawCount = (dict?["count"] as? NSNumber).map { max(0, min($0.intValue, 9_999)) } ?? 0
             themes.append(.init(title: title, count: rawCount > 0 ? rawCount : nil))
@@ -403,7 +406,7 @@ final class NotesReview {
         var unresolved: [String] = []
         for entry in (object["unresolved"] as? [Any]) ?? [] {
             guard unresolved.count < 2 else { break }
-            let text = AINotesSupplementProcessor.normalizedParagraph((entry as? [String: Any])?["text"] as? String
+            let text = NotesReviewResponseParser.normalizedParagraph((entry as? [String: Any])?["text"] as? String
                 ?? (entry as? String) ?? "")
             guard isCleanLine(text), text.count <= 160, !unresolved.contains(text) else { continue }
             unresolved.append(text)
@@ -412,5 +415,5 @@ final class NotesReview {
                      noteCount: noteCount, windowStart: windowStart, windowEnd: windowEnd)
     }
 
-    private static func isCleanLine(_ text: String) -> Bool { AINotesSupplementProcessor.validAddition(text) }
+    private static func isCleanLine(_ text: String) -> Bool { NotesReviewResponseParser.validLine(text) }
 }

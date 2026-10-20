@@ -54,8 +54,6 @@ struct ActivationSettingsView: View {
                     .disabled(activating || code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityIdentifier("hosted-ai-activate")
                 Text(L10n.text("settings.activation.help")).font(.caption).foregroundStyle(.secondary)
-            } else if account.status == .active {
-                Text(L10n.text("settings.activation.next_step")).font(.caption).foregroundStyle(.secondary)
             }
             Text(L10n.text("settings.activation.privacy")).font(.caption).foregroundStyle(.secondary)
             if let issue { Text(issue).font(.caption).foregroundStyle(.red).textSelection(.enabled) }

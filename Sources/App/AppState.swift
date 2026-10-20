@@ -18,6 +18,7 @@ final class AppState: NSObject {
     private(set) var operationRecordingEnabled: Bool
     private(set) var operationRetentionDays: Int
     @ObservationIgnored private weak var launcherSession: LauncherSession?
+    private(set) var instantInsightPrompt: InstantInsightPrompt
     var automaticDraftThinkingPromptsEnabled: Bool {
         didSet {
             preferences.set(automaticDraftThinkingPromptsEnabled, forKey: "automaticDraftThinkingPromptsEnabled")
@@ -219,6 +220,7 @@ final class AppState: NSObject {
          actionModules: (@MainActor (UserDefaults) -> [any ActionModule])? = nil,
          clipboardService: ClipboardService? = nil) {
         automaticDraftThinkingPromptsEnabled = preferences.bool(forKey: "automaticDraftThinkingPromptsEnabled")
+        instantInsightPrompt = InstantInsightPrompt(stored: preferences.object(forKey: InstantInsightPrompt.preferenceKey))
         self.repository = repository
         storageAvailable = persistentStorageAvailable
         let recordingEnabled = preferences.object(forKey: "operationRecording.enabled") == nil
@@ -333,11 +335,29 @@ final class AppState: NSObject {
         try saveAIManualConfiguration(next)
     }
 
+    func saveInstantInsightPrompt(_ text: String) throws {
+        guard text.utf8.count <= InstantInsightPrompt.maximumBytes else {
+            throw AIProviderPlugin.Failure(message: L10n.text("thinking.prompt.too_large"))
+        }
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : text
+        let key = InstantInsightPrompt.preferenceKey
+        let previous = preferences.object(forKey: key)
+        preferences.set(value, forKey: key)
+        guard preferences.object(forKey: key) as? String == value else {
+            if let previous { preferences.set(previous, forKey: key) }
+            else { preferences.removeObject(forKey: key) }
+            throw AIProviderPlugin.Failure(message: L10n.text("error.settings_save_failed"))
+        }
+        let next = InstantInsightPrompt(stored: value)
+        let changed = next.snapshot != instantInsightPrompt.snapshot
+        instantInsightPrompt = next
+        if changed { launcherSession?.send(.thinkingPreferencesChanged) }
+    }
+
     func saveAIPrompt(_ text: String, for prompt: AIProviderPlugin.Prompt) throws {
         var next = aiManualConfiguration
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : text
         switch prompt {
-        case .supplement: next.supplementPrompt = value
         case .summary: next.summaryPrompt = value
         }
         try saveAIManualConfiguration(next)
@@ -378,6 +398,7 @@ final class AppState: NSObject {
                 })
             },
             thinkingFastVersion: { [models] in models.version(.fast) },
+            thinkingInstructions: { [weak self] in self?.instantInsightPrompt.snapshot },
             aiCapabilityReady: { [models] in models.isTextReady($0) },
             automaticThinkingEnabled: { [weak self] in self?.automaticDraftThinkingPromptsEnabled ?? false },
             applicationUsage: { [weak self] in self?.applicationUsage ?? [:] },

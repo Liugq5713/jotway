@@ -13,7 +13,7 @@ struct OperationRecordSettings: View {
     @State private var exportedURL: URL?
 
     var body: some View {
-        Section {
+        VStack(alignment: .leading, spacing: 12) {
             settingRow(L10n.text("operations.scope")) {
                 Toggle(L10n.text("operations.enabled"), isOn: Binding(
                     get: { status?.enabled ?? appState.operationRecordingEnabled },
@@ -77,7 +77,7 @@ struct OperationRecordSettings: View {
                     NSWorkspace.shared.activateFileViewerSelecting([exportedURL])
                 }
             }
-        } header: { Text(L10n.text("operations.title")) }
+        }
         .task {
             managesRecords = false
             while !Task.isCancelled {

@@ -1,60 +1,98 @@
 <p align="center"><img src="Resources/Icons/AppIcon.png" width="96" alt="Jotway icon"></p>
 
-# Jotway
+<h1 align="center">Jotway</h1>
 
-**Quick notes, straight to Apple Notes.**
+<p align="center">
+  <strong>Stop switching note apps. Bring instant capture, AI thinking assistance, and automatic organization straight to native Apple Notes.</strong>
+</p>
 
-Jotway gives you a small panel to write a note from anywhere on your Mac. Capture an idea, a reminder, or a few lines from a meeting, then get back to what you were doing. Your notes live in Apple Notes.
+<p align="center">
+  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a>
+</p>
 
-**English** · [简体中文](README.zh-CN.md)
+---
 
-Requires macOS 15 or later. This README describes the current source build; release downloads may differ.
+## Why Jotway?
 
-## Write a note
+If you have ever hopped from one note app to another—building intricate databases in Notion, tweaking dozens of plugins in Obsidian, and migrating folders back and forth—you know the fatigue: **we spend more time maintaining our note systems than actually thinking.**
 
-1. Press your global shortcut to open the panel.
-2. Write what you want to remember.
-3. Check **Save to Notes** and press **Enter**.
+Eventually, I came back to **Apple Notes**. It is already on every Mac, iPhone, and iPad, syncs effortlessly, opens instantly, and will never shut down or hold your data hostage.
 
-Jotway handles the save in the background. View the saved text in your chosen Apple Notes folder. Your full original text is preserved, whether saved as a new note or added to a related note with daily grouping enabled.
+Yet using Apple Notes for daily thinking still had three frustrating gaps:
 
-## Start faster with templates
+1. **Quick capture breaks your flow**: Switching apps, picking a folder, and creating a note takes just enough friction to make a fleeting architectural insight disappear.
+2. **Fast notes turn into a graveyard**: Dumping ten quick thoughts a day leaves you with a messy list of untitled, disconnected fragments you never want to read again.
+3. **No restrained AI partner**: When I get stuck halfway through an idea, I don't want an AI to generate three paragraphs of generic fluff for me—I want a thinking partner that sharpens my own reasoning, plus a quiet background assistant that groups related fragments automatically.
 
-Use a template when you want a starting point for an idea or a problem.
+**So I built Jotway.**
 
-1. Type `@` in an empty quick-input panel and choose a template.
-2. Fill in the fields. **Tab** moves forward; **Shift+Tab** moves back.
-3. Check **Save to Notes** and press **Enter** when you're ready.
+If you are an **INTJ**—or anyone who hates bloated workflows, values cognitive autonomy, and wants structured order without manual housekeeping—Jotway was built with your brain in mind.
 
-The built-in templates start as **记录想法** (Capture an idea) and **梳理问题** (Work through a problem). Choosing a template fills your draft; saving still needs your confirmation.
+---
 
-For example, Capture an idea guides you through three prompts: the idea, why it's worth doing, and the next step.
+## What Makes Jotway Different
 
-Edit the built-ins or add your own in **Settings → Templates**. Reuse a format for meeting notes, daily reflections, or anything you write often.
+### ⚡ 1. Zero-Friction Capture (`Quick Note Panel`)
+Whether you are coding, reading papers, or in a meeting, press your global shortcut to summon the lightweight **Quick Note Panel** right where you are.
+- Hit `Enter`, and Jotway saves your note to Apple Notes in the background while **immediately returning focus to your previous window**.
+- Need your draft visible while cross-referencing another window? Detach it into a floating **Temporary Sticky Note** pinned on top, then switch back whenever you are ready to save.
 
-## Set up once
+### 🗂️ 2. AI Auto-Naming & Daily Grouping (100% Original Words Preserved)
+Capturing fast shouldn't mean creating chaos. With **Daily Grouping** enabled, Jotway quietly organizes your stream of consciousness in the background:
+- **Smart Titles**: Automatically generates a clean, scannable title for new notes.
+- **Same-Day Topic Grouping**: If your new thought relates to something you already captured today, Jotway appends it to that existing Apple Note under a `### HH:mm` timestamp heading instead of cluttering your folder with duplicates.
+- **Never Rewrites Your Voice**: AI routes and titles your notes, but **your original text is preserved word-for-word**.
 
+### 🧠 3. AI That Helps You Think—Never Writes for You
+Jotway keeps you as the sole author of your thoughts:
+- **`Instant Insight`**: Stuck on a half-formed thought? Click the lightbulb in the footer to get a concise, read-only 1–2 sentence cognitive prompt that surfaces hidden assumptions or trade-offs—nudging your thinking forward without touching your draft.
+- **`@` Thinking Templates**: Type `@` in an empty panel to launch structured prompts like **记录想法** (*Capture an idea*: the idea → why it's worth doing → the next step) or **梳理问题** (*Work through a problem*). Move cleanly across fields with `Tab` and `Shift+Tab`.
+- **Notes Review & Recent Saved Document**: Pull up your **Recent Saved Document** in a side drawer to edit today's latest note in place, or trigger **Notes Review** to surface related past notes from your Apple Notes folder without leaving the panel.
+
+### 🔒 4. Zero Lock-In: Everything Lives in Apple Notes
+Jotway has no proprietary cloud vault. Every note you save goes straight into your chosen Apple Notes folder. If you quit Jotway tomorrow, 100% of your notes remain untouched across all your Apple devices.
+
+---
+
+## Built for Systems Thinkers (and INTJs)
+
+| The Note-App Hamster Wheel | Jotway + Apple Notes |
+| :--- | :--- |
+| Deciding "which folder, tag, or template?" before writing a single word | **Write first**: Summon in 1 second; background AI handles naming and same-day grouping |
+| AI tools that overwrite your rough thoughts with generic AI prose | **Cognitive sovereignty**: `Instant Insight` challenges and sharpens your thinking without rewriting your draft |
+| Endless plugin maintenance and migration anxiety | **Native foundation**: Plain Apple Notes storage with zero lock-in and zero upkeep |
+
+---
+
+## Getting Started
+
+Requires **macOS 15** or later. This README describes the current source build; release downloads may differ.
+
+### 1. Set Up Once
 1. Choose a global shortcut in the welcome guide.
 2. Open **Set Up Notes**, click **Allow Access**, and grant macOS Automation access to Apple Notes.
-3. Return to your draft and press **Enter** again to save.
+3. Configure your AI service in **Settings → AI** (activate hosted service or bring your own OpenAI-compatible / Claude API key).
 
-Jotway selects a default Notes folder during setup. Change it in **Settings → Apps → Apple Notes**. See the [first-use guide](docs/product/first-use.md) for details.
+Jotway selects a default Notes folder during setup. You can change it anytime in **Settings → Apps → Apple Notes**. See the [first-use guide](docs/product/first-use.md) for details.
 
-## While writing
+### 2. Capture, Think, and Save
+1. **Quick capture**: Press your global shortcut → write what you want to remember (`Shift+Enter` adds a line) → check **Save to Notes** and press **Enter**.
+2. **Start with a template**: Type `@` in an empty panel and choose a template (customize or add your own in **Settings → Templates**). Use **Tab** / **Shift+Tab** to move between fields, then press **Enter** to save.
+3. **Float while working**: Switch to a **temporary sticky note** to keep your draft visible above other windows; both modes share the same draft.
 
-Switch to a **temporary sticky note** to keep your draft visible above other windows while you work. Both modes share the same text. Return to quick input when you're ready to save.
+> Drafts stay in memory while Jotway runs (hide and reopen the panel anytime to continue). Quitting, crashing, or restarting clears unsent drafts.
 
-- **Shift+Enter** adds a line.
-- Hide the panel and reopen it to continue your draft.
-- Drafts stay in memory while Jotway runs. Quitting, crashing, or restarting clears unsent drafts.
+---
 
-## Your text and privacy
+## Your Text and Privacy
 
-Typing does not request an AI model. Notes title generation uses configured AI providers; grouping, writing help, and requested notes reviews can also send relevant text. A configured fallback may send the same input to a second provider, with separate billing.
+- **Typing never calls an AI model.**
+- **Explicit AI boundaries**: Configured AI providers are used only for Notes title generation, daily grouping, requested `Instant Insight` prompts, and requested **Notes Review** lookups. A configured fallback may send the same input to a second provider, with separate billing.
+- **Local control**: When Local Records is enabled, unsent drafts can be stored on your Mac with a default retention of 90 days. Review capture, export, and deletion controls in [settings](docs/product/settings.md).
 
-When Local Records is enabled, it can store unsent drafts on your Mac, with a default retention of 90 days. Review capture, export, and deletion controls in [settings](docs/product/settings.md).
+---
 
-## Build from source
+## Build from Source
 
 Requires Swift 6.2 and the macOS 26 SDK.
 

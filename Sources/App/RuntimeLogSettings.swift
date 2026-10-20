@@ -23,7 +23,7 @@ struct RuntimeLogSettings: View {
     @State private var isExpanded = false
 
     var body: some View {
-        Section {
+        VStack(alignment: .leading, spacing: 4) {
             DisclosureGroup(L10n.text("logs.title"), isExpanded: $isExpanded) {
                 settingRow(L10n.text("logs.retention_help")) {
                     LabeledContent(L10n.text("logs.space_used"), value: ByteCountFormatter.string(fromByteCount: Int64(status.bytes), countStyle: .file))
@@ -61,10 +61,9 @@ struct RuntimeLogSettings: View {
                 }
                 if let message { Text(message.text).font(.caption).foregroundStyle(.secondary) }
             }
-        } header: {
-            Text(L10n.text("logs.diagnostics"))
-        } footer: {
             Text(L10n.text("logs.diagnostics_help"))
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .task {
             while !Task.isCancelled {

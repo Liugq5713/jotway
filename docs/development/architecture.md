@@ -2,6 +2,8 @@
 
 > Role: **Current**
 
+See the [interactive architecture map](architecture.html) for module responsibilities, source entry points, and the input-to-execution flow. Open it in a browser; it works offline.
+
 Jotway has a main SwiftPM executable and a separately sandboxed OCR helper. SwiftUI owns application and settings surfaces; AppKit owns the non-activating quick panel and focus-sensitive input flow. The source directories remain the main application’s architectural boundary. Its UI and core are not split into separate SwiftPM targets because they still share main-actor dependencies, and splitting them would add cycles or broad `public` APIs.
 
 ## Startup and runtime boundary
@@ -55,7 +57,7 @@ A separate routing-operation revision protects empty drafts from stale failures.
 
 `ActionModule` is a long-lived main-actor object that owns one stable descriptor, typed configuration, availability state, dynamic settings summary, an optional settings-view factory, and an optional setup entry that defaults to absent. `ActionDescriptor` declares identity, execution and settings labels, icon and tint, settings group, enablement policy, fallback priority, local keywords, and presentation policy. `BundledActions` is the only concrete built-in list.
 
-`ActionRegistry` owns modules in registration order and aggregates settings entries, availability, a registry revision, ready-only `ActionExecutionSnapshot` values, and separate configurable candidates. Retired custom phrase preferences remain untouched and are not loaded into routing; disabled or temporarily unavailable registered modules remain visible and configured. `ActionConfiguration` owns only common enablement preferences. Module-specific destinations, content-assistance options, and preference adapters stay inside their modules.
+`ActionRegistry` owns modules in registration order and aggregates settings entries, availability, a registry revision, and separate configurable candidates. Routing, target menus and fallback selection read ready-only descriptors without constructing actions or freezing model configuration. Configuration checks read identities directly. Only preparation of the selected action requests an `ActionExecutionSnapshot`; repeated renders with the same preparation identity reuse the existing plan. Retired custom phrase preferences remain untouched and are not loaded into routing; disabled or temporarily unavailable registered modules remain visible and configured. `ActionConfiguration` owns only common enablement preferences. Module-specific destinations, content-assistance options, and preference adapters stay inside their modules.
 
 External availability is module-owned display state. Input, composition and configuration refresh consume it without application scans. Availability refresh has separate registration, presentation, settings and workspace triggers. Generation and module-instance guards reject obsolete results. Only an actual availability change publishes a registry update. Confirmation still rechecks the displayed target before an external effect.
 

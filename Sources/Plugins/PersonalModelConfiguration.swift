@@ -14,20 +14,32 @@ struct PersonalModelConfiguration: Codable, Equatable, Sendable {
     // A migrated choice may continue using its existing credential until explicitly saved.
     var credential: APIKeyStore.Provider = .personalAI
 
-    func normalized() throws -> Self {
+    /// Model discovery needs a valid destination before a model has been chosen.
+    func normalizedDestination() throws -> Self {
         var value = self
         value.baseURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         while value.baseURL.hasSuffix("/") { value.baseURL.removeLast() }
-        value.model = model.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.model.isEmpty, value.model.utf8.count <= 256,
-              value.model.unicodeScalars.allSatisfy({ !CharacterSet.whitespacesAndNewlines.union(.controlCharacters).contains($0) }),
-              [.personalAI, .deepSeek, .moonshot].contains(value.credential),
+        guard [.personalAI, .deepSeek, .moonshot].contains(value.credential),
               let url = URLComponents(string: value.baseURL), url.scheme == "https",
               let host = url.host, !host.isEmpty, url.user == nil, url.password == nil,
               url.query == nil, url.fragment == nil, url.url != nil else {
+            throw AIProviderPlugin.Failure(message: L10n.text("settings.ai.personal.invalid_url"), runtimeLogCode: .configuration)
+        }
+        return value
+    }
+
+    func normalized() throws -> Self {
+        var value = try normalizedDestination()
+        value.model = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.isValidModelID(value.model) else {
             throw AIProviderPlugin.Failure(message: L10n.text("settings.ai.personal.invalid"), runtimeLogCode: .configuration)
         }
         return value
+    }
+
+    static func isValidModelID(_ id: String) -> Bool {
+        !id.isEmpty && id.utf8.count <= 256 &&
+        id.unicodeScalars.allSatisfy { !CharacterSet.whitespacesAndNewlines.union(.controlCharacters).contains($0) }
     }
 
     var endpoint: URL {

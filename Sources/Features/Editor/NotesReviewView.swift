@@ -66,7 +66,8 @@ struct NotesReviewView: View {
                 }
             }
             .labelsHidden()
-            .pickerStyle(.menu)
+            .pickerStyle(.segmented)
+            .controlSize(.small)
             .fixedSize()
             .accessibilityLabel(L10n.text("notes.review.title"))
             .accessibilityIdentifier("notes-review-period")

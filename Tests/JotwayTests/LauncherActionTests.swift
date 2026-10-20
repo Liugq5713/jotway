@@ -108,22 +108,16 @@ final class LauncherActionTests: XCTestCase {
         }
     }
 
-    func testAppleNotesContentAppendsSupplementAndTagsWithoutDuplicatingOriginal() throws {
+    func testAppleNotesContentPreservesOriginalAndDoesNotAppendLegacyTags() throws {
         let original = "第一行\n第二行 #已有 #已有"
-        let supplement = NotesSupplement(items: [.init(text: "需要确认哪些细节？")],
-                                         tags: ["新增", "已有"])
-        let content = AppleNotes.content(fromPlainText: original, supplement: supplement,
-                                         tags: ["已有", "固定", "固定"])
-        XCTAssertEqual(content.plaintext,
-                       original + "\n\n────────────────────────────\n\nAI 洞察\n\n需要确认哪些细节？\n")
+        let content = AppleNotes.content(fromPlainText: original, tags: ["已有", "固定", "固定"])
+        XCTAssertEqual(content.plaintext, original + "\n")
         let rendered = try renderedNotesText(content.html)
-        XCTAssertTrue(rendered.hasPrefix(original + "\n"))
+        XCTAssertEqual(rendered, original + "\n")
         XCTAssertEqual(rendered.components(separatedBy: "第一行").count - 1, 1)
         XCTAssertEqual(rendered.components(separatedBy: "第二行").count - 1, 1)
         XCTAssertEqual(rendered.components(separatedBy: "#已有").count - 1, 2)
-        XCTAssertEqual(rendered.components(separatedBy: "需要确认哪些细节？").count - 1, 1)
         XCTAssertFalse(rendered.contains("#固定"))
-        XCTAssertFalse(rendered.contains("#新增"))
     }
 
     private func renderedNotesText(_ html: String) throws -> String {
@@ -162,9 +156,9 @@ final class LauncherActionTests: XCTestCase {
     func testRegistryEnableAndDefault() {
         let notes = AppleNotesAction(destination: destination)
         let registry = ActionRegistry(modules: [ProbeModule(action: notes)])
-        XCTAssertEqual(registry.executionSnapshots().map(\.id), ["apple-notes"])
+        XCTAssertEqual(registry.availableDescriptors.map(\.id), ["apple-notes"])
         let decision = RouteResolver().resolve(RouteInput(
-            draft: RecordDraft(content: "记一下"), actions: registry.executionSnapshots().map(\.descriptor),
+            draft: RecordDraft(content: "记一下"), actions: registry.availableDescriptors,
             explicitTargetID: nil, recognizedTargetID: nil, recognitionIsCurrent: false,
             defaultActionID: registry.fallbackActionID, applicationIDs: []))
         XCTAssertEqual(decision, .action("apple-notes", source: .localKeyword))
@@ -172,7 +166,7 @@ final class LauncherActionTests: XCTestCase {
                      "@reminders 买牛奶", "@reminder 买牛奶", "@chrome Swift", "今天可以聊聊吗？",
                      "@notes 原文", "@personal 原文", "@codex 原文", "@clipboard 原文"] {
             let decision = RouteResolver().resolve(RouteInput(draft: RecordDraft(content: text),
-                actions: registry.executionSnapshots().map(\.descriptor), explicitTargetID: nil,
+                actions: registry.availableDescriptors, explicitTargetID: nil,
                 recognizedTargetID: nil, recognitionIsCurrent: false,
                 defaultActionID: registry.fallbackActionID, applicationIDs: []))
             XCTAssertEqual(decision, .action("apple-notes", source: .fallback))
@@ -180,10 +174,10 @@ final class LauncherActionTests: XCTestCase {
             XCTAssertEqual(input.originalText, text)
         }
         registry.setEnabled(false, id: "apple-notes")
-        XCTAssertEqual(registry.executionSnapshots().map(\.id), ["apple-notes"], "始终启用的 action 不接受公共开关")
+        XCTAssertEqual(registry.availableDescriptors.map(\.id), ["apple-notes"], "始终启用的 action 不接受公共开关")
         let unavailable = ProbeModule(action: AppleNotesAction(destination: nil),
                                       availability: .needsConfiguration(message: "请选择保存位置"))
-        XCTAssertTrue(ActionRegistry(modules: [unavailable]).executionSnapshots().isEmpty)
+        XCTAssertTrue(ActionRegistry(modules: [unavailable]).availableDescriptors.isEmpty)
     }
 
     func testRouteResolverUsesSingleDocumentedPriorityOrder() async throws {

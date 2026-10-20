@@ -83,7 +83,7 @@ final class RuntimeLog: @unchecked Sendable {
         var modelRole: ModelRole? = nil
         var fallbackReason: Code? = nil
         var attemptID: String? = nil
-        var notes: NotesSupplementResult.Report? = nil
+        var notes: LegacyNotesSupplementDiagnostics.Report? = nil
         var grouping: NotesGroupingDiagnostics.Report? = nil
         var title: NotesInitialTitleGenerator.Report? = nil
         var externalRequestID: UUID? = nil

@@ -25,6 +25,7 @@ struct ActionPlanResultRow: View {
 
     private func issueText(_ message: String) -> some View {
         Text(message)
+            .editorDecorationExclusion()
             .foregroundStyle(contrast == .increased ? Color.secondary : Color(nsColor: EditorPalette.secondary))
             .help(message)
             .accessibilityLabel(message)

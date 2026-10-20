@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta name="description" content="Jotway 当前源码的交互式架构图：模块职责、依赖关系与输入到执行的路径。">
+    <title>Jotway · 架构图</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            --bg: #f5f5f2;
+            --surface: #fff;
+            --ink: #202b28;
+            --muted: #66736d;
+            --line: #d8dfd9;
+            --accent: #28664e;
+            --soft: #e8f1eb;
+            --violet: #65538a;
+            --violet-soft: #f0edf7;
+            --warm: #8b5d2e;
+            --warm-soft: #f8f0e5;
+            --shadow: 0 8px 30px #1c382508;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #171d1a;
+                --surface: #202823;
+                --ink: #e5ece6;
+                --muted: #abb9b0;
+                --line: #3d4c42;
+                --accent: #a2d6b6;
+                --soft: #293d31;
+                --violet: #c5b6e7;
+                --violet-soft: #332d42;
+                --warm: #dfb784;
+                --warm-soft: #3d3325;
+                --shadow: none;
+            }
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--ink);
+            font: 15px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+        button, a { -webkit-tap-highlight-color: transparent; }
+        button { font: inherit; cursor: pointer; }
+        a { color: var(--accent); text-underline-offset: 4px; overflow-wrap: anywhere; }
+        button:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+        [hidden] { display: none !important; }
+        h1, h2, h3, p { margin: 0; }
+        code { font: 0.86em/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+        .page { max-width: 1340px; margin: auto; padding: 46px 40px 30px; }
+        .masthead { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin-bottom: 28px; }
+        .brand { font-weight: 650; letter-spacing: 0.08em; }
+        .meta { color: var(--muted); font-size: 12px; letter-spacing: 0.04em; }
+        .eyebrow { font-size: 12px; letter-spacing: 0.12em; color: var(--accent); margin-bottom: 8px; }
+        h1 { font-size: clamp(27px, 4vw, 40px); font-weight: 620; letter-spacing: -0.035em; }
+        .intro { color: var(--muted); margin: 9px 0 24px; }
+        .view-picker { display: flex; gap: 6px; padding-bottom: 22px; }
+        .view-picker button { padding: 9px 18px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); }
+        .view-picker button[aria-pressed="true"] { color: var(--surface); background: var(--ink); border-color: var(--ink); }
+        .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 26px; align-items: start; }
+        .diagram-area { min-width: 0; }
+        .figure-heading { display: flex; gap: 16px; justify-content: space-between; align-items: baseline; margin-bottom: 22px; }
+        h2 { font-size: 16px; font-weight: 600; }
+        .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 11px; color: var(--muted); }
+        .legend span { display: inline-flex; align-items: center; gap: 5px; }
+        .legend i { display: block; width: 20px; border-top: 1px solid var(--muted); }
+        .legend i.dashed { border-top-style: dashed; }
+        .graph { position: relative; }
+        .wires { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+        .wires path { fill: none; stroke: var(--muted); stroke-width: 1.3; }
+        .wires .injection { stroke-dasharray: 4 4; }
+        .wires text { fill: var(--muted); font-size: 11px; paint-order: stroke; stroke: var(--bg); stroke-width: 7px; stroke-linejoin: round; }
+        .graph-row { display: grid; position: relative; gap: 24px; margin-bottom: 43px; }
+        .graph-row.single { max-width: 72%; margin-left: auto; margin-right: auto; }
+        .graph-row.pair { grid-template-columns: 1fr 1fr; }
+        .graph-row.session-row { margin-bottom: 56px; }
+        .branches { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+        .branch { display: grid; grid-template-rows: 1fr 1fr; gap: 43px; min-width: 0; }
+        .node {
+            position: relative; display: flex; flex-direction: column; align-items: flex-start; text-align: left;
+            padding: 15px 17px; gap: 3px; min-width: 0; width: 100%;
+            border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+            color: var(--ink); box-shadow: var(--shadow);
+            transition: border-color 150ms, background 150ms;
+        }
+        .node:hover { border-color: var(--accent); }
+        .node[aria-pressed="true"] { border-color: var(--accent); background: var(--soft); box-shadow: 0 0 0 1px var(--accent); }
+        .node .kind { color: var(--muted); font-size: 11px; letter-spacing: 0.05em; }
+        .node strong { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+        .node .summary { color: var(--muted); font-size: 12px; }
+        .node .symbol { font-size: 11px; color: var(--accent); overflow-wrap: anywhere; }
+        .session-node { background: var(--soft); border-color: var(--accent); padding: 19px 21px; }
+        .session-node strong { font-size: 19px; }
+        .session-node .summary { color: var(--ink); }
+        .support-heading { margin: 30px 0 12px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+        .support-heading span { color: var(--muted); font-size: 12px; }
+        .supports { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .support-node { background: transparent; box-shadow: none; }
+        .support-node .kind { color: var(--violet); }
+        .inspector {
+            position: sticky; top: 24px; padding: 24px; background: var(--surface);
+            border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); min-width: 0;
+        }
+        .inspector .number { font: 12px/1.5 ui-monospace, monospace; color: var(--accent); margin-bottom: 15px; }
+        .inspector h2 { font-size: 21px; line-height: 1.35; overflow-wrap: anywhere; margin-bottom: 7px; }
+        .inspector .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 22px; }
+        .detail-label { color: var(--muted); font-size: 11px; letter-spacing: 0.08em; margin-top: 21px; margin-bottom: 8px; }
+        .inspector ul { padding-left: 18px; margin: 0; font-size: 13px; }
+        .inspector li + li { margin-top: 9px; }
+        .boundary { border-left: 2px solid var(--warm); padding-left: 12px; font-size: 13px; color: var(--warm); }
+        .files { display: grid; gap: 8px; }
+        .files a { font-size: 12px; }
+        .files code { font-size: 11px; }
+        .back-to-diagram { display: none; margin-top: 20px; font-size: 13px; }
+        .boundary-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; border-top: 1px solid var(--line); margin-top: 32px; padding-top: 20px; }
+        .boundary-strip h3 { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+        .boundary-strip p { font-size: 12px; color: var(--muted); }
+        .step-list { display: grid; gap: 11px; margin: 0; padding: 0; list-style: none; }
+        .step-button {
+            display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 13px; text-align: left;
+            width: 100%; padding: 17px 19px; border: 1px solid var(--line); background: var(--surface);
+            color: var(--ink); border-radius: 10px;
+        }
+        .step-button[aria-pressed="true"] { border-color: var(--accent); background: var(--soft); }
+        .step-number { font: 14px/1.5 ui-monospace, monospace; color: var(--muted); }
+        .step-button strong { display: block; font-weight: 600; font-size: 15px; }
+        .step-button small { display: block; color: var(--muted); font-size: 12px; }
+        .step-arrow { color: var(--accent); }
+        .flow-detail { padding: 26px 0 6px; }
+        .flow-detail .call-path { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 17px; }
+        .call-path code { background: var(--soft); color: var(--ink); border-radius: 5px; padding: 6px 10px; }
+        .call-path span { color: var(--muted); }
+        #flow-explanation { font-size: 14px; color: var(--muted); }
+        .step-controls { display: flex; gap: 8px; margin-top: 20px; }
+        .step-controls button { padding: 8px 15px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; }
+        .step-controls button:disabled { opacity: 0.4; cursor: default; }
+        .branch-note { background: var(--warm-soft); color: var(--warm); border-radius: 8px; padding: 16px 18px; font-size: 13px; margin-top: 24px; }
+        .branch-note strong { display: block; font-weight: 600; margin-bottom: 4px; }
+        footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding-top: 30px; margin-top: 25px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+        .mobile-edge { display: none; }
+        @media (max-width: 1050px) {
+            .page { padding: 32px 25px; }
+            .workspace { grid-template-columns: minmax(0, 1fr); }
+            .inspector { position: static; }
+            .inspector ul { columns: 2; column-gap: 35px; }
+            .inspector li { break-inside: avoid; }
+            .back-to-diagram { display: inline-block; }
+        }
+        @media (max-width: 560px) {
+            .page { padding: 24px 16px; }
+            .masthead { margin-bottom: 22px; }
+            .masthead .meta { max-width: 160px; text-align: right; font-size: 11px; }
+            .figure-heading { display: block; }
+            .legend { margin-top: 8px; }
+            .graph-row.single { max-width: 100%; }
+            .graph-row { gap: 14px; }
+            .graph-row.pair { gap: 12px; }
+            .node { padding: 12px; }
+            .node strong { font-size: 13px; }
+            .node .summary { font-size: 12px; }
+            .session-node strong { font-size: 18px; }
+            .branches { grid-template-columns: 1fr; gap: 22px; }
+            .branch { grid-template-rows: auto auto; gap: 32px; }
+            .graph-row.session-row { margin-bottom: 40px; }
+            .mobile-edge { display: block; color: var(--muted); font-size: 11px; margin-bottom: 7px; }
+            .supports, .boundary-strip { grid-template-columns: 1fr; }
+            .support-heading { display: block; }
+            .inspector { padding: 20px; }
+            .inspector ul { columns: auto; }
+            .step-button { padding: 14px; gap: 8px; grid-template-columns: 26px 1fr auto; }
+            .step-button small { overflow-wrap: anywhere; }
+        }
+        @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+        @media print {
+            :root { color-scheme: light; --bg: #fff; --surface: #fff; --ink: #202b28; --muted: #526158; --line: #ccd6ce; --accent: #28664e; --soft: #e8f1eb; }
+            .page { padding: 0; }
+            .view-picker, .step-controls { display: none; }
+            .workspace { display: block; }
+            .inspector { position: static; margin-top: 25px; break-inside: avoid; }
+            .node, .branch, .boundary-strip { break-inside: avoid; }
+            .node { box-shadow: none; }
+        }
+    </style>
+</head>
+<body>
+<main class="page" id="jotway-architecture">
+    <div class="masthead">
+        <div class="brand">JOTWAY <span class="meta"> / ENGINEERING MAP</span></div>
+        <div class="meta">Current · SwiftUI + AppKit · macOS</div>
+    </div>
+    <header>
+        <p class="eyebrow">ARCHITECTURE / 源码导览</p>
+        <h1>一份草稿，如何变成一次行动</h1>
+        <p class="intro">从启动装配，到本地路由，再到用户确认后的执行。点击模块，查看职责与源码。</p>
+    </header>
+    <nav class="view-picker" aria-label="架构视图">
+        <button type="button" data-view="overview" aria-pressed="true" aria-controls="overview">整体架构</button>
+        <button type="button" data-view="flow" aria-pressed="false" aria-controls="flow">输入 → 执行</button>
+    </nav>
+    <div class="workspace">
+        <div class="diagram-area">
+            <section id="overview" aria-labelledby="overview-title">
+                <div class="figure-heading">
+                    <h2 id="overview-title">运行时模块与主要关系</h2>
+                    <div class="legend" aria-label="连线图例">
+                        <span><i></i>调用 / 数据流</span>
+                        <span><i class="dashed"></i>构造 / 注入</span>
+                    </div>
+                </div>
+                <div class="graph" id="module-graph">
+                    <svg class="wires" id="wires" aria-hidden="true">
+                        <defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 1 1 L 8 5 L 1 9" style="fill:none;stroke:var(--muted);stroke-width:1.5"/></marker></defs>
+                        <g id="connections"></g>
+                    </svg>
+                    <div class="graph-row single">
+                        <button class="node" id="node-bootstrap" data-node="bootstrap" type="button" aria-pressed="false">
+                            <span class="kind">01 / 启动门禁</span><strong>JotwayBootstrap</strong>
+                            <span class="summary">StorageMigration 完成后，进入业务启动</span>
+                        </button>
+                    </div>
+                    <div class="graph-row single">
+                        <button class="node" id="node-app" data-node="app" type="button" aria-pressed="false">
+                            <span class="kind">02 / 应用装配</span><strong>JotwayApp · AppState</strong>
+                            <span class="summary">创建共享服务、action 注册表与 LauncherSession</span>
+                        </button>
+                    </div>
+                    <div class="graph-row pair">
+                        <button class="node" id="node-editor" data-node="editor" type="button" aria-pressed="false">
+                            <span class="kind">03 / 编辑界面</span><strong>EditorView · EditorTextView</strong>
+                            <span class="summary">显示状态 · 原生编辑 · 组词与选区</span>
+                        </button>
+                        <button class="node" id="node-panel" data-node="panel" type="button" aria-pressed="false">
+                            <span class="kind">03 / 窗口适配</span><strong>PanelController · RecordPanel</strong>
+                            <span class="summary">转发事件 · 解释 Effect · 窗口与焦点</span>
+                        </button>
+                    </div>
+                    <div class="graph-row single session-row">
+                        <button class="node session-node" id="node-session" data-node="session" type="button" aria-pressed="true">
+                            <span class="kind">04 / 业务状态中心</span><strong>LauncherSession</strong>
+                            <span class="summary">Draft → Route → Confirm → Attempt</span>
+                            <span class="symbol">send(LauncherEvent) · LauncherViewState · LauncherEffect</span>
+                        </button>
+                    </div>
+                    <div class="branches">
+                        <div>
+                            <span class="mobile-edge">Session → 本地路由</span>
+                            <div class="branch">
+                                <button class="node" id="node-routing" data-node="routing" type="button" aria-pressed="false">
+                                    <span class="kind">选哪个目标</span><strong>本地识别与路由</strong>
+                                    <span class="symbol">IntentRecognition<br>RouteResolver</span>
+                                    <span class="summary">显式选择优先；默认 Notes</span>
+                                </button>
+                                <button class="node" id="node-catalog" data-node="catalog" type="button" aria-pressed="false">
+                                    <span class="kind">本地匹配依据</span><strong>应用目录与匹配</strong>
+                                    <span class="symbol">ApplicationCatalog<br>ApplicationMatcher</span>
+                                    <span class="summary">后台扫描 · 输入时查快照</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div>
+                            <span class="mobile-edge">Session → 外部 action</span>
+                            <div class="branch">
+                                <button class="node" id="node-executor" data-node="executor" type="button" aria-pressed="false">
+                                    <span class="kind">能否执行 · 准备执行</span><strong>Action 边界</strong>
+                                    <span class="symbol">ActionRegistry<br>ActionExecutor</span>
+                                    <span class="summary">配置快照 · Plan · PreparedAction</span>
+                                </button>
+                                <button class="node" id="node-actions" data-node="actions" type="button" aria-pressed="false">
+                                    <span class="kind">确认后的外部执行</span><strong>Apple Notes · Codex</strong>
+                                    <span class="symbol">AppleNotesAction<br>CodexAction</span>
+                                    <span class="summary">→ Apple Events / app-server</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div>
+                            <span class="mobile-edge">Session → 本地复制</span>
+                            <div class="branch">
+                                <button class="node" id="node-clipboard" data-node="clipboard" type="button" aria-pressed="false">
+                                    <span class="kind">本地确认路径</span><strong>剪贴板历史</strong>
+                                    <span class="symbol">ClipboardService<br>ClipboardHistory</span>
+                                    <span class="summary">选中历史条目 → NSPasteboard</span>
+                                </button>
+                                <button class="node" id="node-ocr" data-node="ocr" type="button" aria-pressed="false">
+                                    <span class="kind">独立沙箱进程</span><strong>图片文字识别</strong>
+                                    <span class="symbol">ClipboardTextRecognizer<br>JotwayClipboardOCR</span>
+                                    <span class="summary">stdin / stdout · 空闲时处理</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="support-heading"><h2>跨层支持</h2><span>由各自使用方调用，不是下一执行步骤</span></div>
+                <div class="supports">
+                    <button class="node support-node" id="node-models" data-node="models" type="button" aria-pressed="false">
+                        <span class="kind">Notes / 回顾 / Instant Insight 使用</span><strong>可选 AI 能力</strong>
+                        <span class="symbol">ModelConfiguration → ModelTextInvocation → Provider</span>
+                    </button>
+                    <button class="node support-node" id="node-storage" data-node="storage" type="button" aria-pressed="false">
+                        <span class="kind">App / Session / 各服务分别使用</span><strong>本地数据与配置</strong>
+                        <span class="symbol">GRDB / SQLite · UserDefaults · 本地文件</span>
+                    </button>
+                </div>
+                <div class="boundary-strip">
+                    <div><h3>一个主应用</h3><p>主要目录是逻辑模块；没有把每层拆成 SwiftPM target。OCR helper 是独立可执行程序。</p></div>
+                    <div><h3>状态单向流动</h3><p>UI 发 Event，Session 更新 ViewState，并发出 Effect，由窗口适配层解释。</p></div>
+                    <div><h3>草稿与记录分开</h3><p>可编辑草稿只在内存。开启操作记录时，正文版本另存本地，不用于恢复草稿。</p></div>
+                </div>
+            </section>
+            <section id="flow" aria-labelledby="flow-title" hidden>
+                <div class="figure-heading"><h2 id="flow-title">一份普通草稿存入 Apple Notes</h2><span class="meta">5 个关键阶段</span></div>
+                <ol class="step-list">
+                    <li><button type="button" class="step-button" data-step="0" aria-pressed="true"><span class="step-number">01</span><span><strong>输入变成事件</strong><small>Editor → PanelController → LauncherSession</small></span><span class="step-arrow" aria-hidden="true">↘</span></button></li>
+                    <li><button type="button" class="step-button" data-step="1" aria-pressed="false"><span class="step-number">02</span><span><strong>本地确定目标</strong><small>IntentRecognition + RouteResolver</small></span><span class="step-arrow" aria-hidden="true">↘</span></button></li>
+                    <li><button type="button" class="step-button" data-step="2" aria-pressed="false"><span class="step-number">03</span><span><strong>用户确认，检查身份与状态</strong><small>confirm → ActionExecutor → ActionPlan</small></span><span class="step-arrow" aria-hidden="true">↘</span></button></li>
+                    <li><button type="button" class="step-button" data-step="3" aria-pressed="false"><span class="step-number">04</span><span><strong>交给执行任务，面板隐藏</strong><small>PreparedAction → AppleNotesAction → Apple Notes</small></span><span class="step-arrow" aria-hidden="true">↘</span></button></li>
+                    <li><button type="button" class="step-button" data-step="4" aria-pressed="false"><span class="step-number">05</span><span><strong>接收结果，提示或恢复</strong><small>ActionOutcome / ActionFailure → LauncherSession</small></span><span class="step-arrow" aria-hidden="true">✓</span></button></li>
+                </ol>
+                <div class="flow-detail" aria-live="polite">
+                    <p class="eyebrow" id="flow-label"></p>
+                    <div class="call-path" id="call-path"></div>
+                    <p id="flow-explanation"></p>
+                </div>
+                <div class="step-controls">
+                    <button type="button" id="previous-step">← 上一步</button>
+                    <button type="button" id="next-step">下一步 →</button>
+                </div>
+                <div class="branch-note"><strong>另外两条路径</strong>本地应用匹配：Session 发出 openApplication，由 PanelController 调用系统打开应用。Clipboard：冻结选中条目后本地复制，成功才清空查询并隐藏面板。</div>
+            </section>
+        </div>
+        <aside class="inspector" id="inspector" aria-labelledby="detail-title">
+            <div aria-live="polite" aria-atomic="true">
+                <p class="number" id="detail-category"></p>
+                <h2 id="detail-title"></h2>
+                <p class="subtitle" id="detail-subtitle"></p>
+            </div>
+            <p class="detail-label">主要职责</p>
+            <ul id="detail-points"></ul>
+            <p class="detail-label">关键边界</p>
+            <p class="boundary" id="detail-boundary"></p>
+            <p class="detail-label">源码入口 · 相对仓库根目录</p>
+            <div class="files" id="detail-files"></div>
+            <a class="back-to-diagram" id="back-to-diagram" href="#node-session">↑ 返回选中模块</a>
+        </aside>
+    </div>
+    <footer>
+        <span>架构视图描述当前源码；细节以实现与对应规格为准。</span>
+        <span><a href="architecture.md">架构说明</a> · <a href="../../CONTEXT.md">产品术语</a> · <a href="../jotway.md">文档目录</a></span>
+    </footer>
+    <noscript><p style="padding:24px">整体架构可直接阅读。启用 JavaScript 后，可查看模块详情和分步执行路径。</p></noscript>
+</main>
+<script>
+(() => {
+    "use strict";
+    const root = document.getElementById("jotway-architecture");
+    const modules = {
+        bootstrap: {
+            category: "01 / STARTUP", title: "JotwayBootstrap", subtitle: "先通过存储门禁，再构造业务对象。",
+            points: ["运行 StorageMigration，检查和迁移本应用旧容器状态。", "迁移成功才调用 JotwayApp.main()。", "失败时进入最小恢复界面，提供重试或选择旧容器。"],
+            boundary: "迁移完成前，不创建 AppState、业务数据库、快捷键或采集服务。",
+            files: ["Sources/App/JotwayBootstrap.swift", "Sources/Support/StorageMigration.swift", "Sources/Support/StorageLocation.swift"]
+        },
+        app: {
+            category: "02 / COMPOSITION", title: "JotwayApp · AppState", subtitle: "把运行时对象装配起来。",
+            points: ["JotwayApp 打开 LauncherStore，并创建 AppState 和 PanelController。", "AppState 创建 ClipboardService、ModelConfiguration、NotesReview 与 action 注册表。", "makeLauncherSession() 注入服务、模板、记录器及配置读取入口。"],
+            boundary: "共享对象的生命周期属于应用。Notes Review 的生成不会因关闭回顾视图而立即结束。",
+            files: ["Sources/App/JotwayApp.swift", "Sources/App/AppState.swift", "Sources/Actions/BundledActions.swift"]
+        },
+        editor: {
+            category: "03 / PRESENTATION", title: "编辑界面", subtitle: "SwiftUI 展示，AppKit 负责原生文本编辑。",
+            points: ["EditorView 读取 LauncherViewState，显示草稿、目标与辅助内容。", "EditorTextView 保持纯文本、选区、输入法组词与 Undo/Redo。", "模板字段跳转由原生编辑器中的 TemplateEditingSession 管理。"],
+            boundary: "编辑器发送用户意图。业务路由与提交由 LauncherSession 处理。",
+            files: ["Sources/Features/Editor/EditorView.swift", "Sources/Features/Editor/TemplateEditingSession.swift", "Sources/Features/Launcher/LauncherViewState.swift"]
+        },
+        panel: {
+            category: "03 / NATIVE ADAPTER", title: "PanelController", subtitle: "连接业务会话与 macOS 窗口。",
+            points: ["管理 RecordPanel、全局快捷键、窗口位置与焦点返回。", "把 UI 和系统事件交给 LauncherSession.send(_:)。", "解释 LauncherEffect：替换文本、隐藏面板、打开应用、显示完成提示或设置入口。"],
+            boundary: "PanelController 不决定路由，也不执行 action。原生文本替换可以拒绝，Session 必须尊重该结果。",
+            files: ["Sources/Window/PanelController.swift", "Sources/Window/RecordPanel.swift", "Sources/Window/CompletionNoticePanel.swift"]
+        },
+        session: {
+            category: "04 / STATE OWNER", title: "LauncherSession", subtitle: "理解主流程，先从这个类开始。",
+            points: ["保存内存中的 Draft、显式目标、待确认状态与执行任务。", "send(_:) 接收事件，协调本地识别、路由和 action 准备。", "确认时检查输入法、草稿版本、目标与配置；受理后启动执行。", "更新 LauncherViewState，发出 LauncherEffect；处理成功与失败恢复。"],
+            boundary: "Session 不持有窗口或原生编辑器。旧异步结果必须通过身份检查，才能影响当前草稿。",
+            files: ["Sources/Features/Launcher/LauncherSession.swift", "Sources/Features/Launcher/LauncherViewState.swift", "Sources/Data/RecordDraft.swift"]
+        },
+        routing: {
+            category: "LOCAL / ROUTING", title: "本地识别与路由", subtitle: "识别给出候选；Resolver 决定最终目标。",
+            points: ["IntentRecognition 使用当前应用快照与 ApplicationMatcher 的本地结果。", "RouteResolver 优先级：显式选择 → 内置关键词 → 有效识别 → 默认 action。", "Notes 是内置存储兜底；不可执行时，可返回配置入口。", "路由从 ActionRegistry 只读可用描述信息，不构造 action 或冻结模型配置；显式目标失效时保留选择并报告原因。"],
+            boundary: "RouteResolver 是纯值类型逻辑，不读数据库、不调用网络或模型。配置完成后仍需再次确认。",
+            files: ["Sources/Features/Launcher/RouteResolver.swift", "Sources/Features/Launcher/IntentRecognition.swift", "Sources/Actions/ActionRegistry.swift"]
+        },
+        catalog: {
+            category: "LOCAL / EVIDENCE", title: "应用目录与匹配", subtitle: "把慢扫描移出逐键输入路径。",
+            points: ["ApplicationCatalog 在后台收集已安装应用并发布快照。", "准备名称、别名、拼音和首字母等匹配信息。", "ApplicationMatcher 对输入做本地匹配；已成功打开的应用统计可参与排序。"],
+            boundary: "输入事件消费已有快照，不在每次键入时扫描应用。目录刷新不提交草稿。",
+            files: ["Sources/Features/Launcher/ApplicationCatalog.swift", "Sources/Features/Launcher/ApplicationMatcher.swift", "Sources/Features/Launcher/ApplicationSearchProfile.swift"]
+        },
+        executor: {
+            category: "ACTION / CONTRACT", title: "Action 边界", subtitle: "长期模块与一次执行使用不同对象。",
+            points: ["ActionModule 保存配置、可用性、设置和可选 setup；ActionRegistry 汇总这些模块。", "仅为选中 action 的准备构造执行快照；LauncherAction 冻结配置，ActionPlan 绑定 action 与输入身份。", "ActionExecutor 管理准备、缓存与取消，生成 PreparedAction；相同身份的重复渲染复用已有计划。", "Session 通过确认门禁后，才要求 executor 创建执行任务。"],
+            boundary: "Notes 在提交受理后才构建正文。Clipboard 的确认走本地列表专用路径，不走普通 PreparedAction 执行。",
+            files: ["Sources/Actions/ActionModule.swift", "Sources/Actions/ActionRegistry.swift", "Sources/Actions/LauncherAction.swift", "Sources/Actions/ActionExecutor.swift"]
+        },
+        actions: {
+            category: "ACTION / EXTERNAL EFFECT", title: "Apple Notes · Codex", subtitle: "外部服务差异止于 action 边界。",
+            points: ["AppleNotesAction 保存冻结的完整原文，由 NotesDailyGroupingCoordinator 协调标题、归集与安全写入。", "AppleNotes 适配层通过 Apple Events 与备忘录交互，并检查结果。", "CodexAction 调用 CodexTaskRunner，通过本地 helper 和 app-server 运行任务。", "返回 ActionOutcome；失败统一映射为 ActionFailure，再交回 Session。"],
+            boundary: "配置入口不会提交。保存 Notes 不再生成 AI 补充；标题与归集是单独职责。",
+            files: ["Sources/Actions/AppleNotesAction.swift", "Sources/Actions/NotesDailyGroupingCoordinator.swift", "Sources/Support/AppleNotes.swift", "Sources/Actions/CodexAction.swift", "Sources/Integrations/CodexTaskRunner.swift"]
+        },
+        clipboard: {
+            category: "LOCAL / CLIPBOARD", title: "剪贴板历史", subtitle: "共享采集服务与本地复制路径。",
+            points: ["ClipboardService 观察 changeCount，并提供最近引用和可选 Chrome 来源。", "ClipboardHistory 协调采集、查询、清理与 OCR 生命周期。", "Session 冻结选中条目、草稿版本和历史代次，再恢复到 NSPasteboard。"],
+            boundary: "成功复制才清空查询并隐藏。操作记录只记录查询，不把恢复的历史正文或 OCR 文字当作草稿。",
+            files: ["Sources/Integrations/Clipboard/ClipboardService.swift", "Sources/Integrations/Clipboard/ClipboardHistory.swift", "Sources/Actions/ClipboardAction.swift", "Sources/Features/Editor/ClipboardHistoryView.swift"]
+        },
+        ocr: {
+            category: "PROCESS / SANDBOX", title: "独立 OCR helper", subtitle: "与主应用分开的进程边界。",
+            points: ["ClipboardTextRecognizer 启动 JotwayClipboardOCR，使用有界 stdin/stdout 协议。", "键盘与鼠标空闲后才处理图片，同一时间保留一个 worker。", "取消后等待进程退出；用代次、条目身份和摘要拒绝过期结果。"],
+            boundary: "主应用不在沙箱中，OCR helper 单独签名并运行在沙箱中；这不是每个源码目录都独立进程。",
+            files: ["Sources/Integrations/Clipboard/ClipboardTextRecognizer.swift", "Helpers/ClipboardOCR/main.swift", "Package.swift"]
+        },
+        models: {
+            category: "SUPPORT / AI", title: "可选 AI 能力", subtitle: "能力调用与本地路由相互独立。",
+            points: ["ModelConfiguration 选择能力与提供方，生成冻结的 ModelTextInvocation。", "Instant Insight 只处理当前草稿；NotesReview 读取授权范围内的 Notes 原文。", "Notes 标题和主题归集按各自配置调用模型。", "Provider 处理模型请求；调用边界带版本验证、超时与取消。"],
+            boundary: "Instant Insight 与 Notes Review 都是只读展示，不写回草稿。普通路由不需要模型请求。",
+            files: ["Sources/Plugins/ModelConfiguration.swift", "Sources/Plugins/ModelInvocation.swift", "Sources/Plugins/AIProvider/AIProviderPlugin.swift", "Sources/Features/Launcher/DraftThinkingPromptSession.swift", "Sources/Actions/NotesReview.swift"]
+        },
+        storage: {
+            category: "SUPPORT / PERSISTENCE", title: "本地数据与配置", subtitle: "每类数据有自己的所有者。",
+            points: ["LauncherStore / OperationRecorder：应用使用统计、输入版本和操作记录。", "独立 store：剪贴板历史、Notes 归集状态与原文来源指纹。", "UserDefaults：偏好、模板、目标及最近存入文档 ID；APIKeyStore 管理密钥文件。", "RuntimeLog 保存受限诊断；Codex 另有本地任务输出。"],
+            boundary: "草稿、显式目标和失败恢复状态只在内存。操作记录可以含完整正文，但不构成可恢复的草稿历史。",
+            files: ["Sources/Data/LauncherStore.swift", "Sources/Data/OperationRecorder.swift", "Sources/Data/ClipboardHistoryStore.swift", "Sources/Data/NotesDailyGroupingStore.swift", "Sources/Support/APIKeyStore.swift"]
+        }
+    };
+    const steps = [
+        { node: "editor", label: "01 / EVENT", path: ["EditorTextView", "PanelController", "send(.inputChanged)", "RecordDraft"], text: "原生编辑器产生文本变化。PanelController 转发事件，Session 更新草稿与版本，再发布界面状态。组词状态单独上报，保护输入法中的文字。" },
+        { node: "routing", label: "02 / ROUTE", path: ["IntentRecognition", "RouteResolver.resolve", "RouteDecision"], text: "使用本地应用快照和已注册 action 选择目标。没有显式选择或匹配时，普通文本走 Apple Notes；Notes 尚未就绪则进入 setup。目标建议本身不会执行。" },
+        { node: "executor", label: "03 / CONFIRM", path: ["confirm", "身份与可用性检查", "ActionPlan", "PreparedAction"], text: "用户按确认键或点击目标。Session 核对显示的目标、输入身份、组词和可用性，防止旧准备结果或重复确认触发多次写入。Notes 的 PreparedAction 会把正文构建留到提交受理之后。" },
+        { node: "actions", label: "04 / EXECUTE", path: ["Session.submit", "executionTask", "AppleNotesAction", "Apple Notes"], text: "Session 受理提交并清空草稿，创建执行任务，再发出隐藏面板的 Effect。Notes 在后台处理标题与可选归集，写入完整原文，并通过结果和必要回读确认。隐藏面板不等于外部写入成功。" },
+        { node: "session", label: "05 / RESULT", path: ["ActionOutcome / ActionFailure", "LauncherSession", "LauncherEffect", "PanelController"], text: "成功后更新操作结果与最近文档引用，并按配置显示完成提示。失败时，只有当前草稿与路由未发生新变化才自动恢复；否则保留 FailedSubmission，避免覆盖用户正在写的新草稿。" }
+    ];
+    let selectedNode = "session";
+    let selectedStep = 0;
+    let selectedView = "overview";
+    const byID = id => document.getElementById(id);
+
+    function showModule(key, reveal = false) {
+        const item = modules[key];
+        selectedNode = key;
+        root.querySelectorAll("[data-node]").forEach(button => {
+            button.setAttribute("aria-pressed", String(button.dataset.node === key));
+        });
+        byID("detail-category").textContent = item.category;
+        byID("detail-title").textContent = item.title;
+        byID("detail-subtitle").textContent = item.subtitle;
+        byID("detail-boundary").textContent = item.boundary;
+        byID("detail-points").replaceChildren(...item.points.map(point => {
+            const li = document.createElement("li");
+            li.textContent = point;
+            return li;
+        }));
+        byID("detail-files").replaceChildren(...item.files.map(file => {
+            const link = document.createElement("a");
+            link.href = "../../" + file;
+            const code = document.createElement("code");
+            code.textContent = file;
+            link.append(code);
+            return link;
+        }));
+        byID("back-to-diagram").href = "#node-" + key;
+        byID("back-to-diagram").hidden = selectedView !== "overview";
+        if (reveal && window.matchMedia("(max-width: 1050px)").matches) {
+            byID("inspector").scrollIntoView({ block: "start" });
+        }
+    }
+
+    function showStep(index) {
+        selectedStep = Math.max(0, Math.min(steps.length - 1, index));
+        const step = steps[selectedStep];
+        root.querySelectorAll("[data-step]").forEach(button => {
+            button.setAttribute("aria-pressed", String(Number(button.dataset.step) === selectedStep));
+        });
+        byID("flow-label").textContent = step.label;
+        byID("flow-explanation").textContent = step.text;
+        const path = byID("call-path");
+        path.replaceChildren();
+        step.path.forEach((part, index) => {
+            if (index) {
+                const arrow = document.createElement("span");
+                arrow.textContent = "→";
+                arrow.setAttribute("aria-hidden", "true");
+                path.append(arrow);
+            }
+            const code = document.createElement("code");
+            code.textContent = part;
+            path.append(code);
+        });
+        byID("previous-step").disabled = selectedStep === 0;
+        byID("next-step").disabled = selectedStep === steps.length - 1;
+        if (selectedView === "flow") showModule(step.node);
+    }
+
+    function showView(view) {
+        selectedView = view;
+        root.querySelectorAll("[data-view]").forEach(button => {
+            const active = button.dataset.view === view;
+            button.setAttribute("aria-pressed", String(active));
+            byID(button.dataset.view).hidden = !active;
+        });
+        if (view === "flow") showStep(selectedStep);
+        else { showModule(selectedNode); requestAnimationFrame(drawWires); }
+    }
+
+    function drawWires() {
+        if (selectedView !== "overview") return;
+        const graph = byID("module-graph");
+        const bounds = graph.getBoundingClientRect();
+        const svg = byID("wires");
+        svg.setAttribute("viewBox", `0 0 ${bounds.width} ${bounds.height}`);
+        const group = byID("connections");
+        group.replaceChildren();
+        const narrow = window.matchMedia("(max-width: 560px)").matches;
+        const ns = "http://www.w3.org/2000/svg";
+        const rect = key => byID("node-" + key).getBoundingClientRect();
+        function connect(from, to, label, kind = "", startFraction = 0.5, endFraction = 0.5, reverse = false, both = false) {
+            const a = rect(from), b = rect(to);
+            const x1 = a.left + a.width * startFraction - bounds.left;
+            const x2 = b.left + b.width * endFraction - bounds.left;
+            const y1 = a.bottom - bounds.top + 2;
+            const y2 = b.top - bounds.top - 3;
+            const mid = (y1 + y2) / 2;
+            const path = document.createElementNS(ns, "path");
+            path.setAttribute("d", `M ${x1} ${y1} V ${mid} H ${x2} V ${y2}`);
+            path.setAttribute(reverse ? "marker-start" : "marker-end", "url(#arrow)");
+            if (both) path.setAttribute("marker-start", "url(#arrow)");
+            if (kind) path.setAttribute("class", kind);
+            group.append(path);
+            if (label) {
+                const text = document.createElementNS(ns, "text");
+                text.setAttribute("x", (x1 + x2) / 2);
+                text.setAttribute("y", mid - 6);
+                text.setAttribute("text-anchor", "middle");
+                text.textContent = label;
+                group.append(text);
+            }
+        }
+        connect("bootstrap", "app", "启动");
+        connect("app", "editor", "", "injection", 0.25);
+        connect("app", "panel", "构造 / 注入", "injection", 0.75);
+        const editor = rect("editor"), panel = rect("panel");
+        const eventLink = document.createElementNS(ns, "path");
+        const editorY = editor.top + editor.height / 2 - bounds.top;
+        eventLink.setAttribute("d", `M ${editor.right - bounds.left + 2} ${editorY} H ${panel.left - bounds.left - 3}`);
+        eventLink.setAttribute("marker-end", "url(#arrow)");
+        group.append(eventLink);
+        connect("editor", "session", "ViewState", "", 0.5, 0.22, true);
+        connect("panel", "session", "Event ↓ / Effect ↑", "", 0.5, 0.78, false, true);
+        if (!narrow) {
+            connect("session", "routing", "选择", "", 0.2);
+            connect("session", "executor", "准备 / 执行");
+            connect("session", "clipboard", "本地确认", "", 0.8);
+        }
+        connect("routing", "catalog", "使用快照");
+        connect("executor", "actions", "调用 action");
+        connect("clipboard", "ocr", "图片 OCR");
+    }
+
+    root.querySelectorAll("[data-node]").forEach(button => {
+        button.setAttribute("aria-controls", "inspector");
+        button.addEventListener("click", () => showModule(button.dataset.node, true));
+    });
+    root.querySelectorAll("[data-step]").forEach(button => {
+        button.addEventListener("click", () => showStep(Number(button.dataset.step)));
+    });
+    root.querySelectorAll("[data-view]").forEach(button => {
+        button.addEventListener("click", () => showView(button.dataset.view));
+    });
+    byID("previous-step").addEventListener("click", () => showStep(selectedStep - 1));
+    byID("next-step").addEventListener("click", () => showStep(selectedStep + 1));
+    let frame;
+    new ResizeObserver(() => {
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(drawWires);
+    }).observe(byID("module-graph"));
+    window.addEventListener("beforeprint", drawWires);
+    showModule(selectedNode);
+    showStep(selectedStep);
+    drawWires();
+})();
+</script>
+</body>
+</html>

@@ -1,5 +1,4 @@
 import Foundation
-import NaturalLanguage
 
 /// A transient view of the note. Text is recovered from Notes, never from a local content copy.
 struct NotesDailyDocument: Sendable {
@@ -12,8 +11,10 @@ struct NotesDailyDocument: Sendable {
         let boundary: NotesDailyBoundary
     }
     struct Generated: Sendable {
-        let text: String
+        /// The verified trailing metadata and generated regions, in their original order.
+        let parts: [NotesDailyBoundary.Part]
         let html: String?
+        var text: String { parts.map(\.text).joined() }
     }
     let title: String
     let scope: NotesDailyScope
@@ -23,7 +24,6 @@ struct NotesDailyDocument: Sendable {
 
     var original: String { entries.map(\.text).joined(separator: "\n\n") }
 
-    /// Rendering delegates supplement filtering to the existing path.
     /// Fingerprints cover display metadata separately, so neither timestamps nor titles are indexed.
     private func timeline() -> [NotesDailyBoundary.Part] {
         var parts: [NotesDailyBoundary.Part] = [.init(kind: .title, text: title),
@@ -43,42 +43,33 @@ struct NotesDailyDocument: Sendable {
         return parts
     }
 
-    func render(supplement: NotesSupplement = .empty) -> Rendered {
+    func render() -> Rendered {
         var parts = timeline()
-        let prefix = parts.map(\.text).joined()
-        let rendered = AppleNotes.content(fromPlainText: prefix, supplement: supplement)
-        let tail = String(rendered.plaintext.dropFirst(prefix.count))
-        parts.append(.init(kind: rendered.itemCount > 0 ? .generated : .metadata, text: tail))
-        // Legacy extraction must reject this version without a complete local boundary.
-        let content = AppleNotes.Content(html: rendered.html.replacingOccurrences(
-            of: "data-jotway-region=\"original\"", with: "data-jotway-region=\"daily-originals\""),
-            plaintext: rendered.plaintext, itemCount: rendered.itemCount)
-        return .init(content: content, boundary: .init(parts: parts))
-    }
-
-    func renderRetainingGenerated(coveredAt: Date?) -> Rendered {
-        guard let generated, let coveredAt else { return render() }
-        var parts = timeline()
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(identifier: scope.timeZoneID) ?? .gmt
-        formatter.dateFormat = "HH:mm:ss ZZZZZ"
-        let language = NLLanguageRecognizer.dominantLanguage(for: original)
-        let chinese = language == .simplifiedChinese || language == .traditionalChinese
-        let time = formatter.string(from: coveredAt)
-        let status = chinese ? "\n\nAI 内容截至 \(time)，尚未包含最新想法。"
-            : "\n\nAI content covers entries through \(time). Latest ideas not included."
-        parts.append(.init(kind: .metadata, text: status))
-        let prefix = parts.map(\.text).joined()
-        let base = AppleNotes.content(fromPlainText: prefix)
-        let generatedText = "\n\n" + generated.text.drop(while: { $0 == "\n" })
-        let generatedHTML = generated.html ?? AppleNotes.content(fromPlainText: generatedText).html
-            .replacingOccurrences(of: "data-jotway-region=\"original\"", with: "data-jotway-region=\"generated\"")
-        parts.append(.init(kind: .generated, text: generatedText))
-        let content = AppleNotes.Content(html: base.html.replacingOccurrences(
-            of: "data-jotway-region=\"original\"", with: "data-jotway-region=\"daily-originals\"") + generatedHTML,
-            plaintext: prefix + generatedText)
-        return .init(content: content, boundary: .init(parts: parts))
+        let original = parts.map(\.text).joined()
+        let base = AppleNotes.content(fromPlainText: original)
+        guard let generated else {
+            parts.append(.init(kind: .metadata, text: "\n"))
+            let content = AppleNotes.Content(html: base.html.replacingOccurrences(
+                of: "data-jotway-region=\"original\"", with: "data-jotway-region=\"daily-originals\""),
+                plaintext: original + "\n")
+            return .init(content: content, boundary: .init(parts: parts))
+        }
+        // Existing coverage text belongs to the old tail. Never manufacture a new notice.
+        parts.append(contentsOf: generated.parts)
+        let plaintext = parts.map(\.text).joined()
+        let html: String
+        if let retained = generated.html,
+           let firstGenerated = generated.parts.firstIndex(where: { $0.kind == .generated }) {
+            let metadata = generated.parts[..<firstGenerated].map(\.text).joined()
+            html = AppleNotes.content(fromPlainText: original + metadata).html.replacingOccurrences(
+                of: "data-jotway-region=\"original\"", with: "data-jotway-region=\"daily-originals\"") + retained
+        } else {
+            // All text was boundary-verified. Missing markup cannot authorize link reconstruction.
+            let text = plaintext.hasSuffix("\n") ? String(plaintext.dropLast()) : plaintext
+            html = AppleNotes.content(fromPlainText: text).html.replacingOccurrences(
+                of: "data-jotway-region=\"original\"", with: "data-jotway-region=\"daily-originals\"")
+        }
+        return .init(content: .init(html: html, plaintext: plaintext), boundary: .init(parts: parts))
     }
 
     /// Preserve every non-title region byte-for-byte, including stale-AI coverage metadata.
@@ -118,10 +109,37 @@ struct NotesDailyDocument: Sendable {
               let title = parts.first(where: { $0.kind == .title })?.text else { throw NotesReadError.ambiguous }
         let originals = parts.filter { $0.kind == .original }
         guard originals.map(\.entryID) == snapshot.entries.map({ Optional($0.id) }) else { throw NotesReadError.ambiguous }
-        let tail = parts.first(where: { $0.kind == .generated })
-        let html = body.html.range(of: "<div data-jotway-region=\"generated\"").map { String(body.html[$0.lowerBound...]) }
+        let tail: Generated?
+        if let lastOriginal = parts.lastIndex(where: { $0.kind == .original }),
+           parts[(lastOriginal + 1)...].contains(where: {
+               $0.kind == .generated || !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+           }) {
+            let trailing = Array(parts[(lastOriginal + 1)...])
+            guard trailing.allSatisfy({ $0.kind == .metadata || $0.kind == .generated }) else {
+                throw NotesReadError.ambiguous
+            }
+            let marker = "<div data-jotway-region=\"generated\""
+            var verifiedHTML: String?
+            if body.html.components(separatedBy: marker).count == 2,
+               let range = body.html.range(of: marker),
+               let firstGenerated = trailing.firstIndex(where: { $0.kind == .generated }) {
+                let html = String(body.html[range.lowerBound...])
+                let expected = trailing[firstGenerated...].map(\.text).joined()
+                // Structural div/pre terminators may add boundary newlines. All interior text,
+                // including spaces and legacy source labels, must match the verified region.
+                // The legacy writer's empty div contains <br>; count that one blank row once,
+                // rather than both the br and the closing div in the generic HTML reader.
+                let rows = html.replacingOccurrences(of: #"(?i)<div>\s*<br\s*/?>\s*</div>"#,
+                    with: "<div></div>", options: .regularExpression)
+                let rendered = NotesOriginalText.readableText(.init(text: "", html: rows, attachments: 0))
+                if rendered.trimmingCharacters(in: .newlines) == expected.trimmingCharacters(in: .newlines) {
+                    verifiedHTML = html
+                }
+            }
+            tail = .init(parts: trailing, html: verifiedHTML)
+        } else { tail = nil }
         return .init(title: title, scope: snapshot.scope,
                      entries: zip(snapshot.entries, originals).map { .init(identity: $0, text: $1.text) },
-                     generated: tail.map { .init(text: $0.text, html: html) }, layout: snapshot.layout)
+                     generated: tail, layout: snapshot.layout)
     }
 }

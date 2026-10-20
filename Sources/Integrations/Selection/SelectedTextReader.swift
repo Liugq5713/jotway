@@ -50,8 +50,12 @@ final class SelectedTextReader: @unchecked Sendable {
         self.trusted = trusted; controlledRead = read
     }
 
-    func read(source: SelectionSource, until deadline: ContinuousClock.Instant) async -> SelectionReadResult {
-        guard trusted() else { return .unauthorized }
+    func read(source: SelectionSource, until deadline: ContinuousClock.Instant,
+              permissionObserved: (@Sendable (SelectedTextPermissionObservation) -> Void)? = nil) async -> SelectionReadResult {
+        let startedAt = ContinuousClock.now
+        let granted = trusted()
+        permissionObserved?(.init(startedAt: startedAt, granted: granted))
+        guard granted else { return .unauthorized }
         guard ContinuousClock.now < deadline else { return .timedOut }
         let admitted = lock.withLock { if busy { return false }; busy = true; return true }
         guard admitted else { return .busy }

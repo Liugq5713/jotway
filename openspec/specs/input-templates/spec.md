@@ -58,6 +58,10 @@ Settings SHALL 提供独立的 Templates 页面，展示内置模板及自定义
 - **WHEN** 用户提交空名称、重复名称、空白展开结果或不受支持的占位符
 - **THEN** 明确指出问题，保留编辑内容和上一份有效版本，不报告保存成功
 
+#### Scenario: 按需查看模板语法
+- **WHEN** 用户打开 Templates 或展开 Template Syntax
+- **THEN** 页面简短提示通过快捷输入中的 `@` 使用模板；完整编号、转义和不支持语法说明默认折叠，可通过键盘展开并选择文字；字段校验错误继续显示在编辑表单中，不藏进语法说明
+
 ### Requirement: Template definitions persist locally without storing draft sessions
 
 系统 SHALL 在本机保存自定义模板的身份、名称、正文与创建顺序，跨重启保留；新增项追加，删除后不自动重建。内置模板的名称与正文修改 SHALL 通过现有 `inputTemplates.v1` 的可选 `builtInOverrides` 保存，保留稳定身份与固定顺序，不以自定义项形式重复出现；未修改项使用内置默认定义，已有不含覆盖字段的自定义模板数据 SHALL 可继续读取。读取损坏或不兼容数据时 SHALL 保留原数据、显示问题并继续提供默认内置模板，禁用全部模板写入，不静默覆盖原存储；保存失败不得显示成功。定义持久化不包含用户填写结果或跳转会话。

@@ -34,14 +34,12 @@
 "submission_effect.wind" = "Drift Away";
 "submission_effect.ufo" = "Fly Away";
 "settings.page.general" = "General";
-"settings.page.intent" = "App Suggestions";
 "settings.page.getting_started" = "Quick Guide";
 "settings.page.about" = "About";
 "settings.subtitle.general" = "Choose how Jotway opens and responds.";
 "settings.subtitle.appearance" = "Choose colors and a finish animation.";
 "settings.subtitle.ai" = "Manage AI services, models and access keys.";
-"settings.subtitle.intent" = "Get app suggestions as you type. You choose what runs.";
-"settings.subtitle.actions" = "Save location, grouping, insights, and reviews.";
+"settings.subtitle.actions" = "Save location, grouping, titles, and reviews.";
 "settings.subtitle.instructions" = "Share your background and writing preferences.";
 "settings.subtitle.getting_started" = "Type a thought, choose an app, and try it.";
 "settings.subtitle.about" = "Version, updates, and contact.";
@@ -51,7 +49,8 @@
 "settings.sidebar.accessibility" = "Settings pages";
 "settings.actions.back" = "Back to Apple Notes";
 "settings.instructions.background" = "About Your Writing";
-"settings.instructions.background.help" = "All writing tools use this background to understand your text. It isn't part of your note. Changes apply to new requests.";
+"settings.instructions.background.help" = "Background text kept for your reference.";
+"settings.instructions.background.scope" = "Saved on this Mac. Current writing tools do not use this text.";
 "settings.instructions.unavailable" = "Writing Help Unavailable";
 "settings.instructions.unavailable.detail" = "This version doesn't include writing help. Your settings are kept.";
 "settings.general.appearance" = "Appearance";
@@ -60,6 +59,11 @@
 "settings.general.theme.system" = "Follow System";
 "settings.general.theme.light" = "Light";
 "settings.general.theme.dark" = "Dark";
+"settings.appearance.background" = "Input Background";
+"settings.appearance.background.cat" = "Cat";
+"settings.appearance.background.shark" = "Shark";
+"settings.appearance.background.none" = "Off";
+"settings.appearance.background.help" = "Cat plays with a ball, usually peeks out while you write, and sometimes hops. Shark swims through empty space.";
 "settings.appearance.system.help" = "Match your Mac.";
 "settings.appearance.light.help" = "Always use light colors.";
 "settings.appearance.dark.help" = "Always use dark colors.";
@@ -72,9 +76,9 @@
 "settings.general.shortcut.recommendation_help" = "Try the shortcut to check whether another app uses it.";
 "settings.general.shortcut.recommended" = "Recommended: %@";
 "settings.general.shortcut.use_recommended" = "Use This Shortcut";
-"settings.general.follow_cursor.help" = "Open Quick Entry on the screen with your pointer. When off, use the main screen.";
+"settings.general.follow_cursor.help" = "When off, Quick Entry opens on the main screen.";
 "settings.general.follow_cursor" = "Use Pointer's Screen";
-"settings.general.submission_effect.help" = "Plays after submission succeeds. Respects your Mac's Reduce Motion setting.";
+"settings.general.submission_effect.help" = "Plays after a successful action. Follows Reduce Motion on your Mac.";
 "settings.general.submission_effect" = "Finish Animation";
 "settings.general.startup" = "Startup";
 "settings.general.launch_at_login" = "Open at Login";
@@ -122,7 +126,7 @@
 "guide.step.target.title" = "Check the App";
 "guide.step.target.detail" = "Check the target at the bottom. Click its name to choose another.";
 "guide.step.confirm.title" = "Press Enter";
-"guide.step.confirm.detail" = "Press Enter to continue. Shift+Enter adds a new line. Clarify any unclear time first. Once the time is valid, press Enter once; Jotway waits for writing help to finish.";
+"guide.step.confirm.detail" = "Press Enter to use the selected app. Shift+Enter adds a new line.";
 "guide.destination.help" = "Choose a Notes folder first. After saving, find the original in Notes.";
 "guide.configure_actions" = "Set Up Apple Notes";
 "guide.reopen" = "Open Jotway Again";
@@ -134,11 +138,11 @@
 "guide.capabilities" = "Things to Try";
 "guide.example.note.title" = "Save a Note";
 "guide.example.note.input" = "Save to Notes: ideas for the next presentation";
-"guide.example.note.result" = "Saves to Notes after you choose an account and folder.";
+"guide.example.note.result" = "Saves in your Notes folder. Allow access if asked.";
 "guide.example.app.title" = "Open an App";
 "guide.example.app.input" = "Open Safari";
 "guide.example.app.result" = "Shows the matching app. Press Enter to open it.";
-"guide.fallback.help" = "Ordinary text goes to Notes. If Notes is not ready, Set Up Notes preserves your draft; press Enter again after setup to save.";
+"guide.fallback.help" = "If Notes needs setup, your draft stays. After setup, press Enter again to save.";
 "guide.input_shortcuts" = "Typing and Shortcuts";
 "guide.shortcut.execute" = "Use Selected App";
 "guide.shortcut.execute.value" = "Enter / ⌘Enter";
@@ -147,21 +151,22 @@
 "guide.shortcut.switch.value" = "Click app / ⌥↑ / ⌥↓";
 "guide.shortcut.hide" = "Hide Quick Entry";
 "guide.shortcut.edit" = "Edit Text";
-"guide.input.help" = "Type @ to choose a writing template. Tab visits fields; Esc ends filling. Templates only edit text. Type or paste text, including multiple lines. Pasted text loses its formatting. Formatting marks, file paths, and links stay as text. Symbols like / and 、 are kept. Images and file attachments aren't added.";
-"guide.composition.help" = "If you're choosing words as you type, finish that choice first. Then press Enter to continue.";
+"guide.input.help" = "Type @ to insert a template without submitting. Tab moves between fields; Esc ends filling. Input is plain text: pasted formatting is removed, and Markdown, paths, and links stay as text. Images and files cannot be attached.";
+"guide.composition.help" = "When using an input method, finish choosing a word before pressing Enter to submit.";
 "guide.intent_ai" = "Suggestions and Writing";
-"guide.intent.help" = "Application names match locally. Use ⌥↑ / ⌥↓ to change the target. The target shown at the bottom runs only when you confirm.";
+"guide.intent.help" = "App names match on this Mac. Other text goes to Notes. The selected app runs only after you confirm.";
 "guide.intent.local_help" = "Try an application name or “save to notes.” Other text uses Notes. Typing does not send a draft to an intent service.";
-"guide.ai.help" = "Notes keeps your complete original. Optional Extra Ideas adds separate insights. If assistance fails, the original is still saved. Automatic tags are paused. AI Services configures Jotway AI or one personal model for all text AI features.";
-"guide.open_intent" = "App Suggestions";
+"guide.ai.help" = "Notes keeps your original text and adds an AI title, even with grouping off. Missing titles can be completed later the same day. Set up the model in AI Services.";
+"guide.insight.help" = "Press ⌘J or the Instant Insight icon below your draft for writing help. Responses are not saved with your text.";
+"guide.review.help" = "Enable Notes Review in Apple Notes settings. Open the review icon below your draft, then choose today or the last seven days.";
 "guide.open_actions" = "Set Up Apple Notes";
 "guide.drafts_failures" = "Drafts and Problems";
 "guide.drafts.help" = "Hiding Quick Entry keeps your draft so you can keep writing. Quitting, restarting, or a crash clears it.";
 "guide.failures.help" = "If something fails, Jotway explains why and restores your text. If you've started a new draft, that draft stays untouched.";
 "guide.no_inbox.help" = "Find saved text in the app you chose. Jotway has no inbox or browsable text history.";
 "guide.privacy" = "Privacy";
-"guide.privacy.remote" = "App Suggestions and writing help send relevant text to their services. Local Records aren't uploaded automatically.";
-"guide.privacy.local" = "Local Records is on by default. It keeps complete text, including unsubmitted drafts, plus app suggestions, choices, and results on this Mac. The default is 90 days. Manage it in App Suggestions. Turning it off deletes existing records. App Logs don't include draft text.";
+"guide.privacy.remote" = "Writing help sends relevant text to your AI service. App matching stays on this Mac. Local Records aren't uploaded automatically.";
+"guide.privacy.local" = "Local Records is on by default. It keeps complete text, including unsubmitted drafts, plus app suggestions, choices, and results on this Mac. The default is 90 days. Manage it in General → Troubleshooting. Turning it off deletes existing records. App Logs don't include draft text.";
 "guide.example.input_format" = "“%@”";
 "shortcut.change" = "Shortcut:";
 "shortcut.accessibility" = "Quick Entry keyboard shortcut";
@@ -174,7 +179,7 @@
 "instruction.restore_default" = "Reset to Default";
 "instruction.save_to_apply" = "Click Save to Apply";
 "instruction.enter_newline" = "Enter adds a new line";
-"instruction.saved" = "Saved. Applies to new requests.";
+"instruction.saved" = "Saved.";
 "shortcut.trial.setup_first" = "Choose an available shortcut first.";
 "shortcut.trial.instruction" = "Switch to another app, then press %@. You can also return using the Dock, menu bar, Applications, or Spotlight.";
 "shortcut.trial.success" = "Your shortcut works. Start typing anytime.";
@@ -206,22 +211,9 @@
 "action.settings.destination_help" = "Find your saved text here.";
 "action.settings.choose_destination" = "Choose where %@ saves your text.";
 "action.notes.destination_label" = "Apple Notes";
-"action.notes.ai_supplements" = "Extra Ideas";
-"action.notes.supplement_toggle" = "Add Extra Ideas";
-"action.notes.supplement_help" = "Your original text stays unchanged. Up to three useful answers or ideas and five related notes appear in separate quotes. Empty results are omitted. If writing help fails, Notes saves your original text.";
-"action.notes.supplement_preferences" = "Idea Preferences";
-"action.notes.ai.default_preference" = "Respond to questions with up to three concrete analyses or suggestions using the provided context. For ordinary notes, add only useful connections. Separate historical records, inferences and suggestions; an old idea does not prove it is still unfinished. Say when completion status is unknown. Return nothing when there is no useful addition. Avoid repeating or summarizing the original text, generic encouragement, and additions made only for their own sake. Use the original text’s language.";
-"action.notes.supplement_preferences_help" = "Describe what would make an added discovery useful. Your original stays unchanged. Applies to new notes.";
-"action.notes.legacy_rewrite_help" = "Your old Writing Style is kept but isn't used here. Idea Preferences applies only to added text.";
-"action.notes.supplement.heading" = "AI Supplement";
-"action.notes.supplement.background" = "Background";
-"action.notes.supplement.idea" = "Idea";
-"action.notes.supplement.question" = "Question";
 "action.notes.tags" = "Tags";
 "action.notes.fixed_tag_help" = "Add the same tag to each note. Spaces and # are removed. Leave blank to skip.";
 "action.notes.fixed_tag" = "Always Add This Tag";
-"action.notes.ai_tags_help" = "Adds up to three related tags after your original text and extra ideas, using the same writing request.";
-"action.notes.ai_tags_requires_supplements" = "Turn on Add Extra Ideas to get related tags.";
 "action.notes.ai_tags" = "Suggest Related Tags";
 "action.ai.default_style" = "You are Jotway’s text-refining assistant. Clean up a short note or spoken thought so it can be saved directly.\nOnly refine it: remove filler, obvious typos, and repetition; improve flow and use bullets when helpful; put a concise title on the first line.\nDo not change the meaning, add facts, answer questions in the text, or add commentary. Preserve uncertainty and contradictions.\nKeep the input language by default. Preserve the language mix of bilingual input. Translate only when the user explicitly asks for translation.";
 "action.settings.authorize_help" = "Allow access to save in the default location. You can change the location later.";
@@ -250,12 +242,12 @@
 "logs.clear" = "Clear Logs…";
 "logs.cancel_export" = "Cancel Export";
 "logs.diagnostics" = "Troubleshooting";
-"logs.diagnostics_help" = "Logs help find problems with apps and writing services. Draft text and access keys are excluded by default.";
+"logs.diagnostics_help" = "App Logs save errors and timing to help find problems. They exclude draft text and access keys.";
 "logs.clear_confirmation" = "Clear App Logs?";
 "logs.clear_action" = "Clear Logs";
 "logs.cleared" = "Logs cleared. New activity will still be logged.";
 "logs.clear_failed" = "Some logs couldn't be cleared. Try again.";
-"logs.clear_help" = "Deletes App Logs only. Your drafts and settings are kept.";
+"logs.clear_help" = "Deletes App Logs only. Local Records, current drafts, and settings are kept.";
 "logs.filename" = "Jotway-Logs-%@.zip";
 "logs.export_location_cancelled" = "No save location chosen.";
 "logs.exported_incomplete" = "Logs exported. Some entries may be missing.";
@@ -375,7 +367,6 @@
 /* Local operation records */
 "guide.records.help" = "Local Records keeps unsubmitted text on this Mac too. You can export it for review. It never restores drafts or automatically changes routing.";
 "guide.records.manage" = "Manage Local Records…";
-"operations.title" = "Local Records";
 "operations.enabled" = "Keep Local Records";
 "operations.scope" = "Saves your text and activity on this Mac, including unsent drafts.";
 "operations.manage" = "Manage Records";
@@ -451,7 +442,7 @@
 "action.codex.results_help" = "Choose Run with Codex to see your five latest conversations from Jotway. Click one to open its conversation or saved result.";
 "action.codex.open_tasks_failed" = "Could not open the task folder. Your completed tasks have been kept.";
 "settings.general.completion_notifications" = "Completion Notifications";
-"settings.general.completion_notifications.help" = "Show a quiet notice when an action finishes. Off by default for all actions.";
+"settings.general.completion_notifications.help" = "Show a notification when an action finishes.";
 "notes.review.title" = "Notes Review";
 "notes.review.weekly" = "Weekly Review";
 "notes.review.today" = "Today’s Review";
@@ -485,9 +476,8 @@
 
 "notes.grouping.title" = "Daily Project Notes";
 "notes.grouping.toggle" = "Group today's ideas automatically";
-"notes.grouping.help" = "The active AI service compares new ideas with complete originals in today’s managed notes. Earlier days stay unchanged. AI additions have a separate switch.";
-"notes.grouping.configured" = "AI is configured";
-"notes.grouping.unconfigured" = "AI is not configured. Ideas will be saved separately.";
+"notes.grouping.help" = "Keep related ideas in one note each day. New ideas and complete originals from today’s managed notes are sent to AI for grouping. Earlier notes stay unchanged.";
+"notes.settings.ai_setup" = "Set up AI Services for titles, grouping, and reviews. You can still save notes separately with a pending title.";
 "notes.grouping.configure" = "Configure…";
 "notes.grouping.key_failed" = "The DeepSeek key could not be saved.";
 
@@ -534,7 +524,7 @@
 
 // Input templates
 "templates.title" = "Templates";
-"templates.subtitle" = "Reusable text for your draft. Choose a target separately.";
+"templates.subtitle" = "Type @ in Quick Entry to insert a template.";
 "templates.built_in" = "Built-in templates";
 "templates.fixed" = "Built-in templates cannot be deleted.";
 "templates.custom" = "Custom templates";
@@ -546,7 +536,7 @@
 "templates.body" = "Template body";
 "templates.save" = "Save";
 "templates.cancel" = "Cancel";
-"templates.syntax_title" = "Placeholder syntax";
+"templates.syntax_title" = "Template Syntax";
 "templates.syntax_help" = "Use ${1}, ${2:default text} and one optional ${0}. Positive numbers must be unique and have no leading zeros. Tab / Shift+Tab move between fields; Esc ends filling. Nested fields, variables, choices and transforms are unsupported. Escape $ with \\$, backslash with \\\\, and a default-text closing brace with \\}. $1 is literal text.";
 "templates.invalid_syntax" = "Unsupported template syntax at UTF-16 position %d.";
 "templates.invalid_name" = "Enter a nonempty name on one line.";
@@ -562,9 +552,7 @@
 
 "notes.title.heading" = "Initial note title";
 
-"notes.title.help" = "Each new note uses the active AI service for its first title, independently of grouping and AI additions. On failure, the original is saved with a pending title. Same-day recovery never switches providers; hosted failures pause automatic retries.";
-
-"notes.title.unconfigured" = "Configure AI below to generate titles. Originals can still be saved with a pending title.";
+"notes.title.help" = "New notes get a title automatically, even when grouping is off. If a title is unavailable, your text is saved with a pending title that can be completed later today.";
 
 "settings.ai.binding_invalid" = "The saved AI configuration is unavailable. Save a personal model to repair it.";
 
@@ -610,33 +598,44 @@
 "recent_documents.empty_body" = "This document is empty.";
 "recent_documents.load_failed" = "Could not read this document. It may be locked, deleted, or unavailable. Try again after checking Notes access.";
 
-// Draft thinking prompts
-"thinking.settings.title" = "Thinking Prompts";
-"thinking.settings.automatic" = "Automatic follow-up prompts";
-"thinking.settings.help" = "Off by default. When enabled, a pause of about one second sends your current draft to the active AI service. A temporary prompt appears only when it can help you think further; otherwise, it stays quiet. Prompts never enter saved text.";
-"thinking.open" = "Ask for a thinking prompt";
-"thinking.title" = "Thinking prompt · AI";
+// Draft Instant Insight
+"thinking.retry" = "Retry";
+"thinking.settings.title" = "Instant Insight";
+"thinking.settings.automatic" = "Automatic Instant Insight";
+"thinking.settings.help" = "Sends your draft to AI after a one-second pause. Responses are not saved with your text.";
+"thinking.prompt.title" = "Instant Insight prompt";
+"thinking.prompt.help" = "Sets how manual and automatic Instant Insight respond. Sent to your AI service with each request.";
+"thinking.prompt.invalid" = "The saved Instant Insight prompt is invalid. Edit it or restore the default in Writing Preferences to enable requests.";
+"thinking.prompt.too_large" = "The prompt exceeds 16,000 UTF-8 bytes. Shorten it before saving; your saved prompt has not changed.";
+"thinking.open" = "Ask Instant Insight";
+"thinking.title" = "Instant Insight · AI";
 "thinking.snapshot" = "Based on the draft when generated";
-"thinking.refresh" = "Try another prompt";
-"thinking.close" = "Close thinking prompt";
-"thinking.loading" = "Thinking…";
-"thinking.empty" = "No useful prompt this time. Keep writing or try another.";
-"thinking.unconfigured" = "Set up AI in AI Services to get prompts.";
+"thinking.refresh" = "Refresh";
+"thinking.close" = "Close Instant Insight";
+"thinking.loading" = "Generating…";
+"thinking.empty" = "No useful response for this draft.";
+"thinking.unconfigured" = "Set up AI in AI Services to use Instant Insight.";
 "thinking.configure" = "Open AI Services";
-"thinking.too_large" = "This draft exceeds the prompt input limit. Your full text is unchanged.";
-"thinking.timeout" = "The prompt timed out. You can retry.";
-"thinking.failed" = "Could not get a usable prompt. You can retry.";
-"thinking.updated" = "Thinking prompt updated";
+"thinking.too_large" = "The draft and prompt exceed the Instant Insight input limit. Your full draft is unchanged.";
+"thinking.timeout" = "Instant Insight timed out. You can retry.";
+"thinking.failed" = "Could not get a usable response. You can retry.";
+"thinking.updated" = "Instant Insight updated";
 "thinking.blocked.empty" = "Write something first";
 "thinking.blocked.clipboard" = "Clipboard queries stay on this Mac";
 "thinking.blocked.menu" = "Finish the current menu or template first";
-"thinking.blocked.unavailable" = "Return to the editor to request a prompt";
+"thinking.blocked.unavailable" = "Return to the editor to use Instant Insight";
 
 // Selected text and direct-distribution recovery
 "selected_text.title" = "Selected Text";
-"selected_text.help" = "From another app, use your recording shortcut to quote selected plain text when its control supports Accessibility. Otherwise, recent clipboard text is used.";
+"selected_text.help" = "Your shortcut quotes selected text from apps that support Accessibility. Otherwise, Jotway uses recently copied text.";
 "selected_text.granted" = "Accessibility allowed";
-"selected_text.missing" = "Accessibility not allowed";
+"selected_text.missing" = "Accessibility unavailable for this app copy";
+"selected_text.checking" = "Checking Accessibility…";
+"selected_text.check_again" = "Check Again";
+"selected_text.recovery" = "Match the Jotway entry in System Settings to the app below, then check again. If needed, save your draft before reopening the intended copy. Recording still works.";
+"selected_text.troubleshooting" = "Troubleshoot Access";
+"selected_text.temporary_copy" = "This copy appears to run from a temporary location. That alone does not prove a permission problem. Save your draft before closing it and opening your intended installed copy.";
+"selected_text.running_copy" = "Running copy: %@";
 "selected_text.allow" = "Allow Accessibility…";
 "selected_text.settings" = "System Settings…";
 "selected_text.notice" = "To quote selected text without copying, allow Accessibility in Settings → General. Recording still works.";
@@ -672,7 +671,7 @@
 "settings.activation.code" = "Activation code";
 "settings.activation.checking" = "Checking…";
 "settings.activation.activate" = "Activate";
-"settings.activation.help" = "Paste an activation code. All text AI calls then use Jotway AI; your personal configuration stays saved.";
+"settings.activation.help" = "Activating uses Jotway AI for all text AI features. Your personal model stays saved.";
 "settings.activation.privacy" = "Text goes through Jotway to its models. Input and output share the token balance. Keep your code private.";
 "settings.activation.required" = "Activate Jotway AI in AI Services first.";
 "settings.activation.invalid" = "This activation code is invalid or has been replaced. Ask the person who sent it for a new code.";
@@ -695,7 +694,7 @@
 "settings.activation.no_credits_status" = "No credits remaining";
 "settings.activation.low_credits_status" = "Not enough credits for this request";
 "settings.activation.unavailable_status" = "Unable to confirm access";
-"settings.activation.next_step" = "Open Quick Entry, write a thought, then choose the thinking prompt icon below the editor.";
+"settings.activation.next_step" = "Open Quick Entry, write a thought, then choose the Instant Insight icon below the editor.";
 "thinking.hosted_settings" = "Jotway AI Settings";
 
 "settings.ai.personal.title" = "Personal Model";
@@ -706,17 +705,17 @@
 
 "settings.ai.personal.url" = "API Base URL";
 
-"settings.ai.personal.url_help" = "Enter the API base URL, usually ending in /v1; do not include /messages or /chat/completions. HTTPS only.";
+"settings.ai.personal.url_help" = "Use an HTTPS base URL, usually ending in /v1. Leave out /messages and /chat/completions.";
 
 "settings.ai.personal.model" = "Model ID";
 
-"settings.ai.personal.help" = "One model handles titles, thinking prompts, grouping, AI additions and reviews. Requests never switch to a backup model.";
+"settings.ai.personal.help" = "Used for titles, Instant Insight, grouping, and reviews. No backup model is used.";
 
 "settings.ai.personal.hosted_active" = "Jotway AI is in use. Your personal model stays saved and resumes after you remove the activation code.";
 
-"settings.ai.personal.test_hosted" = "With an activation code, Test Connection also uses Jotway AI and its quota. Personal keys are not used.";
+"settings.ai.personal.test_hosted" = "Check Connection uses Jotway AI quota and sample text, not your draft or personal key.";
 
-"settings.ai.personal.privacy" = "Text and related context go to the configured service and are billed to that account. Save first, then test with sample text.";
+"settings.ai.personal.privacy" = "Text and context go to this service and are billed to your account. Save before testing. Tests send sample text, never your draft.";
 
 
 "settings.ai.personal.invalid" = "Enter a valid HTTPS API base URL and a nonempty model ID without whitespace.";
@@ -734,6 +733,7 @@
 // Central AI service configuration
 "settings.ai.services.current" = "Current Text Service";
 "settings.ai.services.unconfigured" = "Not Configured";
+"settings.ai.services.setup" = "Activate Jotway AI or add a personal model below.";
 "settings.ai.services.hosted" = "All text AI features use Jotway AI while an activation code is saved.";
 "settings.ai.services.personal" = "Without a Jotway code, all text AI features use your personal model.";
 "settings.ai.services.personal_unused" = "Not needed while Jotway AI is active";
@@ -742,4 +742,46 @@
 "settings.ai.services.open" = "Open AI Services";
 "settings.ai.services.preferences" = "Open Writing Preferences";
 
-"notes.review.privacy" = "Reviews read recent original text from the selected Notes folders only when requested, then send bounded excerpts to your active text AI service. No background indexing or embedding service is used.";
+"notes.review.privacy" = "Only when you request a review, excerpts from recent notes in the selected folders go to your AI service. Notes stay unchanged.";
+
+// Personal provider setup and explicit model discovery.
+"settings.ai.personal.provider" = "Provider";
+"settings.ai.personal.custom" = "Custom";
+"settings.ai.personal.get_key" = "Get API Key";
+"settings.ai.personal.advanced" = "Advanced Settings";
+"settings.ai.personal.manual" = "Enter model ID manually";
+"settings.ai.personal.choose_model" = "Choose a model";
+"settings.ai.personal.invalid_url" = "Enter an HTTPS base URL without a username, password, query or fragment.";
+"settings.ai.personal.test_generation" = "Test Generation";
+"settings.ai.personal.test_jotway" = "Test Jotway AI";
+"settings.ai.personal.test_target" = "Generation test: %@ · %@";
+"settings.ai.personal.generation_ok" = "Text generation succeeded: %@ · %@";
+"settings.ai.personal.hosted_notice" = "Jotway AI is active. This personal configuration is saved for later; generation tests use Jotway AI quota.";
+"settings.ai.catalog.load" = "Load Models";
+"settings.ai.catalog.refresh" = "Refresh Models";
+"settings.ai.catalog.loading" = "Loading models…";
+"settings.ai.catalog.help" = "Load a model list or enter an ID manually. Listed models may not support text generation.";
+"settings.ai.catalog.target" = "Load Models sends your personal API key to %@/models. It sends no text.";
+"settings.ai.catalog.loaded" = "Loaded %d models. Generation has not been tested.";
+"settings.ai.catalog.partial" = "This list may be incomplete. You can enter another model ID manually.";
+"settings.ai.catalog.empty" = "No usable model IDs were returned. Enter a model ID manually.";
+"settings.ai.catalog.error.auth" = "The model list could not be read. Check your key and model-list permissions, or enter an ID manually.";
+"settings.ai.catalog.error.unsupported" = "This address does not provide a model list. Check Advanced Settings or enter a model ID manually.";
+"settings.ai.catalog.error.timeout" = "Loading models timed out. Try again or enter a model ID manually.";
+"settings.ai.catalog.error.rate" = "Too many requests. Try later or enter a model ID manually.";
+"settings.ai.catalog.error.redirect" = "The model address redirected the request. Check Advanced Settings; your key was not forwarded.";
+"settings.ai.catalog.error.unavailable" = "The model list is unavailable. Check the service or enter a model ID manually.";
+"settings.ai.catalog.error.large" = "The model list is too large. Enter a model ID manually.";
+"settings.ai.catalog.error.invalid" = "The service returned an unsupported model list. Enter a model ID manually.";
+"settings.ai.catalog.error.network" = "Could not reach the model service. Check the address and network, or enter a model ID manually.";
+
+// Personal AI settings layout.
+"settings.ai.personal.model_label" = "Model";
+"settings.ai.personal.choose_from_list" = "Choose from loaded models";
+"settings.ai.personal.model_placeholder" = "Enter a model ID";
+"settings.ai.personal.save_changes" = "Save Changes";
+"settings.ai.personal.unsaved" = "Unsaved changes · Save before testing";
+"settings.ai.personal.privacy_compact" = "Your text goes to this provider and is billed to your account. Tests send a fixed sample, never your draft.";
+"settings.ai.personal.test_hosted_compact" = "Tests use Jotway AI quota and a fixed sample, never your draft or personal key.";
+"settings.ai.catalog.input_hint" = "Enter an ID, or load models from your provider.";
+"settings.ai.catalog.sharing" = "Model lookup sends your API key, with no text, to:";

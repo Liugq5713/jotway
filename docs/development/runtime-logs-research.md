@@ -28,12 +28,14 @@ Logging failure never blocks the main action path. Later events retry preparatio
 
 ## User controls
 
-Settings → 通用 → 日志 can:
+Settings → General → Troubleshooting → App Logs is collapsed by default, with its scope description always visible. It can:
 
 - show current size and completeness;
 - open the log directory;
 - export retained logs as ZIP;
 - clear retained logs without changing drafts or preferences.
+
+Local Records appears separately in the same Troubleshooting section. Its text capture, retention, export and deletion controls do not affect App Logs; clearing App Logs also preserves Local Records.
 
 Export copies retained complete JSONL lines without decoding or rewriting them, including historical Jev metadata without adding a current rule definition. Compatibility decoding remains isolated from live local application diagnostics.
 

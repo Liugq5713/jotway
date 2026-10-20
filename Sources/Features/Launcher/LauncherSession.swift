@@ -7,6 +7,7 @@ enum LauncherEvent {
     case panelPrepared(quote: String?)
     case panelPresented
     case selectedTextPermissionNotice(String)
+    case selectedTextPermissionRecovered
     case panelDismissed
     case panelVisibilityChanged(Bool)
     case compositionChanged(Bool)
@@ -77,6 +78,7 @@ final class LauncherSession {
     let thinkingPrompt: DraftThinkingPromptSession
     private let automaticThinkingEnabled: () -> Bool
     private let thinkingFastVersion: () -> String
+    private let thinkingInstructions: () -> InstantInsightPrompt.Snapshot?
     private let aiCapabilityReady: (ModelConfiguration.Capability) -> Bool
     private var thinkingAIReady = false
     private(set) var draft = RecordDraft()
@@ -201,6 +203,7 @@ final class LauncherSession {
              throw AIProviderPlugin.Failure(message: "Thinking prompts are not configured", runtimeLogCode: .configuration)
          },
          thinkingFastVersion: @escaping @MainActor () -> String = { "unconfigured" },
+         thinkingInstructions: @escaping @MainActor () -> InstantInsightPrompt.Snapshot? = { InstantInsightPrompt().snapshot },
          aiCapabilityReady: @escaping @MainActor (ModelConfiguration.Capability) -> Bool = { _ in false },
          automaticThinkingEnabled: @escaping @MainActor () -> Bool = { false },
          applicationUsage: @escaping () -> [String: ApplicationUsage],
@@ -214,8 +217,10 @@ final class LauncherSession {
          }) {
         self.aiCapabilityReady = aiCapabilityReady
         self.thinkingFastVersion = thinkingFastVersion
+        self.thinkingInstructions = thinkingInstructions
         self.automaticThinkingEnabled = automaticThinkingEnabled
-        self.thinkingPrompt = DraftThinkingPromptSession(factory: thinkingPromptFactory, currentVersion: thinkingFastVersion)
+        self.thinkingPrompt = DraftThinkingPromptSession(factory: thinkingPromptFactory, currentVersion: thinkingFastVersion,
+            currentPromptVersion: { thinkingInstructions()?.version })
         state.thinkingPrompt = thinkingPrompt
         self.clipboard = clipboard
         self.review = review
@@ -266,7 +271,9 @@ final class LauncherSession {
             catalog.refreshIfNeeded()
             activate()
         case .selectedTextPermissionNotice(let message):
-            if state.message == nil { state.message = message }
+            state.showSelectedTextPermissionNotice(message)
+        case .selectedTextPermissionRecovered:
+            state.clearSelectedTextPermissionNotice()
         case .panelDismissed: panelClosed()
         case .panelVisibilityChanged(let visible): recordPanelVisibility(visible)
         case .compositionChanged(let composing):
@@ -549,6 +556,7 @@ final class LauncherSession {
         state.reviewUnavailableReason = review.unavailableText
     }
 
+    /// Close only the presentation; the app-owned review keeps running for the next open.
     private func closeReview() {
         guard state.showsReview || state.reviewUnavailableReason != nil || state.reviewSummary != nil
                 || state.reviewPreview != nil || state.reviewRequestMetadata != nil || state.isLoadingReview else { return }
@@ -560,7 +568,6 @@ final class LauncherSession {
         state.reviewFailed = false
         state.reviewCoverageIncomplete = false
         state.reviewUnavailableReason = nil
-        review?.cancel()
     }
 
     func preloadApplications() { catalog.preload() }
@@ -716,14 +723,16 @@ final class LauncherSession {
 
     private func refreshThinkingPrompt() {
         let aiReady = thinkingAIReady
+        let instructions = thinkingInstructions()
         let empty = draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let hardBlocked = !aiReady || !panelIsVisible || empty || isClipboardInput || thinkingSettingsActive
+        let hardBlocked = !aiReady || instructions == nil || !panelIsVisible || empty || isClipboardInput || thinkingSettingsActive
             || state.isReadingGettingStarted || state.isConfiguringAction || state.isAcceptingSubmission
             || state.isOpeningApplication || pendingActionConfirmation != nil
         let menuBlocked = state.isTemplateMenuVisible || state.isFillingTemplate || state.isIntentCandidateMenuVisible
         if hardBlocked || menuBlocked { thinkingPrompt.invalidate() }
         let reason: String?
         if !aiReady { reason = L10n.text("launcher.ai.requires_configuration") }
+        else if instructions == nil { reason = L10n.text("thinking.prompt.invalid") }
         else if let protected = state.modeSwitchBlockReason { reason = protected }
         else if pendingActionConfirmation != nil { reason = L10n.text("launcher.mode.blocked.submission") }
         else if empty { reason = L10n.text("thinking.blocked.empty") }
@@ -733,7 +742,7 @@ final class LauncherSession {
         else { reason = nil }
         thinkingPrompt.update(.init(draftID: draft.id, revision: revision, text: draft.content,
             panelSessionID: state.panelSessionID, modeGeneration: state.modeGeneration,
-            fastVersion: thinkingFastVersion(), manualBlockReason: reason,
+            fastVersion: thinkingFastVersion(), prompt: instructions, manualBlockReason: reason,
             automaticBlocked: hardBlocked || menuBlocked || state.isComposingText
                 || state.selectedRecentDocumentID != nil || state.showsReview),
             automaticEnabled: automaticThinkingEnabled())
@@ -756,7 +765,7 @@ final class LauncherSession {
             return
         }
         if let pending = pendingActionConfirmation,
-           registry.executionSnapshot(for: pending.snapshot.id)?.configurationIdentity != pending.snapshot.configurationIdentity {
+           registry.configurationIdentity(for: pending.snapshot.id) != pending.snapshot.configurationIdentity {
             invalidatePreparation()
         }
         if let pendingSetup, !registry.containsModule(id: pendingSetup.request.snapshot.id,
@@ -774,10 +783,10 @@ final class LauncherSession {
               !state.isReadingGettingStarted, !state.isComposingText,
               !state.isOpeningApplication, applicationOpenID == nil,
               !draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        let available = registry.executionSnapshots()
+        let available = registry.availableDescriptors
         let defaultActionID = registry.fallbackActionID ?? ""
-        let availableActions = available.filter { !$0.descriptor.requiresExplicitSelection }
-            .map { IntentRecognition.ActionTarget(id: $0.id, title: $0.descriptor.localizedTitle) }
+        let availableActions = available.filter { !$0.requiresExplicitSelection }
+            .map { IntentRecognition.ActionTarget(id: $0.id, title: $0.localizedTitle) }
         let matching = currentApplicationEvaluation
         var applications = matching.applications
         if let selected = currentExplicitTarget, selected.kind == .application,
@@ -826,7 +835,7 @@ final class LauncherSession {
         let recognizedID = recognition.suggestion?.targetID
         return routeResolver.resolve(RouteInput(
             draft: draft,
-            actions: registry.executionSnapshots().map(\.descriptor),
+            actions: registry.availableDescriptors,
             explicitTargetID: selectedID,
             recognizedTargetID: recognizedID,
             recognitionIsCurrent: recognition.suggestion?.snapshot == snapshot,
@@ -930,17 +939,26 @@ final class LauncherSession {
     private func render(_ decision: RouteDecision) {
         switch decision {
         case .action(let id, _):
-            guard let snapshot = registry.executionSnapshot(for: id) else {
+            guard let descriptor = registry.availableDescriptor(for: id) else {
                 state.displayedActionTitle = nil
                 state.displayedActionIcon = nil
                 actionExecutor.reset()
                 return
             }
-            state.displayedActionTitle = snapshot.descriptor.localizedTitle
-            state.displayedActionIcon = snapshot.descriptor.systemImageName
+            state.displayedActionTitle = descriptor.localizedTitle
+            state.displayedActionIcon = descriptor.systemImageName
             guard acceptsIntentSuggestions, !isSubmitting else { actionExecutor.reset(); return }
-            actionExecutor.schedule(snapshot: snapshot, input: actionInput(),
-                panelSessionID: state.panelSessionID)
+            let input = actionInput()
+            guard let configurationIdentity = registry.configurationIdentity(for: id) else {
+                actionExecutor.reset()
+                return
+            }
+            let identity = ActionExecutor.Identity(actionID: id, inputIdentity: input.identity,
+                configurationIdentity: configurationIdentity, panelSessionID: state.panelSessionID)
+            // Repeated renders reuse the existing plan without rebuilding its frozen action.
+            guard actionExecutor.current?.identity != identity else { return }
+            guard let snapshot = registry.executionSnapshot(for: id) else { actionExecutor.reset(); return }
+            actionExecutor.schedule(snapshot: snapshot, input: input, panelSessionID: state.panelSessionID)
         case .application(let id, _):
             let application = currentIntentSnapshot?.applications.first { $0.id == id }
             state.displayedActionTitle = application.map { L10n.text("launcher.open_application", $0.name) }
@@ -1003,12 +1021,12 @@ final class LauncherSession {
         if let suggestion = recognition.suggestion,
            pinnedApplicationID == nil || suggestion.targetID == pinnedApplicationID,
            suggestion.snapshot == currentIntentSnapshot,
-           registry.executionSnapshot(for: suggestion.targetID) != nil
+           registry.availableDescriptor(for: suggestion.targetID) != nil
             || currentIntentSnapshot?.applications.contains(where: { $0.id == suggestion.targetID }) == true {
             append(suggestion.targetID, suggestion.title)
         }
-        for snapshot in registry.executionSnapshots() where snapshot.id != defaultID {
-            append(snapshot.id, snapshot.descriptor.localizedTitle)
+        for descriptor in registry.availableDescriptors where descriptor.id != defaultID {
+            append(descriptor.id, descriptor.localizedTitle)
         }
         if let defaultID, let descriptor = registry.descriptor(for: defaultID) {
             append(defaultID, descriptor.localizedTitle)
@@ -1168,7 +1186,7 @@ final class LauncherSession {
     }
 
     private var clipboardQuery: String? {
-        guard isClipboardInput, clipboard != nil, registry.executionSnapshot(for: "clipboard") != nil else { return nil }
+        guard isClipboardInput, clipboard != nil, registry.availableDescriptor(for: "clipboard") != nil else { return nil }
         return actionInput().text
     }
 
@@ -1250,7 +1268,7 @@ final class LauncherSession {
               !state.isComposingText,
               registry.containsModule(id: pending.request.snapshot.id,
                                       instance: pending.request.snapshot.moduleInstance) else { return }
-        if result == .completed, registry.executionSnapshot(for: pending.request.snapshot.id) != nil {
+        if result == .completed, registry.availableDescriptor(for: pending.request.snapshot.id) != nil {
             let selected = pending.request.snapshot
             routingInteractionRevision += 1
             restoreRoutingSelection(.init(targetID: selected.id, title: selected.descriptor.localizedTitle,
@@ -1307,7 +1325,7 @@ final class LauncherSession {
         submissions[requestID] = Task { [weak self] in
             do {
                 let outcome = try await execution.value
-                if snapshot.id == "apple-notes", outcome.effect == .completed, let noteID = outcome.savedNoteID {
+                if snapshot.id == "apple-notes", outcome.effect == .created, let noteID = outcome.savedNoteID {
                     self?.recordSavedDocument(noteID)
                 }
                 self?.recordExecution(operation, outcome: outcome.effect)
@@ -1579,21 +1597,20 @@ final class LauncherSession {
         guard state.mode == .quickInput, acceptsIntentSuggestions, !state.isComposingText, !state.isReadingGettingStarted,
               pending.input.identity == actionInput().identity, pending.input.text == actionInput().text,
               pending.panelSessionID == state.panelSessionID,
-              let freshSnapshot = registry.executionSnapshot(for: pending.snapshot.id),
-              freshSnapshot.configurationIdentity == pending.snapshot.configurationIdentity,
+              registry.configurationIdentity(for: pending.snapshot.id) == pending.snapshot.configurationIdentity,
               let preparation = actionExecutor.current, preparation.generation == pending.generation,
               let plan = preparation.status.plan, plan.id == pending.planID else {
             invalidatePreparation()
             renderIntentSuggestion()
             return
         }
-        guard let prepared = actionExecutor.prepared(planID: pending.planID, snapshot: freshSnapshot,
+        guard let prepared = actionExecutor.prepared(planID: pending.planID, snapshot: pending.snapshot,
                 input: pending.input, panelSessionID: pending.panelSessionID) else { return }
         let operation = recordAttempt(targetKind: .action, targetID: pending.snapshot.id,
                                       decision: pending.decision, source: pending.source)
         cancelPendingConfirmation()
         _ = recognition.finishSuggestion(confirmed: recognition.suggestion?.targetID == pending.snapshot.id)
-        submit(freshSnapshot, prepared: prepared, planID: pending.planID, operation: operation)
+        submit(pending.snapshot, prepared: prepared, planID: pending.planID, operation: operation)
     }
 
     // MARK: - Local operation facts

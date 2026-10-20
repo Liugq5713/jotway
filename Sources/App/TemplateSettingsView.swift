@@ -36,8 +36,10 @@ struct TemplateSettingsView: View {
                 }
             }
             if !editing, let issue { Section { Text(issue).foregroundStyle(.red) } }
-            Section(L10n.text("templates.syntax_title")) {
-                Text(L10n.text("templates.syntax_help")).font(.caption).textSelection(.enabled)
+            Section {
+                DisclosureGroup(L10n.text("templates.syntax_title")) {
+                    Text(L10n.text("templates.syntax_help")).font(.caption).textSelection(.enabled)
+                }
             }
         }.formStyle(.grouped)
     }

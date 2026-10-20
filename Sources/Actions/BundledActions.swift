@@ -25,18 +25,6 @@ enum BundledActions {
     }
 }
 
-@MainActor
-func notesSupplementProcessor(preferences: UserDefaults, frozen: ModelTextInvocation, id: String,
-                              validate: @escaping @Sendable () async throws -> Void = { try Task.checkCancellation() }) -> any NotesSupplementProcessor {
-    let enabledKey = "aiRewriteEnabled.\(id)"
-    let enabled = preferences.object(forKey: enabledKey) == nil || preferences.bool(forKey: enabledKey)
-    guard enabled else { return NoNotesSupplementProcessor() }
-    let provider = frozen.validating(validate)
-    return AINotesSupplementProcessor(provider: provider,
-        preferenceOverride: preferences.string(forKey: "notesSupplementPrompt"),
-        validate: validate)
-}
-
 func cleanActionTag(_ raw: String) -> String {
     var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     while value.hasPrefix("#") { value.removeFirst() }

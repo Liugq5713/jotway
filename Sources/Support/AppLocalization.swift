@@ -5,6 +5,7 @@ import Foundation
 final class AppLocalization: Sendable {
     static let shared = AppLocalization()
     private init() {}
+    let languageCode = "en"
 
     private static let resourceBundle: Bundle = {
         // 原生应用从 Contents/Resources 读取；SwiftPM 开发与测试使用生成的资源入口。
@@ -16,11 +17,11 @@ final class AppLocalization: Sendable {
     func string(_ key: String, arguments: [CVarArg] = []) -> String {
         let format = localizedFormat(key) ?? key
         guard !arguments.isEmpty else { return format }
-        return String(format: format, locale: Locale(identifier: "en"), arguments: arguments)
+        return String(format: format, locale: Locale(identifier: languageCode), arguments: arguments)
     }
 
     private func localizedFormat(_ key: String) -> String? {
-        guard let path = Self.resourceBundle.path(forResource: "en", ofType: "lproj"),
+        guard let path = Self.resourceBundle.path(forResource: languageCode, ofType: "lproj"),
               let bundle = Bundle(path: path) else { return nil }
         let missing = "__JOTWAY_MISSING_\(key)__"
         let value = bundle.localizedString(forKey: key, value: missing, table: nil)

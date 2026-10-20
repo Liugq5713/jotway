@@ -4,7 +4,7 @@ import Observation
 @MainActor @Observable
 final class DraftThinkingPromptSession {
     enum Display: Equatable {
-        case closed, loading, ready(String), empty, failed(RuntimeLog.Code), hostedFailure(HostedAI.Problem)
+        case closed, loading, ready(DraftThinkingPromptGenerator.Response), empty, failed(RuntimeLog.Code), hostedFailure(HostedAI.Problem)
         var isOpen: Bool { self != .closed }
     }
     struct Context: Equatable {
@@ -14,6 +14,7 @@ final class DraftThinkingPromptSession {
         let panelSessionID: UUID
         let modeGeneration: UUID
         let fastVersion: String
+        let prompt: InstantInsightPrompt.Snapshot?
         let manualBlockReason: String?
         let automaticBlocked: Bool
         var identity: Identity { .init(draftID: draftID, revision: revision) }
@@ -37,14 +38,22 @@ final class DraftThinkingPromptSession {
     @ObservationIgnored private var request: Request?
     @ObservationIgnored private let factory: @MainActor () throws -> ModelTextInvocation
     @ObservationIgnored private let currentVersion: @MainActor () -> String
+    @ObservationIgnored private let currentPromptVersion: @MainActor () -> String?
+    @ObservationIgnored private let uiLanguage: @MainActor () -> DraftThinkingPromptGenerator.UILanguage
     @ObservationIgnored private let debounce: Duration
     @ObservationIgnored private let timeout: Duration
 
     init(factory: @escaping @MainActor () throws -> ModelTextInvocation,
          currentVersion: @escaping @MainActor () -> String,
+         currentPromptVersion: @escaping @MainActor () -> String? = { InstantInsightPrompt().snapshot?.version },
+         uiLanguage: @escaping @MainActor () -> DraftThinkingPromptGenerator.UILanguage = {
+             .init(rawValue: AppLocalization.shared.languageCode) ?? .english
+         },
          debounce: Duration = .seconds(1), timeout: Duration = .seconds(20)) {
         self.factory = factory
         self.currentVersion = currentVersion
+        self.currentPromptVersion = currentPromptVersion
+        self.uiLanguage = uiLanguage
         self.debounce = debounce
         self.timeout = timeout
     }
@@ -59,6 +68,7 @@ final class DraftThinkingPromptSession {
                 || $0.modeGeneration != next.modeGeneration || $0.fastVersion != next.fastVersion
         } ?? true
         let enableChanged = enabled != automaticEnabled
+        let promptChanged = previous.map { $0.prompt?.version != next.prompt?.version } ?? false
         context = next
         blockReason = next.manualBlockReason
         enabled = automaticEnabled
@@ -70,7 +80,14 @@ final class DraftThinkingPromptSession {
             if enabled { suppressed = nil }
             else if request?.automatic == true { invalidate() }
         }
-        // Protection cancels auto work; user-visible manual scaffolds survive ordinary typing/IME.
+        if promptChanged {
+            // Saving a new preference invalidates both sources without rearming this text.
+            // Do not clear the user's close suppression or fold the prompt into draft identity.
+            invalidate()
+            consumed = next.identity
+            return
+        }
+        // Protection cancels auto work; user-visible manual responses survive ordinary typing/IME.
         if next.manualBlockReason != nil || next.automaticBlocked {
             cancelCandidate()
             if request?.automatic == true { invalidate(); consumed = nil }
@@ -128,18 +145,19 @@ final class DraftThinkingPromptSession {
     }
 
     private func start(_ snapshot: Context, automatic: Bool) {
-        guard request == nil else { return }
+        guard request == nil, let prompt = snapshot.prompt else { return }
         cancelCandidate()
         consumed = snapshot.identity
         let operation = Request(id: UUID(), context: snapshot, automatic: automatic)
         request = operation
-        // Automatic checks stay invisible until a useful prompt is available.
+        // Automatic checks stay invisible until a useful response is available.
         display = automatic ? .closed : .loading
         // Freeze immediately; queueing within the invocation is inside this logical deadline.
         let deadline = ContinuousClock.now.advanced(by: timeout)
+        let language = uiLanguage()
         let invocation: ModelTextInvocation
         do {
-            _ = try DraftThinkingPromptGenerator.request(for: snapshot.text)
+            _ = try DraftThinkingPromptGenerator.request(for: snapshot.text, prompt: prompt, uiLanguage: language)
             invocation = try factory()
         } catch {
             request = nil
@@ -150,11 +168,16 @@ final class DraftThinkingPromptSession {
             let result: Display
             do {
                 let value = try await DraftThinkingPromptGenerator(invocation: invocation)
-                    .generate(snapshot.text, until: deadline, requestID: operation.id)
+                    .generate(snapshot.text, prompt: prompt, uiLanguage: language, until: deadline, requestID: operation.id)
                 result = value.map(Display.ready) ?? .empty
             } catch { result = Self.failureDisplay(error) }
             guard !Task.isCancelled, let self, self.request?.id == operation.id else { return }
             self.task = nil; self.request = nil
+            guard self.currentPromptVersion() == prompt.version else {
+                self.invalidate()
+                self.consumed = self.context?.identity
+                return
+            }
             guard let current = self.context, current.draftID == snapshot.draftID,
                   current.panelSessionID == snapshot.panelSessionID,
                   current.modeGeneration == snapshot.modeGeneration,

@@ -1,4 +1,11 @@
 
+/* Input background */
+"settings.appearance.background" = "输入框背景";
+"settings.appearance.background.cat" = "小猫";
+"settings.appearance.background.shark" = "鲨鱼";
+"settings.appearance.background.none" = "关闭";
+"settings.appearance.background.help" = "小猫在角落玩球，输入时多半微笑探头、偶尔小跳；鲨鱼在空白处巡游。";
+
 /* Local clipboard history */
 "clipboard.title" = "剪贴板";
 "clipboard.summary" = "搜索并复制本地剪贴板历史。";
@@ -64,9 +71,7 @@
 
 "notes.title.heading" = "首次笔记标题";
 
-"notes.title.help" = "每份新笔记使用当前 AI 服务生成首次标题，独立于归集和 AI 补充开关。失败时完整存入原文，标题待生成；当天恢复不切换服务，Jotway AI 失败后暂停自动重试。";
-
-"notes.title.unconfigured" = "在下方配置 AI 后可生成标题，未配置时仍可完整存入原文，标题待生成。";
+"notes.title.help" = "新笔记会自动生成标题，关闭归集后也一样。暂时无法生成时，原文仍完整保存，待生成的标题可在当天稍后补全。";
 
 "action.codex.checking" = "正在检测 Codex CLI…";
 
@@ -112,33 +117,43 @@
 "notes.review.enable" = "今天和周回顾";
 "notes.review.enable.help" = "点击快捷输入左下角的今天回顾按钮，在详情面板查看今天或最近 7 天的笔记回顾。";
 
-// Draft thinking prompts
-"thinking.settings.title" = "思考提示";
-"thinking.settings.automatic" = "自动追问";
-"thinking.settings.help" = "默认关闭。开启后，停写约 1 秒会把当前草稿发送给当前 AI 服务。只有能帮助你继续思考时才出现临时提示，否则保持安静。提示不会加入存入正文。";
-"thinking.open" = "获取思考提示";
-"thinking.title" = "思考提示 · AI";
+// Draft Instant Insight
+"thinking.retry" = "重试";
+"thinking.settings.title" = "Instant Insight";
+"thinking.settings.automatic" = "自动 Instant Insight";
+"thinking.settings.help" = "默认关闭。开启后，停写约 1 秒会把当前草稿发送给 AI，使用与手动请求相同的提示词。无回应或失败时保持安静，回答不会加入存入正文。";
+"thinking.prompt.title" = "Instant Insight 提示词";
+"thinking.prompt.help" = "手动与自动 Instant Insight 共用此提示词。可以修改帮助方式和回答偏好，保存后生效。每次请求都会将它随草稿发送给当前 AI 服务。回答支持 Markdown，最多 4,000 字符。";
+"thinking.prompt.invalid" = "已保存的 Instant Insight 提示词无效。请在写作偏好中修改或恢复默认后保存，再使用此功能。";
+"thinking.prompt.too_large" = "提示词超过 16,000 UTF-8 字节，请缩短后保存；原有配置保持不变。";
+"thinking.open" = "获取 Instant Insight";
+"thinking.title" = "Instant Insight · AI";
 "thinking.snapshot" = "基于生成时的草稿";
-"thinking.refresh" = "换一个";
-"thinking.close" = "关闭思考提示";
+"thinking.refresh" = "刷新";
+"thinking.close" = "关闭 Instant Insight";
 "thinking.loading" = "正在生成…";
-"thinking.empty" = "这次没有合适的提示。可以继续写，或换一个。";
-"thinking.unconfigured" = "请先在 AI 服务 配置 AI。";
+"thinking.empty" = "这段草稿暂时没有需要补充的内容。";
+"thinking.unconfigured" = "请先在 AI 服务配置 AI，再使用 Instant Insight。";
 "thinking.configure" = "打开 AI 服务";
-"thinking.too_large" = "草稿超出提示输入上限，完整正文保持不变。";
-"thinking.timeout" = "提示生成超时，可以重试。";
-"thinking.failed" = "未取得可用提示，可以重试。";
-"thinking.updated" = "思考提示已更新";
+"thinking.too_large" = "草稿与提示词超过 Instant Insight 输入上限，完整草稿保持不变。";
+"thinking.timeout" = "Instant Insight 生成超时，可以重试。";
+"thinking.failed" = "未取得可用回应，可以重试。";
+"thinking.updated" = "Instant Insight 已更新";
 "thinking.blocked.empty" = "先写一点内容";
 "thinking.blocked.clipboard" = "剪贴板查询仅在本机处理";
 "thinking.blocked.menu" = "先完成当前菜单或模板填写";
-"thinking.blocked.unavailable" = "返回编辑区后可请求提示";
+"thinking.blocked.unavailable" = "返回编辑区后可使用 Instant Insight";
 
 // Selected text and direct-distribution recovery
 "selected_text.title" = "选中文字";
 "selected_text.help" = "在其他应用中使用记录快捷键，可摘录支持辅助功能的控件中的选中文字；无法读取时沿用最近复制的文字。";
 "selected_text.granted" = "已允许辅助功能";
-"selected_text.missing" = "尚未允许辅助功能";
+"selected_text.missing" = "当前运行的应用尚无法使用辅助功能";
+"selected_text.checking" = "正在检查辅助功能…";
+"selected_text.check_again" = "再次检查";
+"selected_text.recovery" = "若系统设置已开启权限，请确认授权条目对应当前打开的应用，然后再次检查。若仍不可用，请先保存草稿，再手动退出并重新打开要使用的已安装版本。普通记录仍可使用。";
+"selected_text.temporary_copy" = "当前应用似乎从临时位置运行，这本身不能证明权限故障。请先保存草稿，再关闭它并打开要使用的已安装版本。";
+"selected_text.running_copy" = "当前运行位置：%@";
 "selected_text.allow" = "允许辅助功能…";
 "selected_text.settings" = "系统设置…";
 "selected_text.notice" = "若需免复制摘录选中文字，可在设置 → 通用中允许辅助功能。普通记录仍可使用。";
@@ -201,7 +216,7 @@
 "settings.activation.no_credits_status" = "额度已用完";
 "settings.activation.low_credits_status" = "额度不足以处理本次请求";
 "settings.activation.unavailable_status" = "暂时无法确认服务状态";
-"settings.activation.next_step" = "打开快捷输入，写下一段想法，再点击编辑区下方的思考提示图标。";
+"settings.activation.next_step" = "打开快捷输入，写下一段想法，再点击编辑区下方的Instant Insight图标。";
 "thinking.hosted_settings" = "Jotway AI 设置";
 
 "settings.ai.personal.title" = "个人模型";
@@ -216,7 +231,7 @@
 
 "settings.ai.personal.model" = "模型名称（Model ID）";
 
-"settings.ai.personal.help" = "一个模型用于标题、思考提示、归集、AI 补充和今天和周回顾，不再配置或切换备用模型。";
+"settings.ai.personal.help" = "一个模型用于标题、Instant Insight、归集、今天和周回顾，不再配置或切换备用模型。";
 
 "settings.ai.personal.hosted_active" = "当前使用 Jotway AI。个人配置会保留，移除激活码后恢复使用。";
 
@@ -239,11 +254,9 @@
 
 "settings.activation.remove_help" = "移除激活码后，后续请求将恢复使用已保存的个人模型。";
 
-"notes.grouping.help" = "当前 AI 服务会比较新想法与当天受管理笔记的完整原文。以前的笔记不变，AI 补充有独立开关。";
+"notes.grouping.help" = "每天把相关想法放在同一份笔记里。新想法和当天受管理笔记的完整原文会发送给 AI 归集，以前的笔记保持不变。";
 
-"notes.grouping.configured" = "AI 已配置";
-
-"notes.grouping.unconfigured" = "尚未配置 AI，想法将分别存入。";
+"notes.settings.ai_setup" = "在 AI 服务中完成配置，即可使用标题、归集和回顾功能。未配置时仍可分别存入笔记，标题待生成。";
 
 "settings.page.ai" = "AI 服务";
 
@@ -261,3 +274,45 @@
 "settings.ai.services.preferences" = "打开写作偏好";
 
 "notes.review.privacy" = "仅在请求回顾时读取所选 Notes 文件夹中的近期原文，并将有限片段发送给当前文本 AI 服务。不在后台建立索引，也不使用向量服务。";
+
+// Personal provider setup and explicit model discovery.
+"settings.ai.personal.provider" = "服务商";
+"settings.ai.personal.custom" = "自定义";
+"settings.ai.personal.get_key" = "获取 API Key";
+"settings.ai.personal.advanced" = "高级设置";
+"settings.ai.personal.manual" = "手动输入模型 ID";
+"settings.ai.personal.choose_model" = "选择模型";
+"settings.ai.personal.invalid_url" = "请输入 HTTPS API 地址，不包含用户名、密码、查询参数或片段。";
+"settings.ai.personal.test_generation" = "测试生成";
+"settings.ai.personal.test_jotway" = "测试 Jotway AI";
+"settings.ai.personal.test_target" = "生成测试：%@ · %@";
+"settings.ai.personal.generation_ok" = "文本生成成功：%@ · %@";
+"settings.ai.personal.hosted_notice" = "当前使用 Jotway AI。个人配置保留供之后使用；生成测试使用 Jotway AI 额度。";
+"settings.ai.catalog.load" = "加载模型";
+"settings.ai.catalog.refresh" = "刷新模型";
+"settings.ai.catalog.loading" = "正在加载模型…";
+"settings.ai.catalog.help" = "加载模型列表或手动输入 ID。列表中的模型不一定支持文本生成。";
+"settings.ai.catalog.target" = "加载模型会将个人 API Key 发送至 %@/models，不发送文本。";
+"settings.ai.catalog.loaded" = "已加载 %d 个模型，尚未验证生成能力。";
+"settings.ai.catalog.partial" = "列表可能不完整，你可以手动输入其他模型 ID。";
+"settings.ai.catalog.empty" = "未返回可用模型 ID，请手动输入。";
+"settings.ai.catalog.error.auth" = "无法读取模型列表，请检查密钥与目录权限，或手动输入 ID。";
+"settings.ai.catalog.error.unsupported" = "此地址未提供模型列表，请检查高级设置或手动输入模型 ID。";
+"settings.ai.catalog.error.timeout" = "加载模型超时，请重试或手动输入模型 ID。";
+"settings.ai.catalog.error.rate" = "请求过多，请稍后重试或手动输入模型 ID。";
+"settings.ai.catalog.error.redirect" = "模型地址发生重定向，请检查高级设置；密钥未转发至新地址。";
+"settings.ai.catalog.error.unavailable" = "模型列表暂不可用，请检查服务或手动输入模型 ID。";
+"settings.ai.catalog.error.large" = "模型列表过大，请手动输入模型 ID。";
+"settings.ai.catalog.error.invalid" = "服务返回了不支持的模型列表，请手动输入模型 ID。";
+"settings.ai.catalog.error.network" = "无法连接模型服务，请检查地址与网络，或手动输入模型 ID。";
+
+// Personal AI settings layout.
+"settings.ai.personal.model_label" = "模型";
+"settings.ai.personal.choose_from_list" = "从已加载的模型中选择";
+"settings.ai.personal.model_placeholder" = "输入模型 ID";
+"settings.ai.personal.save_changes" = "保存更改";
+"settings.ai.personal.unsaved" = "有未保存更改 · 保存后可测试";
+"settings.ai.personal.privacy_compact" = "文本将发往此服务并由你的账户计费。测试只发送固定样例，不发送草稿。";
+"settings.ai.personal.test_hosted_compact" = "测试使用 Jotway AI 额度，只发送固定样例，不发送草稿或个人密钥。";
+"settings.ai.catalog.input_hint" = "输入模型 ID，或从服务商加载模型。";
+"settings.ai.catalog.sharing" = "加载模型仅发送 API Key，不发送文本，目标地址：";

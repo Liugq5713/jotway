@@ -28,8 +28,6 @@ final class AppleNotesModule: ActionModule {
             guard let self else { throw NotesReadError.stale }
             return try await self.perform(request)
         })
-    private var groupingRevision = 0
-    private var refreshRevision = 0
     private(set) var destination: AppleNotes.Destination?
     private(set) var repairFailure: ActionFailure?
     private(set) var configurationRevision = 0
@@ -54,11 +52,10 @@ final class AppleNotesModule: ActionModule {
     }
 
     private func observeModels() {
-        withObservationTracking { _ = models.version(.fast); _ = models.version(.deep) } onChange: { [weak self] in
+        withObservationTracking { _ = models.version(.fast) } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.refreshRevision &+= 1
-                self.grouping.cancelRefreshes(); self.grouping.cancelTitles()
+                self.grouping.cancelTitles()
                 self.refreshAvailability(); self.changed(); self.observeModels()
             }
         }
@@ -72,8 +69,7 @@ final class AppleNotesModule: ActionModule {
               summary: destination.map { L10n.text("action.state.save_to", $0.name) }
                   ?? L10n.text("action.state.no_destination"),
               hasSavedConfiguration: ["notesDestination", "notesTag", "notesAITagsEnabled",
-                                      "aiRewriteEnabled.\(descriptor.id)", "aiRewritePrompt.\(descriptor.id)",
-                                      "notesSupplementPrompt", "notesDailyGroupingEnabled"]
+                                      "notesDailyGroupingEnabled"]
                   .contains { preferences.object(forKey: $0) != nil })
     }
 
@@ -93,8 +89,6 @@ final class AppleNotesModule: ActionModule {
         guard let folderID = destination?.id else { return }
         let configuration = groupingConfiguration(folderID: folderID)
         grouping.startTitles(folderID: folderID, configuration: configuration)
-        guard isDailyGroupingEnabled, isAISupplementEnabled, hasGroupingConfiguration else { return }
-        Task { [grouping] in await grouping.resume(folderID: folderID, configuration: configuration) }
     }
 
     func makeAction() -> any LauncherAction {
@@ -107,7 +101,6 @@ final class AppleNotesModule: ActionModule {
             guard await self.destination?.id == destinationID else { throw NotesReadError.stale }
         }
         var action = AppleNotesAction(descriptor: descriptor, destination: destination,
-            processor: notesSupplementProcessor(preferences: preferences, frozen: models.frozenText(.deep), id: descriptor.id, validate: validate),
             run: { [self] request in
                 try await perform(request)
             })
@@ -121,41 +114,28 @@ final class AppleNotesModule: ActionModule {
                                             submittedAt: submittedAt, configuration: configuration)
                 }
             }
-            action.independentSave = { [grouping] original, entryID, submittedAt, supplement in
+            action.independentSave = { [grouping] original, entryID, submittedAt in
                 try await grouping.saveIndependent(original: original, entryID: entryID, folderID: destinationID,
-                    submittedAt: submittedAt, supplement: supplement, configuration: configuration)
+                    submittedAt: submittedAt, configuration: configuration)
             }
         }
         return action
     }
 
-    // Retain the existing switch, including its default, without migrating or executing old styles.
-    var isAISupplementEnabled: Bool { enabledPreference("aiRewriteEnabled.\(descriptor.id)") }
     var isDailyGroupingEnabled: Bool { enabledPreference("notesDailyGroupingEnabled") }
     var isReviewEnabled: Bool { enabledPreference("notesReview.enabled") }
     var hasGroupingConfiguration: Bool { (try? models.textConfiguration(.fast)) != nil }
 
     func setDailyGroupingEnabled(_ enabled: Bool) {
         preferences.set(enabled, forKey: "notesDailyGroupingEnabled")
-        groupingRevision &+= 1
-        refreshRevision &+= 1
         grouping.invalidateCandidates()
-        grouping.cancelRefreshes()
         changed()
     }
 
     private func groupingConfiguration(folderID: String) -> NotesDailyGroupingCoordinator.Configuration {
-        let frozenDeep = models.frozenText(.deep)
-        let expectedGrouping = groupingRevision
-        let expectedRefresh = refreshRevision
         let original: @MainActor @Sendable () throws -> Void = { [weak self] in
             try Task.checkCancellation()
             guard let self, self.destination?.id == folderID else { throw NotesReadError.stale }
-        }
-        let refresh: @MainActor @Sendable () throws -> Void = { [weak self] in
-            try original()
-            guard let self, self.isDailyGroupingEnabled, self.groupingRevision == expectedGrouping,
-                  self.isAISupplementEnabled, self.refreshRevision == expectedRefresh else { throw NotesReadError.stale }
         }
         let expectedTitle = models.version(.fast)
         let validateTitle: @MainActor @Sendable () throws -> Void = { [weak self] in
@@ -172,19 +152,8 @@ final class AppleNotesModule: ActionModule {
         let titleGenerator = NotesInitialTitleGenerator(invocation: frozenTitle.validating {
             try await validateTitle()
         })
-        return .init(supplementsEnabled: isAISupplementEnabled, classifier: .capability(generator: models.frozenText(.fast)),
-                     titleGenerator: titleGenerator, validateTitle: validateTitle, validateOriginal: original,
-                     validateRefresh: refresh, processor: { [weak self] _, _ in
-            try refresh()
-            guard let self else { throw NotesReadError.stale }
-            let processor = notesSupplementProcessor(preferences: self.preferences, frozen: frozenDeep, id: self.descriptor.id, validate: { try await refresh() })
-            return .init(processor: processor, validate: { try await refresh() })
-        })
-    }
-    var supplementPrompt: String { preferences.string(forKey: "notesSupplementPrompt") ?? "" }
-    var hasLegacyRewritePrompt: Bool {
-        preferences.string(forKey: "aiRewritePrompt.\(descriptor.id)")?
-            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        return .init(classifier: .capability(generator: models.frozenText(.fast)),
+                     titleGenerator: titleGenerator, validateTitle: validateTitle, validateOriginal: original)
     }
     var notesTag: String { preferences.string(forKey: "notesTag") ?? "Jotway" }
     var isAITagsEnabled: Bool { enabledPreference("notesAITagsEnabled") }
@@ -196,10 +165,7 @@ final class AppleNotesModule: ActionModule {
             throw ActionFailure(localized: "error.destination_save_failed", code: .storage)
         }
         destination = value
-        groupingRevision &+= 1
-        refreshRevision &+= 1
         grouping.invalidateCandidates()
-        grouping.cancelRefreshes()
         grouping.cancelTitles()
         refreshAvailability()
         repairFailure = nil
@@ -270,20 +236,6 @@ final class AppleNotesModule: ActionModule {
         }
     }
 
-    func setAISupplementEnabled(_ enabled: Bool) {
-        preferences.set(enabled, forKey: "aiRewriteEnabled.\(descriptor.id)")
-        refreshRevision &+= 1
-        grouping.cancelRefreshes()
-        changed()
-    }
-    func setSupplementPrompt(_ text: String) {
-        let key = "notesSupplementPrompt"
-        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? preferences.removeObject(forKey: key) : preferences.set(text, forKey: key)
-        refreshRevision &+= 1
-        grouping.cancelRefreshes()
-        changed()
-    }
     func setNotesTag(_ raw: String) { preferences.set(cleanActionTag(raw), forKey: "notesTag"); changed() }
     func setAITagsEnabled(_ enabled: Bool) { preferences.set(enabled, forKey: "notesAITagsEnabled"); changed() }
     func setReviewEnabled(_ enabled: Bool) { preferences.set(enabled, forKey: "notesReview.enabled"); changed() }
@@ -294,29 +246,25 @@ final class AppleNotesModule: ActionModule {
     private func changed() { configurationRevision &+= 1; onChange?() }
 }
 
-/// Notes always keeps the frozen original draft; the processor can only provide appended material.
+/// Notes saves the complete frozen original; title and grouping are separate concerns.
 struct AppleNotesAction: LauncherAction {
     let descriptor: ActionDescriptor
     let destination: AppleNotes.Destination?
-    let processor: any NotesSupplementProcessor
     /// Retained for callers with saved tag preferences; tag appending is paused.
     let tag: String?
     var originIndex: NotesOriginStore?
-    var supplementTimeout: Duration = .seconds(300)
     var groupingSave: (@MainActor @Sendable (String, String, Date) async throws -> ActionOutcome)? = nil
-    var independentSave: (@MainActor @Sendable (String, String, Date, NotesSupplement) async throws -> ActionOutcome)? = nil
+    var independentSave: (@MainActor @Sendable (String, String, Date) async throws -> ActionOutcome)? = nil
     var validate: @Sendable () async throws -> Void = { try Task.checkCancellation() }
     let run: @MainActor @Sendable (AppleNotes.Request) async throws -> AppleNotes.Response
 
     init(descriptor: ActionDescriptor = AppleNotesModule.moduleDescriptor,
          destination: AppleNotes.Destination?,
-         processor: any NotesSupplementProcessor = NoNotesSupplementProcessor(),
          tag: String? = nil,
          run: @escaping @MainActor @Sendable (AppleNotes.Request) async throws -> AppleNotes.Response
              = { try await AppleNotes.run($0) }) {
         self.descriptor = descriptor
         self.destination = destination
-        self.processor = processor
         self.tag = tag
         self.run = run
     }
@@ -340,38 +288,17 @@ struct AppleNotesAction: LauncherAction {
                 try await groupingSave(original, entryID, submittedAt)
             }
         }
-        var log = RuntimeLog.current ?? RuntimeLog.Context()
-        log.module = .ai
-        log.purpose = .supplement
-        let started = RuntimeLog.ticks()
-        let result: NotesSupplementResult
-        do {
-            result = try await RuntimeLog.$current.withValue(log) {
-                try await processor.process(original, timeout: supplementTimeout)
-            }
-        } catch {
-            let code = RuntimeLog.code(error)
-            let skipped = NotesSupplementResult.empty(code == .stale ? .stale : (code == .cancelled ? .cancelled : .providerError))
-            log.emit(.stageFinished, .init(stage: .notesPreparation, outcome: skipped.outcome,
-                durationMs: RuntimeLog.milliseconds(since: started), actionID: "apple-notes", notes: skipped.report))
-            // Only cancellation of the submission stops saving; optional cancellation skips assistance.
-            try Task.checkCancellation()
-            return try await prepared(original: original, input: input, destination: destination, result: skipped, log: log)
-        }
-        log.emit(.stageFinished, .init(stage: .notesPreparation, outcome: result.outcome,
-            durationMs: RuntimeLog.milliseconds(since: started), actionID: "apple-notes", notes: result.report))
-        try Task.checkCancellation()
-        return try await prepared(original: original, input: input, destination: destination, result: result, log: log)
+        return try await prepared(original: original, input: input, destination: destination)
     }
 
-    private func prepared(original: String, input: ActionInput, destination: AppleNotes.Destination,
-                          result: NotesSupplementResult, log: RuntimeLog.Context) async throws -> PreparedAction {
+    private func prepared(original: String, input: ActionInput,
+                          destination: AppleNotes.Destination) async throws -> PreparedAction {
         try await validate()
         if let independentSave {
             let entryID = input.identity.draftID.uuidString + ":" + NotesDailyBoundary.hash(NotesDailyBoundary.normalizedLines(original))
             let submittedAt = Date()
             return PreparedAction(actionID: descriptor.id, inputIdentity: input.identity) {
-                try await independentSave(original, entryID, submittedAt, result.supplement)
+                try await independentSave(original, entryID, submittedAt)
             }
         }
         let requestID = UUID().uuidString
@@ -385,32 +312,16 @@ struct AppleNotesAction: LauncherAction {
                     submittedAt: Date(), timeZoneID: TimeZone.current.identifier, sequence: 0)
                 let document = NotesDailyDocument(title: NotesInitialTitleGenerator.placeholder(for: original),
                     scope: .current(folderID: destination.id), entries: [.init(identity: entry, text: original)], layout: .independent)
-                var rendered = document.render(supplement: result.supplement)
-                var content = rendered.content
-                var report = result.report
+                let rendered = document.render()
+                let content = rendered.content
                 if let originIndex {
-                    do { originToken = try await originIndex.stageDailyOrigin(noteID: nil, boundary: rendered.boundary) }
-                    catch {
-                        // If provenance cannot be persisted, save only the original: generated
-                        // material must never depend on an unrecorded post-write callback.
-                        rendered = document.render()
-                        content = rendered.content
-                        report.adoption = .provenanceUnavailable
-                    }
+                    // Missing local provenance must not discard an accepted original.
+                    originToken = try? await originIndex.stageDailyOrigin(noteID: nil, boundary: rendered.boundary)
                 }
                 try Task.checkCancellation()
                 try await validate()
                 let request = AppleNotes.Request(requestID: requestID, operation: "create", folderID: destination.id,
                     html: content.html, validateBeforeSend: validate)
-                report.adoptedItemCount = content.itemCount
-                if report.adoption == nil {
-                    report.adoption = (content.itemCount != result.supplement.items.count)
-                        ? .renderFiltered : (content.itemCount == 0 ? .empty : .applied)
-                }
-                log.emit(.stageFinished, .init(stage: .notesAdoption,
-                    outcome: report.adoption == .provenanceUnavailable || report.adoption == .renderFiltered ? .discarded : .success,
-                    actionID: "apple-notes",
-                    notes: report, externalRequestID: UUID(uuidString: requestID)))
                 invokedCreate = true
                 let response = try await run(request)
                 if let failure = AppleNotes.actionFailure(for: response, operation: request.operation) {

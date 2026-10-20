@@ -2,7 +2,7 @@
 
 ## Purpose
 
-让用户在 App Suggestions 中快速管理建议服务与本地操作记录，通过精简的默认界面和可展开的低频设置降低阅读负担，同时清楚呈现数据保存范围、异常状态和删除后果。
+让用户在 General → Troubleshooting 中管理本地操作记录，通过精简的默认界面和可展开的低频设置降低阅读负担，同时清楚呈现数据保存范围、异常状态和删除后果。App Suggestions 页面已移除；本规格保留原标识以延续记录管理契约。
 
 ## Requirements
 
@@ -15,15 +15,15 @@
 - **THEN** 系统使用剩余的正常路由决定目标，不因旧规则选中 action，且旧规则偏好原值不被重写或删除
 
 #### Scenario: Phrase controls are absent
-- **WHEN** 用户打开 App Suggestions 或 Quick Guide
-- **THEN** 不再出现 Your Phrases 或 Jev 配置入口及使用说明；Local Records 的设置和管理仍可使用
+- **WHEN** 用户打开 General 或 Quick Guide
+- **THEN** 不再出现 App Suggestions 页面、Your Phrases 或 Jev 配置入口及使用说明；Local Records 的设置和管理仍可在 General → Troubleshooting 使用
 
 ### Requirement: Compact local record controls
 
-Local Records SHALL 默认呈现记录开关、说明保存包含未提交文字的本机文本与活动、导出按钮，以及折叠的 Manage Records。保存天数、空间、详细计数与清空操作 SHALL 位于该折叠区内；展开状态 MUST NOT 改变记录设置。
+Local Records SHALL 位于 General → Troubleshooting 中，默认呈现记录开关、说明保存包含未提交文字的本机文本与活动、导出按钮，以及折叠的 Manage Records。保存天数、空间、详细计数与清空操作 SHALL 位于该折叠区内；展开状态 MUST NOT 改变记录设置。App Logs SHALL 保留独立的控件、说明、导出和清空操作。
 
 #### Scenario: Open settings with saved preferences
-- **WHEN** 用户重新进入 App Suggestions，已有自定义保存天数和记录开关状态
+- **WHEN** 用户重新进入 General，已有自定义保存天数和记录开关状态
 - **THEN** Manage Records 默认折叠，开关反映现有状态，说明明确提及未提交文字；不重置保存天数或记录内容
 
 #### Scenario: Manage record details
@@ -84,10 +84,10 @@ Local Records SHALL 默认呈现记录开关、说明保存包含未提交文字
 
 ### Requirement: Jev service settings are retired without removing local records
 
-系统 SHALL 移除 Jev 密钥输入、保存/替换/删除、连接测试、状态和计费说明；启动、打开设置或输入草稿 SHALL 不读取旧 Jev 凭据或请求 Jev，也不主动删除旧凭据。App Suggestions SHALL 保留 Local Records；记录开关、保存期限、导出、异常提示、管理区与删除确认沿用现有契约。
+系统 SHALL 移除 Jev 密钥输入、保存/替换/删除、连接测试、状态和计费说明；启动、打开设置或输入草稿 SHALL 不读取旧 Jev 凭据或请求 Jev，也不主动删除旧凭据。General → Troubleshooting SHALL 保留 Local Records；记录开关、保存期限、导出、异常提示、管理区与删除确认沿用现有契约。
 
 #### Scenario: Open settings after an upgrade
-- **WHEN** 用户保留旧 Jev 密钥、已启用记录及自定义保存天数，升级并打开 App Suggestions
+- **WHEN** 用户保留旧 Jev 密钥、已启用记录及自定义保存天数，升级并打开 General → Troubleshooting
 - **THEN** 不出现 Jev 服务卡片或连接测试，不访问 Jev 凭据或网络；Local Records 保留原开关和天数，管理区默认折叠，旧凭据和已有记录不被删除
 
 #### Scenario: Manage records without a suggestion service

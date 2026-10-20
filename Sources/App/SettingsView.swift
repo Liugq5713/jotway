@@ -30,7 +30,6 @@ struct SettingsView: View {
         case general
         case appearance
         case ai
-        case intent
         case actions
         case templates
         case instructions
@@ -42,7 +41,6 @@ struct SettingsView: View {
             case .general: L10n.text("settings.page.general")
             case .appearance: L10n.text("settings.general.appearance")
             case .ai: L10n.text("settings.page.ai")
-            case .intent: L10n.text("settings.page.intent")
             case .actions: L10n.text("settings.page.actions")
             case .templates: L10n.text("templates.title")
             case .instructions: L10n.text("settings.page.instructions")
@@ -51,18 +49,8 @@ struct SettingsView: View {
             }
         }
 
-        var subtitle: String {
-            switch self {
-            case .general: L10n.text("settings.subtitle.general")
-            case .appearance: L10n.text("settings.subtitle.appearance")
-            case .ai: L10n.text("settings.subtitle.ai")
-            case .intent: L10n.text("settings.subtitle.intent")
-            case .actions: L10n.text("settings.subtitle.actions")
-            case .templates: L10n.text("templates.subtitle")
-            case .instructions: L10n.text("settings.subtitle.instructions")
-            case .gettingStarted: L10n.text("settings.subtitle.getting_started")
-            case .about: L10n.text("settings.subtitle.about")
-            }
+        var subtitle: String? {
+            self == .templates ? L10n.text("templates.subtitle") : nil
         }
 
         var symbol: String {
@@ -70,7 +58,6 @@ struct SettingsView: View {
             case .general: "gearshape"
             case .appearance: "circle.lefthalf.filled"
             case .ai: "sparkles"
-            case .intent: "arrow.triangle.branch"
             case .actions: "note.text"
             case .templates: "text.badge.plus"
             case .instructions: "text.alignleft"
@@ -102,10 +89,33 @@ struct SettingsView: View {
     private let checkAIKey: (() throws -> Bool)?
     @State private var contact: Contact
     @State private var selectedPage: Page
+    @State private var scrollToLocalRecords = false
     @AppStorage("submissionEffect") private var submissionEffect: SubmissionEffect = .wind
     @State private var selectedActionID: String?
     @State private var shortcutStatus = AppState.recordShortcutStatus()
     @State private var showsGettingStartedShortcuts = false
+    @State private var settingsVisible = false
+    @State private var permissionWindow = PermissionWindow()
+
+    @MainActor
+    private final class PermissionWindow {
+        weak var window: NSWindow?
+    }
+
+    private struct PermissionWindowReader: NSViewRepresentable {
+        let reference: PermissionWindow
+        final class View: NSView {
+            var reference: PermissionWindow?
+            override func viewDidMoveToWindow() { reference?.window = window }
+        }
+        func makeNSView(context: Context) -> View { let view = View(); view.reference = reference; return view }
+        func updateNSView(_ view: View, context: Context) { view.reference = reference }
+    }
+
+    private func refreshSelectedTextPermission() {
+        guard settingsVisible, permissionWindow.window?.isVisible == true else { return }
+        SelectedTextPermission.shared.refresh()
+    }
 
     init(themeMode: Binding<ThemeMode>, appState: AppState, initialPage: Page = .general,
          checkAIKey: (() throws -> Bool)? = nil, panelController: PanelController? = nil,
@@ -130,7 +140,6 @@ struct SettingsView: View {
                     case .general: generalPage
                     case .appearance: AppearanceSettingsView(themeMode: $themeMode, submissionEffect: $submissionEffect)
                     case .ai: aiPage
-                    case .intent: intentPage
                     case .actions: actionsPage
                     case .templates: TemplateSettingsView(configuration: appState.templateConfiguration)
                     case .instructions: instructionsPage
@@ -148,14 +157,41 @@ struct SettingsView: View {
         .environment(\.openWritingPreferences, { selectedPage = .instructions })
         .toggleStyle(.switch)
         .frame(minWidth: 760, idealWidth: 820, minHeight: 560, idealHeight: 640)
+        .background(PermissionWindowReader(reference: permissionWindow).frame(width: 0, height: 0))
         .onAppear {
+            settingsVisible = true
             refreshShortcutIssue()
-            SelectedTextPermission.shared.refresh()
+            refreshSelectedTextPermission()
+        }
+        .onDisappear {
+            settingsVisible = false
+            SelectedTextPermission.shared.cancelRefresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshSelectedTextPermission()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didHideNotification)) { _ in
+            SelectedTextPermission.shared.cancelRefresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didDeminiaturizeNotification)) { notification in
+            guard let window = notification.object as? NSWindow, window === permissionWindow.window else { return }
+            settingsVisible = true
+            refreshSelectedTextPermission()
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in refreshShortcutIssue() }
         .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcuts.shortcutDidChangeNotification)) { _ in refreshShortcutIssue() }
         .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcuts.registrationStatusDidChangeNotification)) { _ in refreshShortcutIssue() }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in refreshShortcutIssue(); SelectedTextPermission.shared.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+            guard let window = notification.object as? NSWindow, window === permissionWindow.window else { return }
+            settingsVisible = true
+            refreshShortcutIssue()
+            refreshSelectedTextPermission()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didMiniaturizeNotification)) { notification in
+            guard let window = notification.object as? NSWindow, window === permissionWindow.window else { return }
+            settingsVisible = false
+            SelectedTextPermission.shared.cancelRefresh()
+        }
         .onChange(of: appState.generalSettingsRequest) { selectedPage = .general }
         .onChange(of: appState.gettingStartedRequest, initial: true) { _, request in
             if request > 0 { selectedPage = .gettingStarted }
@@ -177,6 +213,10 @@ struct SettingsView: View {
             if new != .about { contact.error = nil }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
+            if let window = notification.object as? NSWindow, window === permissionWindow.window {
+                settingsVisible = false
+                SelectedTextPermission.shared.cancelRefresh()
+            }
             guard let window = notification.object as? NSWindow,
                   !(window is RecordPanel), window.styleMask.contains(.titled) else { return }
             panelController?.closeGettingStarted()
@@ -197,7 +237,7 @@ struct SettingsView: View {
 
             List(selection: $selectedPage) {
                 Section(L10n.text("settings.sidebar.configuration")) {
-                    ForEach([Page.general, .appearance, .intent, .ai, .actions, .templates, .instructions], id: \.self) { page in
+                    ForEach([Page.general, .appearance, .ai, .actions, .templates, .instructions], id: \.self) { page in
                         sidebarLabel(page)
                     }
                 }
@@ -248,10 +288,13 @@ struct SettingsView: View {
                 Text(selectedPage == .actions ? (selectedActionEntry?.descriptor.localizedSettingsName ?? selectedPage.title) : selectedPage.title)
                     .font(.system(size: 22, weight: .semibold))
                     .accessibilityAddTraits(.isHeader)
-                Text(selectedPage == .actions ? (selectedActionEntry?.descriptor.localizedSummary ?? selectedPage.subtitle) : selectedPage.subtitle)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let subtitle = selectedPage == .actions
+                    ? selectedActionEntry?.descriptor.localizedSummary : selectedPage.subtitle {
+                    Text(subtitle)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 0)
         }
@@ -278,23 +321,28 @@ struct SettingsView: View {
                         get: { appState.automaticDraftThinkingPromptsEnabled },
                         set: { appState.automaticDraftThinkingPromptsEnabled = $0 }))
                     Text(L10n.text("thinking.settings.help")).font(.caption).foregroundStyle(.secondary)
-                }
-                if let module = appState.notesModule {
-                    Section(L10n.text("action.notes.supplement_preferences")) {
-                        if module.hasLegacyRewritePrompt {
-                            Text(L10n.text("action.notes.legacy_rewrite_help"))
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        InstructionEditor(title: L10n.text("action.notes.supplement_preferences"), saved: module.supplementPrompt,
-                            defaultValue: AINotesSupplementProcessor.localizedDefaultPreference,
-                            explanation: L10n.text("action.notes.supplement_preferences_help"),
-                            compactFooter: true, onSave: { module.setSupplementPrompt($0) })
+                    if appState.instantInsightPrompt.snapshot == nil {
+                        Text(L10n.text("thinking.prompt.invalid")).font(.caption).foregroundStyle(.red)
                     }
+                    InstructionEditor(title: L10n.text("thinking.prompt.title"),
+                        saved: appState.instantInsightPrompt.savedText,
+                        defaultValue: InstantInsightPrompt.defaultText,
+                        explanation: L10n.text("thinking.prompt.help"),
+                        onSave: appState.saveInstantInsightPrompt)
                 }
-                Section(L10n.text("settings.instructions.background")) {
-                    InstructionEditor(title: L10n.text("settings.instructions.background"), saved: appState.aiManualConfiguration.instructions,
-                        defaultValue: "", explanation: L10n.text("settings.instructions.background.help"),
-                        onSave: appState.saveAIInstructions)
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        DisclosureGroup(L10n.text("settings.instructions.background")) {
+                            InstructionEditor(title: L10n.text("settings.instructions.background"), saved: appState.aiManualConfiguration.instructions,
+                                defaultValue: "", explanation: L10n.text("settings.instructions.background.help"),
+                                explanationAsPlaceholder: true,
+                                onSave: appState.saveAIInstructions)
+                        }
+                        .disclosureGroupStyle(PromptHeaderDisclosureStyle())
+                        Text(L10n.text("settings.instructions.background.scope"))
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
             .formStyle(.grouped)
@@ -324,6 +372,18 @@ struct SettingsView: View {
             .accessibilityHidden(true)
     }
     private var generalPage: some View {
+        ScrollViewReader { proxy in
+            generalForm
+                .onAppear {
+                    if scrollToLocalRecords {
+                        proxy.scrollTo("local-record-settings", anchor: .top)
+                        scrollToLocalRecords = false
+                    }
+                }
+        }
+    }
+
+    private var generalForm: some View {
         Form {
             Section(L10n.text("settings.general.quick_record")) {
                 settingRow(shortcutStatus.issue) {
@@ -348,15 +408,34 @@ struct SettingsView: View {
                 settingRow(L10n.text("selected_text.help")) {
                     LabeledContent(L10n.text("selected_text.title")) {
                         VStack(alignment: .trailing, spacing: 6) {
-                            Text(L10n.text(SelectedTextPermission.shared.granted ? "selected_text.granted" : "selected_text.missing"))
+                            Text(L10n.text(SelectedTextPermission.shared.checking ? "selected_text.checking" :
+                                (SelectedTextPermission.shared.granted ? "selected_text.granted" : "selected_text.missing")))
                                 .foregroundStyle(.secondary)
                             HStack {
+                                Button(L10n.text("selected_text.check_again")) { refreshSelectedTextPermission() }
+                                    .accessibilityIdentifier("selected-text-check-again")
                                 if !SelectedTextPermission.shared.granted {
                                     Button(L10n.text("selected_text.allow")) { SelectedTextPermission.shared.requestAccess() }
                                         .accessibilityIdentifier("selected-text-allow")
                                 }
                                 Button(L10n.text("selected_text.settings")) { SelectedTextPermission.shared.openSettings() }
                                     .accessibilityIdentifier("selected-text-settings")
+                            }
+                            if !SelectedTextPermission.shared.granted {
+                                DisclosureGroup(L10n.text("selected_text.troubleshooting")) {
+                                    Text(L10n.text("selected_text.recovery"))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    if Bundle.main.bundleURL.pathComponents.contains("AppTranslocation") {
+                                        Text(L10n.text("selected_text.temporary_copy"))
+                                            .font(.caption).foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    Text(L10n.text("selected_text.running_copy", Bundle.main.bundleURL.path))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                        .textSelection(.enabled)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
                             }
                         }
                     }
@@ -397,7 +476,11 @@ struct SettingsView: View {
                         get: { appState.showsInDock }, set: { appState.setShowsInDock($0) }))
                 }
             }
-            RuntimeLogSettings()
+            Section(L10n.text("logs.diagnostics")) {
+                RuntimeLogSettings()
+                OperationRecordSettings(appState: appState)
+                    .id("local-record-settings")
+            }
         }
         .formStyle(.grouped)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -405,14 +488,6 @@ struct SettingsView: View {
 
     private var aiPage: some View {
         AISettingsView(appState: appState, checkAPIKey: checkAIKey)
-    }
-
-    private var intentPage: some View {
-        Form {
-            OperationRecordSettings(appState: appState)
-        }
-        .formStyle(.grouped)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func refreshShortcutIssue() {
@@ -458,11 +533,7 @@ struct SettingsView: View {
             }
             Section {
                 HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("@Liugq5713").font(.body.weight(.medium)).textSelection(.enabled)
-                        Text(L10n.text("settings.about.contact.help"))
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
+                    Text("@Liugq5713").font(.body.weight(.medium)).textSelection(.enabled)
                     Spacer(minLength: 12)
                     Button(action: contact.openHomepage) {
                         Label("GitHub", systemImage: "arrow.up.right")
@@ -488,16 +559,12 @@ struct SettingsView: View {
     private var gettingStartedPage: some View {
         Form {
             Section(L10n.text("guide.quick_start")) {
-                Text(L10n.text("guide.quick_start.summary"))
-                    .font(.headline)
                 gettingStartedStep("1", title: L10n.text("guide.step.open.title"),
                     description: L10n.text("guide.step.open.detail"))
                 gettingStartedStep("2", title: L10n.text("guide.step.target.title"),
                     description: L10n.text("guide.step.target.detail"))
                 gettingStartedStep("3", title: L10n.text("guide.step.confirm.title"),
                     description: L10n.text("guide.step.confirm.detail"))
-                Text(L10n.text("guide.destination.help"))
-                    .font(.caption).foregroundStyle(.secondary)
                 HStack {
                     Button(L10n.text("guide.configure_actions")) { selectedPage = .actions }
                     Spacer(minLength: 12)
@@ -538,36 +605,47 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            Section(L10n.text("guide.input_shortcuts")) {
-                LabeledContent(L10n.text("guide.shortcut.execute"), value: L10n.text("guide.shortcut.execute.value"))
-                LabeledContent(L10n.text("guide.shortcut.newline"), value: "Shift+Enter")
-                LabeledContent(L10n.text("guide.shortcut.switch"), value: L10n.text("guide.shortcut.switch.value"))
-                LabeledContent(L10n.text("guide.shortcut.hide"), value: "Esc")
-                LabeledContent(L10n.text("guide.shortcut.edit"), value: "⌘C / ⌘V / ⌘X / ⌘Z")
-                Text(L10n.text("guide.input.help"))
-                    .font(.caption).foregroundStyle(.secondary)
-                Text(L10n.text("guide.composition.help"))
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-
-            Section(L10n.text("guide.intent_ai")) {
-                Text(L10n.text("guide.intent.help"))
-                Text(L10n.text("guide.intent.local_help"))
-                Text(L10n.text("guide.ai.help"))
-                    .font(.caption).foregroundStyle(.secondary)
-                HStack {
-                    Button(L10n.text("guide.open_intent")) { selectedPage = .intent }
-                    Button(L10n.text("guide.open_actions")) { selectedPage = .actions }
+            Section {
+                DisclosureGroup(L10n.text("guide.input_shortcuts")) {
+                    LabeledContent(L10n.text("guide.shortcut.execute"), value: L10n.text("guide.shortcut.execute.value"))
+                    LabeledContent(L10n.text("guide.shortcut.newline"), value: "Shift+Enter")
+                    LabeledContent(L10n.text("guide.shortcut.switch"), value: L10n.text("guide.shortcut.switch.value"))
+                    LabeledContent(L10n.text("guide.shortcut.hide"), value: "Esc")
+                    LabeledContent(L10n.text("guide.shortcut.edit"), value: "⌘C / ⌘V / ⌘X / ⌘Z")
+                    Text(L10n.text("guide.input.help"))
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text(L10n.text("guide.composition.help"))
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
 
-            Section(L10n.text("guide.drafts_failures")) {
-                Text(L10n.text("guide.drafts.help"))
-                Text(L10n.text("guide.failures.help"))
-                Text(L10n.text("guide.no_inbox.help"))
-                Text(L10n.text("guide.records.help"))
+            Section {
+                DisclosureGroup(L10n.text("guide.intent_ai")) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(L10n.text("guide.intent.help"))
+                        Text(L10n.text("guide.ai.help"))
+                        Text(L10n.text("guide.insight.help"))
+                        Text(L10n.text("guide.review.help"))
+                        Button(L10n.text("guide.open_actions")) { selectedPage = .actions }
+                    }
                     .font(.caption).foregroundStyle(.secondary)
-                Button(L10n.text("guide.records.manage")) { selectedPage = .intent }
+                }
+            }
+
+            Section {
+                DisclosureGroup(L10n.text("guide.drafts_failures")) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(L10n.text("guide.drafts.help"))
+                        Text(L10n.text("guide.failures.help"))
+                        Text(L10n.text("guide.no_inbox.help"))
+                        Text(L10n.text("guide.records.help"))
+                        Button(L10n.text("guide.records.manage")) {
+                            scrollToLocalRecords = true
+                            selectedPage = .general
+                        }
+                    }
+                    .font(.caption).foregroundStyle(.secondary)
+                }
             }
 
             Section {
@@ -718,25 +796,26 @@ struct PromptHeaderDisclosureStyle: DisclosureGroupStyle {
     }
 }
 
-/// The same draft/save/cancel interaction is used by the three actual manual settings.
+/// Shared draft/save/cancel interaction for the prompt and retained background text.
 struct InstructionEditor: View {
     let title: String
     let saved: String
     let defaultValue: String
     let explanation: String
-    let compactFooter: Bool
+    let explanationAsPlaceholder: Bool
     let onSave: (String) throws -> Void
     @State private var draft: String
     @State private var usesDefault: Bool
     @State private var message: String?
 
     init(title: String, saved: String, defaultValue: String, explanation: String,
-         compactFooter: Bool = false, onSave: @escaping (String) throws -> Void) {
+         explanationAsPlaceholder: Bool = false,
+         onSave: @escaping (String) throws -> Void) {
         self.title = title
         self.saved = saved
         self.defaultValue = defaultValue
         self.explanation = explanation
-        self.compactFooter = compactFooter
+        self.explanationAsPlaceholder = explanationAsPlaceholder
         self.onSave = onSave
         _draft = State(initialValue: saved.isEmpty ? defaultValue : saved)
         _usesDefault = State(initialValue: saved.isEmpty)
@@ -744,26 +823,39 @@ struct InstructionEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(explanation).font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            if !explanationAsPlaceholder {
+                Text(explanation).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             TextEditor(text: $draft)
                 .font(.system(size: 13))
                 .scrollContentBackground(.hidden)
+                .overlay(alignment: .topLeading) {
+                    if explanationAsPlaceholder && draft.isEmpty {
+                        Text(explanation)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Color(nsColor: .placeholderTextColor))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 5)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                }
                 .padding(8)
                 .frame(minHeight: 160, idealHeight: 190, maxHeight: 240)
                 .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.quaternary, lineWidth: 0.5))
                 .accessibilityLabel(title)
-                .accessibilityHint(L10n.text("instruction.accessibility_hint"))
+                .accessibilityHint(explanationAsPlaceholder
+                    ? "\(explanation) \(L10n.text("instruction.accessibility_hint"))"
+                    : L10n.text("instruction.accessibility_hint"))
+                .help("\(explanation) \(L10n.text("instruction.accessibility_hint"))")
             HStack {
                 Button(L10n.text("instruction.restore_default")) {
                     draft = defaultValue; usesDefault = true; message = L10n.text("instruction.save_to_apply")
                 }
                     .accessibilityIdentifier("reset-\(title)")
                 Spacer(minLength: 12)
-                if !compactFooter {
-                    Text(L10n.text("instruction.enter_newline")).font(.caption).foregroundStyle(.secondary)
-                }
                 Button(L10n.text("common.cancel")) { draft = saved.isEmpty ? defaultValue : saved; usesDefault = saved.isEmpty; message = nil }
                     .accessibilityIdentifier("cancel-\(title)")
                 Button(L10n.text("common.save")) {
@@ -778,10 +870,6 @@ struct InstructionEditor: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("save-\(title)")
-            }
-            if compactFooter {
-                Text(L10n.text("instruction.enter_newline")).font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
             if let message { Text(message).font(.caption).foregroundStyle(.secondary).accessibilityAddTraits(.updatesFrequently) }
         }

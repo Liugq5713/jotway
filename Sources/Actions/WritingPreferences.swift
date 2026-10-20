@@ -2,15 +2,16 @@ import Foundation
 import CryptoKit
 
 extension AIProviderPlugin {
-    enum Prompt: String, Codable, CaseIterable, Sendable { case supplement, summary }
+    enum Prompt: String, Codable, CaseIterable, Sendable { case summary }
     struct ManualConfiguration: Codable, Equatable, Sendable {
         var instructions = ""
+        /// Retained for round-trip decoding only; never consumed or included in active versions.
         var supplementPrompt = ""
         var summaryPrompt = ""
 
         var version: String {
             // Length-prefixed UTF-8 preserves exact whitespace without ambiguous field boundaries.
-            let values = [instructions, supplementPrompt, summaryPrompt]
+            let values = [instructions, summaryPrompt]
             let data = values.reduce(into: Data()) { data, value in
                 data.append(Data("\(value.utf8.count):".utf8)); data.append(Data(value.utf8))
             }
@@ -26,7 +27,6 @@ enum WritingPreferences {
                              prompt: AIProviderPlugin.Prompt? = nil, defaultPrompt: String = "", context: String = "") -> String {
             let custom: String
             switch prompt {
-            case .supplement: custom = manualConfiguration.supplementPrompt
             case .summary: custom = manualConfiguration.summaryPrompt
             case nil: custom = ""
             }

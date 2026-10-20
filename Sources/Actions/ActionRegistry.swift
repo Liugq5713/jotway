@@ -77,12 +77,31 @@ final class ActionRegistry {
         for entry in registered { entry.module.requestAvailabilityRefresh(invalidate: invalidate) }
     }
 
-    func executionSnapshots() -> [ActionExecutionSnapshot] {
-        registered.compactMap(makeExecutionSnapshot)
+    /// Routing reads cached availability and descriptors without freezing execution dependencies.
+    var availableDescriptors: [ActionDescriptor] {
+        registered.compactMap { entry in
+            isAvailable(entry) ? entry.module.descriptor : nil
+        }
+    }
+
+    func availableDescriptor(for id: String) -> ActionDescriptor? {
+        availableEntry(for: id)?.module.descriptor
+    }
+
+    func configurationIdentity(for id: String) -> ActionConfigurationIdentity? {
+        availableEntry(for: id).map(makeConfigurationIdentity)
     }
 
     func executionSnapshot(for id: String) -> ActionExecutionSnapshot? {
-        registered.first { $0.module.descriptor.id == id }.flatMap(makeExecutionSnapshot)
+        guard let entry = availableEntry(for: id) else { return nil }
+        let module = entry.module
+        let action = module.makeAction()
+        precondition(action.descriptor.id == module.descriptor.id, "Action and module ids must match")
+        return ActionExecutionSnapshot(
+            id: module.descriptor.id,
+            descriptor: module.descriptor,
+            configurationIdentity: makeConfigurationIdentity(entry),
+            action: action)
     }
 
     /// Configuration is a selectable route, never an executable or model-facing action.
@@ -112,8 +131,8 @@ final class ActionRegistry {
     }
 
     var fallbackActionID: String? {
-        executionSnapshots().enumerated().compactMap { index, snapshot -> (Int, Int, String)? in
-            snapshot.descriptor.fallbackPriority.map { ($0, index, snapshot.id) }
+        availableDescriptors.enumerated().compactMap { index, descriptor -> (Int, Int, String)? in
+            descriptor.fallbackPriority.map { ($0, index, descriptor.id) }
         }.min { lhs, rhs in
             lhs.0 == rhs.0 ? lhs.1 < rhs.1 : lhs.0 < rhs.0
         }?.2
@@ -145,18 +164,19 @@ final class ActionRegistry {
         registered.contains { $0.module.state.hasSavedConfiguration }
     }
 
-    private func makeExecutionSnapshot(_ entry: RegisteredModule) -> ActionExecutionSnapshot? {
-        let module = entry.module
-        guard isEnabled(module.descriptor.id), module.state.availability.isReady else { return nil }
-        let action = module.makeAction()
-        precondition(action.descriptor.id == module.descriptor.id, "Action and module ids must match")
-        return ActionExecutionSnapshot(
-            id: module.descriptor.id,
-            descriptor: module.descriptor,
-            configurationIdentity: .init(moduleInstance: entry.instanceID,
-                                         revision: module.state.configurationRevision,
-                                         registryRevision: revision, scopeToken: module.configurationToken),
-            action: action)
+    private func isAvailable(_ entry: RegisteredModule) -> Bool {
+        isEnabled(entry.module.descriptor.id) && entry.module.state.availability.isReady
+    }
+
+    private func availableEntry(for id: String) -> RegisteredModule? {
+        guard let entry = registered.first(where: { $0.module.descriptor.id == id }),
+              isAvailable(entry) else { return nil }
+        return entry
+    }
+
+    private func makeConfigurationIdentity(_ entry: RegisteredModule) -> ActionConfigurationIdentity {
+        .init(moduleInstance: entry.instanceID, revision: entry.module.state.configurationRevision,
+              registryRevision: revision, scopeToken: entry.module.configurationToken)
     }
 
     private func moduleDidChange(id: String) {

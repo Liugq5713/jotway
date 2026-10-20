@@ -18,13 +18,20 @@ struct DraftThinkingPromptView: View {
         focusTarget.restoreEditorFocus()
     }
 
+    private var refreshKey: String {
+        switch prompt.display {
+        case .failed, .hostedFailure: "thinking.retry"
+        default: "thinking.refresh"
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
                 Text(L10n.text("thinking.title"))
                     .font(.system(size: 12, weight: .semibold)).lineLimit(1)
                 Spacer(minLength: 0)
-                command("thinking.refresh", symbol: "arrow.clockwise", slot: 0,
+                command(refreshKey, symbol: "arrow.clockwise", slot: 0,
                         disabled: prompt.display == .loading || prompt.blockReason != nil) {
                     perform { send(.requestThinkingPrompt) }
                 }
@@ -37,7 +44,8 @@ struct DraftThinkingPromptView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(L10n.text("thinking.snapshot")).font(.system(size: 10)).foregroundStyle(.secondary)
                     switch prompt.display {
-                    case .ready(let text): Text(verbatim: text).font(.system(size: 13))
+                    case .ready(let response):
+                        InstantInsightContentView(text: response.text)
                     case .loading:
                         HStack(spacing: 8) {
                             ProgressView().controlSize(.small)
@@ -97,11 +105,77 @@ struct DraftThinkingPromptView: View {
     }
 }
 
-struct DraftThinkingPromptControl: NSViewRepresentable {
+struct DraftThinkingPromptControl: View {
     let focusTarget: EditorFocusTarget
     let state: LauncherViewState
     let isCardHovered: Bool
     let increasesContrast: Bool
+    let send: (LauncherEvent) -> Void
+    @State private var isHovered = false
+    @State private var showsHelp = false
+
+    private var helpText: String {
+        (state.thinkingPrompt?.blockReason ?? L10n.text("thinking.open")) + " (⌘J)"
+    }
+
+    var body: some View {
+        DraftThinkingPromptNativeControl(focusTarget: focusTarget, state: state,
+            isCardHovered: isCardHovered, increasesContrast: increasesContrast,
+            helpText: helpText, send: { event in
+                dismissHelp()
+                send(event)
+            })
+            .onHover { hovering in
+                isHovered = hovering
+                if !hovering { showsHelp = false }
+            }
+            .task(id: isHovered) {
+                guard isHovered else { return }
+                do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+                guard !Task.isCancelled, isHovered else { return }
+                showsHelp = true
+            }
+            .overlay(alignment: .topLeading) {
+                if showsHelp {
+                    Text(verbatim: helpText)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(nsColor: EditorPalette.text))
+                        .frame(maxWidth: 220, alignment: .leading)
+                        .fixedSize(horizontal: true, vertical: true)
+                        .padding(.horizontal, 8).padding(.vertical, 5)
+                        .background(Color(nsColor: EditorPalette.surface),
+                                    in: RoundedRectangle(cornerRadius: 6))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(increasesContrast ? Color.primary : Color(nsColor: EditorPalette.outline),
+                                              lineWidth: 1)
+                        }
+                        .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
+                        .alignmentGuide(.top) { $0[.bottom] + 6 }
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+            .onChange(of: state.draftContent) { _, _ in dismissHelp() }
+            .onChange(of: state.panelSessionID) { _, _ in dismissHelp() }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
+                dismissHelp()
+            }
+            .onDisappear { dismissHelp() }
+    }
+
+    private func dismissHelp() {
+        isHovered = false
+        showsHelp = false
+    }
+}
+
+private struct DraftThinkingPromptNativeControl: NSViewRepresentable {
+    let focusTarget: EditorFocusTarget
+    let state: LauncherViewState
+    let isCardHovered: Bool
+    let increasesContrast: Bool
+    let helpText: String
     let send: (LauncherEvent) -> Void
 
     func makeNSView(context: Context) -> DraftThinkingPromptButton { DraftThinkingPromptButton() }
@@ -115,9 +189,8 @@ struct DraftThinkingPromptControl: NSViewRepresentable {
         button.launcherState = state
         button.send = send
         button.isEnabled = state.thinkingPrompt?.blockReason == nil
-        button.toolTip = state.thinkingPrompt?.blockReason ?? L10n.text("thinking.open")
         button.setAccessibilityLabel(L10n.text("thinking.open"))
-        button.setAccessibilityHelp(button.toolTip)
+        button.setAccessibilityHelp(helpText)
         button.setAccessibilityIdentifier("launcher-thinking-prompt")
         button.increasesContrast = increasesContrast
         button.isCardHovered = isCardHovered
@@ -176,7 +249,6 @@ final class DraftThinkingPromptButton: NSButton {
     }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        // AppKit also owns a tracking area for tooltips, including disabled-button help.
         if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
         let area = NSTrackingArea(rect: bounds,
             options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
